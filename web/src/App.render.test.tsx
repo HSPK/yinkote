@@ -87,3 +87,25 @@ describe('the workbench', () => {
     expect(container.querySelector('.detail-pane'), 'the library does').toBeTruthy()
   })
 })
+
+describe('switching language', () => {
+  it('redraws the chrome, rather than waiting for the next navigation', async () => {
+    // The catalogues are checked for parity elsewhere; what is untested is that
+    // a change reaches the tree at all — the store holding the locale is not
+    // the store the components read their data from.
+    const { useI18n } = await import('./i18n')
+
+    useStore.setState({ ready: true, tabs: [libraryTab('Library')], activeTab: 'library' })
+    act(() => useI18n.getState().setLocale('en-US'))
+    await render()
+    const english = container.querySelector('.nav-item')?.textContent ?? ''
+
+    await act(async () => {
+      useI18n.getState().setLocale('zh-CN')
+    })
+    const chinese = container.querySelector('.nav-item')?.textContent ?? ''
+
+    expect(english, 'the English label').toBeTruthy()
+    expect(chinese, 'redrawn without a remount').not.toBe(english)
+  })
+})
