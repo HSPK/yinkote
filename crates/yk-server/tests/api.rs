@@ -699,17 +699,34 @@ async fn importing_a_zotero_library_is_previewed_then_committed() {
 }
 
 #[tokio::test]
-async fn importing_the_same_library_twice_does_not_duplicate_it() {
-    // Zotero's keys are kept precisely so that a repeated import is safe.
+async fn importing_the_same_library_twice_updates_rather_than_duplicating() {
+    // Zotero's keys are kept precisely so a repeat import is safe — and useful:
+    // it should carry across whatever changed in Zotero since.
     let (c, app) = Client::new().await;
     let lib = app.services.default_library;
     let dir = tempfile::tempdir().unwrap();
     let path = zotero_fixture(dir.path()).to_string_lossy().to_string();
 
-    c.post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
-    c.post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
+    let first = c.post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
+    assert_eq!(first["items"], 2);
+    assert_eq!(first["updated"], 0);
 
-    assert_eq!(c.get(&format!("/libraries/{lib}/items")).await["total"], 2);
+    // Retitle one of them in Zotero, as a user would.
+    let db = rusqlite::Connection::open(dir.path().join("zotero.sqlite")).unwrap();
+    db.execute("UPDATE itemDataValues SET value = 'Retitled' WHERE valueID = 1", []).unwrap();
+    drop(db);
+
+    let second = c.post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
+    assert_eq!(second["items"], 0, "nothing new arrived");
+    assert_eq!(second["updated"], 2, "and nothing is reported as a failure");
+    assert_eq!(second["failed"], 0);
+
+    let items = c.get(&format!("/libraries/{lib}/items")).await;
+    assert_eq!(items["total"], 2, "still two items, not four");
+    let titles: Vec<_> =
+        items["items"].as_array().unwrap().iter().map(|i| i["title"].as_str().unwrap()).collect();
+    assert!(titles.contains(&"Retitled"), "the edit came across: {titles:?}");
+
     assert_eq!(c.get(&format!("/libraries/{lib}/collections")).await.as_array().unwrap().len(), 1);
 }
 

@@ -405,6 +405,19 @@ export const zhCN = {
   'chat.askAbout': '就这篇提问',
   'error.surface': '这个面板出错了',
   'error.retry': '重试',
+  'settings.import': '导入',
+  'settings.keywords.import': '导入 迁移 zotero 文献库',
+  'import.zotero': '从 Zotero 导入',
+  'import.zoteroHint': '读取 zotero.sqlite，只读打开，不会改动原库',
+  'import.pathPlaceholder': 'zotero.sqlite 的完整路径',
+  'import.preview': '查看内容',
+  'import.confirm': '导入',
+  'import.working': '导入中…',
+  'import.found': '条目 {items} · 收藏夹 {collections} · 标签 {tags}',
+  'import.done': '已导入 {items} 条、{collections} 个收藏夹',
+  'import.doneWithFailures': '已导入 {items} 条，{failed} 条失败',
+  'import.failed': '导入失败',
+  'import.note': '条目保留 Zotero 的 key，因此重复导入是更新而非复制。附件文件需另行拷贝。',
 } as const
 
 export type MessageKey = keyof typeof zhCN

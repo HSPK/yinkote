@@ -91,6 +91,50 @@ check "colour saved"     "$(j "$BASE/libraries/$LIB/collections" \
 check "colour cleared"   "$(j -X PATCH "$BASE/libraries/$LIB/collections/$APPK" -d '{"color":null}' \
                             | jq -r 'if .color then "kept" else .icon end')"
 
+echo "▸ zotero import"
+ZDB=$(mktemp -d)/zotero.sqlite
+python3 - "$ZDB" <<'PYEOF'
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+db.executescript('''
+CREATE TABLE itemTypes (itemTypeID INTEGER PRIMARY KEY, typeName TEXT);
+CREATE TABLE items (itemID INTEGER PRIMARY KEY, itemTypeID INTEGER, key TEXT, dateAdded TEXT, dateModified TEXT);
+CREATE TABLE deletedItems (itemID INTEGER PRIMARY KEY);
+CREATE TABLE fields (fieldID INTEGER PRIMARY KEY, fieldName TEXT);
+CREATE TABLE itemDataValues (valueID INTEGER PRIMARY KEY, value TEXT);
+CREATE TABLE itemData (itemID INTEGER, fieldID INTEGER, valueID INTEGER);
+CREATE TABLE creators (creatorID INTEGER PRIMARY KEY, firstName TEXT, lastName TEXT, fieldMode INTEGER);
+CREATE TABLE creatorTypes (creatorTypeID INTEGER PRIMARY KEY, creatorType TEXT);
+CREATE TABLE itemCreators (itemID INTEGER, creatorID INTEGER, creatorTypeID INTEGER, orderIndex INTEGER);
+CREATE TABLE tags (tagID INTEGER PRIMARY KEY, name TEXT);
+CREATE TABLE itemTags (itemID INTEGER, tagID INTEGER, type INTEGER);
+CREATE TABLE collections (collectionID INTEGER PRIMARY KEY, collectionName TEXT, key TEXT, parentCollectionID INTEGER);
+CREATE TABLE collectionItems (collectionID INTEGER, itemID INTEGER);
+CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INTEGER, path TEXT);
+INSERT INTO itemTypes VALUES (1,'journalArticle');
+INSERT INTO fields VALUES (1,'title');
+INSERT INTO items VALUES (1,1,'SMOKEZ01','2020-01-01','2020-01-02');
+INSERT INTO itemDataValues VALUES (1,'Smoke import');
+INSERT INTO itemData VALUES (1,1,1);
+INSERT INTO collections VALUES (1,'Smoke collection','SMOKEC01',NULL);
+INSERT INTO collectionItems VALUES (1,1);
+''')
+db.commit()
+PYEOF
+check "import preview"    "$(j -X POST "$BASE/import/zotero/preview" -d "{\"path\":\"$ZDB\"}" | jq -r .items)"
+# `total` is what the import read, which is the same on every run; `items` is
+# what was new, which is zero from the second run onwards against a database
+# that persists between smoke runs.
+check "import commits"    "$(j -X POST "$BASE/libraries/$LIB/import/zotero" -d "{\"path\":\"$ZDB\"}" \
+                             | jq -r 'select(.failed == 0) | .total')"
+# Running it again updates rather than duplicating; that is why keys are kept.
+# Phrased so a wrong answer is empty, not merely a different word — `check`
+# passes anything non-empty, which once made "failed" read as a success.
+check "import repeatable" "$(j -X POST "$BASE/libraries/$LIB/import/zotero" -d "{\"path\":\"$ZDB\"}" \
+                             | jq -r 'select(.failed == 0 and .updated > 0) | "updated \(.updated)"')"
+check "import untouched"  "$(test -f "${ZDB}-wal" && echo "journal left" || echo untouched)"
+rm -rf "$(dirname "$ZDB")"
+
 echo "▸ agent"
 check "agent status"     "$(j "$BASE/agent" | jq -r 'has("configured")')"
 

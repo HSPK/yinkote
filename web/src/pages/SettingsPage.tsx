@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import type { SourceInfo } from '../api/types'
 import { LOCALES, useI18n, useT, type Locale } from '../i18n'
 import { AccentPicker } from '../components/AccentPicker'
+import { ZoteroImport } from '../components/ZoteroImport'
 import { filterSettings, type SettingSection } from '../lib/settings'
 import { THEMES } from '../lib/theme'
 import { useStore } from '../state/store'
@@ -191,6 +192,19 @@ export function SettingsPage() {
                 ))}
               </ul>
             ),
+          },
+        ],
+      },
+      {
+        id: 'import',
+        title: t('settings.import'),
+        fields: [
+          {
+            id: 'zotero',
+            label: t('import.zotero'),
+            hint: t('import.zoteroHint'),
+            keywords: t('settings.keywords.import'),
+            render: () => <ZoteroImport />,
           },
         ],
       },

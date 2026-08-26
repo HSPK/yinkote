@@ -76,29 +76,34 @@ async fn run(
     }
 
     let total = library.items.len();
-    let mut items = 0u64;
+    let mut added = 0u64;
+    let mut updated = 0u64;
     let mut failed = 0u64;
 
     // In batches, so a large library does not hold the write lock for minutes.
     for chunk in library.items.chunks(200) {
-        for result in app.store().items.create_many(lib, chunk.to_vec()).await? {
+        let keys: Vec<_> = chunk.iter().map(|d| d.key.clone()).collect();
+        let results = app.store().items.create_many(lib, chunk.to_vec()).await?;
+
+        for (result, (draft, key)) in results.into_iter().zip(chunk.iter().zip(keys)) {
             match result {
                 Ok(item) => {
-                    items += 1;
-                    if let Some(keys) = library.membership.get(item.key.as_str()) {
-                        for collection in keys {
-                            let _ = app
-                                .store()
-                                .items
-                                .add_to_collection(lib, collection, std::slice::from_ref(&item.key))
-                                .await;
-                        }
+                    added += 1;
+                    file_into_collections(&app, lib, &item.key, &library.membership).await;
+                }
+                // An item that is already here has not failed; it was imported
+                // before. Bringing the newer version across is what makes a
+                // repeat import worth running at all.
+                Err(_) => match refresh(&app, lib, key.as_ref(), draft).await {
+                    Ok(item) => {
+                        updated += 1;
+                        file_into_collections(&app, lib, &item.key, &library.membership).await;
                     }
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "skipped an item during import");
-                    failed += 1;
-                }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "skipped an item during import");
+                        failed += 1;
+                    }
+                },
             }
         }
     }
@@ -111,7 +116,10 @@ async fn run(
     .await?;
 
     Ok(Json(json!({
-        "items": items,
+        "items": added,
+        // Kept apart from `added` so a second run reads as "nothing new" rather
+        // than as a hundred failures, which is what it looked like before.
+        "updated": updated,
         "collections": collections,
         // Reported rather than hidden: an import that quietly dropped a tenth
         // of a library would be found out much later, by its absence.
@@ -119,4 +127,39 @@ async fn run(
         "total": total,
         "version": version,
     })))
+}
+
+/// Bring an already-imported item up to date with its Zotero original.
+async fn refresh(
+    app: &App,
+    lib: i64,
+    key: Option<&yk_core::Key>,
+    draft: &yk_core::model::ItemDraft,
+) -> yk_core::Result<yk_core::model::Item> {
+    let key = key.ok_or_else(|| Error::invalid("an item with no key cannot be matched"))?;
+    let patch = serde_json::from_value(json!({
+        "itemType": draft.item_type,
+        "fields": draft.fields,
+        "creators": draft.creators,
+        "tags": draft.tags,
+    }))
+    .map_err(|e| Error::internal(e.to_string()))?;
+
+    app.store().items.update(lib, key, patch, None).await
+}
+
+/// Put an item into every collection Zotero had it in.
+async fn file_into_collections(
+    app: &App,
+    lib: i64,
+    key: &yk_core::Key,
+    membership: &std::collections::HashMap<String, Vec<yk_core::Key>>,
+) {
+    for collection in membership.get(key.as_str()).into_iter().flatten() {
+        let _ = app
+            .store()
+            .items
+            .add_to_collection(lib, collection, std::slice::from_ref(key))
+            .await;
+    }
 }

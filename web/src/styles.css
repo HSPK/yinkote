@@ -1813,3 +1813,21 @@ select.ctl { padding: 4px 6px; }
 .surface-error { display: grid; place-items: center; }
 .surface-error-body { max-width: 420px; text-align: center; display: grid; gap: 10px; justify-items: center; }
 .surface-error-body .note { border-left: 2px solid var(--err, #c0554b); text-align: left; }
+
+
+/* ─── import ─────────────────────────────────────────────────────────────── */
+
+.import { display: grid; gap: 8px; }
+.import-row { display: flex; gap: 6px; }
+.import-row .ctl { flex: 1; font-family: var(--mono); font-size: 12px; }
+
+.import-found {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 9px;
+  font: 11px/1.6 var(--mono);
+  background: var(--bg-2);
+  border-left: 2px solid var(--accent);
+}

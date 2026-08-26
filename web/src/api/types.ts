@@ -249,3 +249,17 @@ export interface AgentStatus {
   model?: string
   endpoint?: string
 }
+
+export interface ImportPreview {
+  items: number
+  collections: number
+  tags: number
+  attachments: number
+}
+
+export interface ImportResult {
+  items: number
+  collections: number
+  failed: number
+  total: number
+}

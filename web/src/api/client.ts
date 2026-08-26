@@ -5,6 +5,8 @@
  */
 import type {
   AgentStatus,
+  ImportPreview,
+  ImportResult,
   BadgeDescriptor,
   BadgeValue,
   Collection,
@@ -195,6 +197,17 @@ export const api = {
   },
 
   agent: () => request<AgentStatus>('/agent'),
+
+  import: {
+    /** Counts what would arrive. Reads the file; writes nothing. */
+    preview: (path: string) =>
+      request<ImportPreview>('/import/zotero/preview', { method: 'POST', ...json({ path }) }),
+    zotero: (lib: number, path: string) =>
+      request<ImportResult>(`/libraries/${lib}/import/zotero`, {
+        method: 'POST',
+        ...json({ path }),
+      }),
+  },
 
   /** Summarise an item into a note child. */
   summarise: (lib: number, key: string, focus?: string) =>
