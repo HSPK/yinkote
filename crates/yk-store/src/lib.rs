@@ -610,6 +610,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn collections_carry_a_colour_and_an_icon() {
+        let s = store();
+        let lib = s.default_library;
+        let made = s
+            .collections
+            .create(
+                lib,
+                CollectionDraft {
+                    name: "Reading".into(),
+                    color: Some("amber".into()),
+                    icon: Some("book".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(made.color.as_deref(), Some("amber"));
+
+        let listed = &s.collections.list(lib).await.unwrap()[0];
+        assert_eq!(listed.icon.as_deref(), Some("book"), "appearance survives a round trip");
+
+        // Clearing is distinct from leaving alone, which is the whole reason
+        // the patch field is a nested option.
+        let cleared = s
+            .collections
+            .update(
+                lib,
+                &made.key,
+                CollectionPatch { color: Some(None), ..Default::default() },
+            )
+            .await
+            .unwrap();
+        assert_eq!(cleared.color, None);
+        assert_eq!(cleared.icon.as_deref(), Some("book"), "an absent field is untouched");
+    }
+
+    #[tokio::test]
     async fn embed_queue_is_populated_for_regular_items() {
         let s = store();
         s.items.create(s.default_library, article("A")).await.unwrap();

@@ -24,6 +24,7 @@
 
   --row-h: 26px;
   --topbar-h: 30px;
+  --field-h: 26px;
   --statusbar-h: 22px;
 
   color-scheme: dark;
@@ -483,35 +484,63 @@ button { cursor: pointer; }
   border-bottom: 1px solid var(--line);
 }
 
-.field-grid { display: grid; grid-template-columns: 96px 1fr; }
+/* Every row is one band of a fixed rhythm: the label centres against whatever
+   the value turns out to be, whether that is one input or three wrapped chips.
+   Before this, labels sat at the top of tall rows and multi-line values had no
+   frame at all, so a field looked like two unrelated things. */
+.field-grid {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  align-items: stretch;
+}
 
 .field-grid > dt {
-  padding: 5px 8px 5px 12px;
-  font: 11px/1.4 var(--mono);
+  display: flex;
+  align-items: center;
+  min-height: var(--field-h);
+  padding: 4px 8px 4px 12px;
+  font: 11px/1.35 var(--mono);
   color: var(--fg-mute);
   border-bottom: 1px solid rgba(42, 50, 58, 0.45);
 }
 
 .field-grid > dd {
+  display: flex;
+  align-items: center;
   min-width: 0;
+  min-height: var(--field-h);
   margin: 0;
   padding: 0;
   border-bottom: 1px solid rgba(42, 50, 58, 0.45);
 }
 
+/* A value fills its band, so its hover and focus states line up with the row
+   rather than floating inside it. */
+.field-grid > dd > * { width: 100%; }
+
 .field-grid input,
 .field-grid textarea,
 .field-grid select {
   width: 100%;
-  padding: 5px 10px;
+  min-height: var(--field-h);
+  padding: 4px 10px;
   font-size: 12px;
+  line-height: 1.5;
   background: transparent;
   border: 1px solid transparent;
   resize: vertical;
 }
 
+.field-grid select {
+  /* A select is replaced content and ignores line-height, so it needs the
+     height stated outright to match the inputs beside it. */
+  height: var(--field-h);
+  padding: 0 8px;
+}
+
 .field-grid input:hover,
-.field-grid textarea:hover { background: var(--bg-2); }
+.field-grid textarea:hover,
+.field-grid select:hover { background: var(--bg-2); }
 
 .field-grid input:focus,
 .field-grid textarea:focus,
@@ -520,9 +549,14 @@ button { cursor: pointer; }
   border-color: var(--accent-dim);
 }
 
-.field-grid select { padding: 4px 8px; }
-
-.chip-row { display: flex; flex-wrap: wrap; gap: 3px; padding: 5px 10px; }
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 10px;
+  min-height: var(--field-h);
+}
 
 .chip {
   display: inline-flex;
@@ -537,12 +571,20 @@ button { cursor: pointer; }
 .chip button { color: var(--fg-mute); }
 .chip button:hover { color: var(--err); }
 
-.chip-row input {
-  min-width: 90px;
+/* The "add another" box is an input like any other and should look like one,
+   not like a gap between chips. */
+.field-grid .chip-row input {
   flex: 1;
-  padding: 1px 4px;
-  font: 11px/1.5 var(--mono);
+  width: auto;
+  min-width: 92px;
+  min-height: 18px;
+  padding: 0 5px;
+  font: 11px/18px var(--mono);
+  border: 1px dashed var(--line-2);
 }
+
+.field-grid .chip-row input:focus { border-style: solid; }
+
 
 /* ─── plugins & stats ────────────────────────────────────────────────────── */
 
@@ -1233,11 +1275,18 @@ select.ctl { padding: 4px 6px; }
 
 /* ─── settings ───────────────────────────────────────────────────────────── */
 
-.settings { display: grid; grid-template-columns: 190px minmax(0, 1fr); height: 100%; }
+.settings {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
 
+/* The rail is a map, not part of the document: it stays put while the settings
+   scroll past it, and only the highlight moves. */
 .settings-rail {
   padding: 8px;
-  overflow: auto;
+  overflow: hidden;
   background: var(--bg-2);
   border-right: 1px solid var(--line);
 }
@@ -1254,7 +1303,12 @@ select.ctl { padding: 4px 6px; }
   height: 20px;
 }
 
-.settings-body { overflow: auto; padding: 4px 0; }
+.settings-body { overflow: auto; min-height: 0; padding: 4px 0; }
+.settings-body.narrow > div > .section { max-width: none; }
+
+/* Room to scroll the last section up to the reading band, so it can be the
+   highlighted one like any other. */
+.settings-body > div:last-child { padding-bottom: 40vh; }
 .settings-body > div + div { margin-top: 2px; }
 
 
@@ -1266,3 +1320,76 @@ select.ctl { padding: 4px 6px; }
 }
 
 .meter > span { display: block; height: 100%; background: var(--accent); }
+
+
+/* ─── collection appearance ──────────────────────────────────────────────── */
+
+/* Five colours, defined once as variables so a theme can restate them without
+   any selector here changing. */
+:root {
+  --c-red: #d3584e;
+  --c-amber: #cf9042;
+  --c-green: #5aa469;
+  --c-blue: #4d8fd6;
+  --c-violet: #9b72d0;
+}
+
+.nav-item[data-colour] .glyph { color: var(--collection-colour); }
+.nav-item[data-colour='red'] { --collection-colour: var(--c-red); }
+.nav-item[data-colour='amber'] { --collection-colour: var(--c-amber); }
+.nav-item[data-colour='green'] { --collection-colour: var(--c-green); }
+.nav-item[data-colour='blue'] { --collection-colour: var(--c-blue); }
+.nav-item[data-colour='violet'] { --collection-colour: var(--c-violet); }
+
+/* The active row already uses the accent, so a coloured glyph there would be
+   two highlights fighting. */
+.nav-item[data-active='true'][data-colour] .glyph { color: inherit; }
+
+.appearance { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.swatches { display: flex; gap: 4px; }
+
+.swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  background: var(--bg-3);
+}
+
+.swatch[data-colour='red'] { background: var(--c-red); }
+.swatch[data-colour='amber'] { background: var(--c-amber); }
+.swatch[data-colour='green'] { background: var(--c-green); }
+.swatch[data-colour='blue'] { background: var(--c-blue); }
+.swatch[data-colour='violet'] { background: var(--c-violet); }
+.swatch[data-active='true'] { outline: 2px solid var(--fg); outline-offset: 1px; }
+
+.icon-picks { display: flex; gap: 2px; }
+.icon-picks .icon-btn[data-active='true'] { color: var(--accent); background: var(--bg-3); }
+
+/* ─── toggle ─────────────────────────────────────────────────────────────── */
+
+.toggle {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 16px;
+  padding: 0;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  transition: background 0.12s linear;
+}
+
+.toggle[aria-checked='true'] { background: var(--accent-dim); border-color: var(--accent); }
+.toggle:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.toggle-knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 12px;
+  height: 12px;
+  background: var(--fg-dim);
+  transition: transform 0.12s linear;
+}
+
+.toggle[aria-checked='true'] .toggle-knob { background: #fff; transform: translateX(14px); }

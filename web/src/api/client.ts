@@ -85,6 +85,14 @@ export function buildQuery(query: ListQuery): string {
 
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) })
 
+/** Appearance travels with the name, for either kind of collection.
+ *  `null` clears a colour or icon; omitting the field leaves it alone. */
+interface CollectionBody {
+  name: string
+  color?: string | null
+  icon?: string | null
+}
+
 export const api = {
   ping: () => request<ServerInfo>('/ping'),
   schema: () => request<Schema>('/schema'),
@@ -134,15 +142,12 @@ export const api = {
 
   collections: {
     list: (lib: number) => request<Collection[]>(`/libraries/${lib}/collections`),
-    create: (lib: number, name: string, parentKey?: string) =>
-      request<Collection>(`/libraries/${lib}/collections`, {
-        method: 'POST',
-        ...json({ name, parentKey }),
-      }),
-    rename: (lib: number, key: string, name: string) =>
+    create: (lib: number, body: CollectionBody & { parentKey?: string }) =>
+      request<Collection>(`/libraries/${lib}/collections`, { method: 'POST', ...json(body) }),
+    update: (lib: number, key: string, body: Partial<CollectionBody>) =>
       request<Collection>(`/libraries/${lib}/collections/${key}`, {
         method: 'PATCH',
-        ...json({ name }),
+        ...json(body),
       }),
     /** `null` moves the collection to the top level. */
     move: (lib: number, key: string, parentKey: string | null) =>
@@ -186,12 +191,16 @@ export const api = {
   smart: {
     list: (lib: number, counts = false) =>
       request<SmartCollection[]>(`/libraries/${lib}/smart-collections${counts ? '?counts=true' : ''}`),
-    create: (lib: number, body: { name: string; query: string; mode?: string }) =>
+    create: (lib: number, body: CollectionBody & { query: string; mode?: string }) =>
       request<SmartCollection>(`/libraries/${lib}/smart-collections`, {
         method: 'POST',
         ...json(body),
       }),
-    update: (lib: number, key: string, body: Partial<{ name: string; query: string; mode: string }>) =>
+    update: (
+      lib: number,
+      key: string,
+      body: Partial<CollectionBody & { query: string; mode: string }>,
+    ) =>
       request<SmartCollection>(`/libraries/${lib}/smart-collections/${key}`, {
         method: 'PATCH',
         ...json(body),

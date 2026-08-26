@@ -9,7 +9,7 @@ use yk_core::{Error, Key, Result};
 use crate::db::{sql_err, write_tx, Db};
 
 const SELECT: &str = "SELECT key, library_id, name, query, mode, sort, direction, sort_index, \
-                      version FROM smart_collections";
+                      color, icon, version FROM smart_collections";
 
 fn map(r: &rusqlite::Row<'_>) -> rusqlite::Result<SmartCollection> {
     Ok(SmartCollection {
@@ -21,7 +21,9 @@ fn map(r: &rusqlite::Row<'_>) -> rusqlite::Result<SmartCollection> {
         sort: r.get(5)?,
         direction: r.get(6)?,
         sort_index: r.get(7)?,
-        version: r.get(8)?,
+        color: r.get(8)?,
+        icon: r.get(9)?,
+        version: r.get(10)?,
         item_count: None,
     })
 }
@@ -106,8 +108,9 @@ impl SmartCollectionRepository for SqliteSmartCollectionRepository {
 
                 tx.execute(
                     "INSERT INTO smart_collections
-                       (library_id, key, name, query, mode, sort, direction, sort_index, version)
-                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                       (library_id, key, name, query, mode, sort, direction, sort_index,
+                        color, icon, version)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
                     params![
                         library_id,
                         key.as_str(),
@@ -117,6 +120,8 @@ impl SmartCollectionRepository for SqliteSmartCollectionRepository {
                         draft.sort.as_deref().unwrap_or("dateModified"),
                         draft.direction.as_deref().unwrap_or("desc"),
                         sort_index,
+                        draft.color.as_deref(),
+                        draft.icon.as_deref(),
                         version
                     ],
                 )
@@ -183,6 +188,18 @@ impl SmartCollectionRepository for SqliteSmartCollectionRepository {
                         params![si, id],
                     )
                     .map_err(sql_err)?;
+                }
+                // Nullable appearance: `Some(None)` clears, absent leaves alone.
+                for (column, value) in
+                    [("color", patch.color.as_ref()), ("icon", patch.icon.as_ref())]
+                {
+                    if let Some(v) = value {
+                        tx.execute(
+                            &format!("UPDATE smart_collections SET {column}=?1 WHERE id=?2"),
+                            params![v.as_deref(), id],
+                        )
+                        .map_err(sql_err)?;
+                    }
                 }
 
                 let version = bump(&tx, library_id)?;

@@ -119,7 +119,8 @@ impl SqliteCollectionRepository {
     }
 }
 
-const C_SELECT: &str = "SELECT c.id, c.key, c.library_id, c.name, p.key, c.sort_index, c.version, \
+const C_SELECT: &str = "SELECT c.id, c.key, c.library_id, c.name, p.key, c.sort_index, \
+     c.color, c.icon, c.version, \
      (SELECT count(*) FROM collection_items ci JOIN items i ON i.id = ci.item_id \
       WHERE ci.collection_id = c.id AND i.deleted = 0) \
      FROM collections c LEFT JOIN collections p ON p.id = c.parent_id";
@@ -132,8 +133,10 @@ fn map_collection(r: &rusqlite::Row<'_>) -> rusqlite::Result<Collection> {
         name: r.get(3)?,
         parent_key: parent.and_then(|p| Key::parse(&p).ok()),
         sort_index: r.get(5)?,
-        version: r.get(6)?,
-        item_count: r.get(7)?,
+        color: r.get(6)?,
+        icon: r.get(7)?,
+        version: r.get(8)?,
+        item_count: r.get(9)?,
     })
 }
 
@@ -222,9 +225,19 @@ impl CollectionRepository for SqliteCollectionRepository {
                     .unwrap_or(0.0)
                 });
                 tx.execute(
-                    "INSERT INTO collections(library_id, key, parent_id, name, sort_index, version)
-                     VALUES (?1,?2,?3,?4,?5,?6)",
-                    params![library_id, key.as_str(), parent_id, name, sort_index, version],
+                    "INSERT INTO collections
+                       (library_id, key, parent_id, name, sort_index, color, icon, version)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                    params![
+                        library_id,
+                        key.as_str(),
+                        parent_id,
+                        name,
+                        sort_index,
+                        draft.color.as_deref(),
+                        draft.icon.as_deref(),
+                        version
+                    ],
                 )
                 .map_err(sql_err)?;
                 tx.commit().map_err(sql_err)?;
@@ -234,6 +247,8 @@ impl CollectionRepository for SqliteCollectionRepository {
                     name,
                     parent_key: draft.parent_key,
                     sort_index,
+                    color: draft.color,
+                    icon: draft.icon,
                     version,
                     item_count: 0,
                 })
@@ -300,6 +315,20 @@ impl CollectionRepository for SqliteCollectionRepository {
                 if let Some(si) = patch.sort_index {
                     tx.execute("UPDATE collections SET sort_index=?1 WHERE id=?2", params![si, id])
                         .map_err(sql_err)?;
+                }
+                if let Some(color) = &patch.color {
+                    tx.execute(
+                        "UPDATE collections SET color=?1 WHERE id=?2",
+                        params![color.as_deref(), id],
+                    )
+                    .map_err(sql_err)?;
+                }
+                if let Some(icon) = &patch.icon {
+                    tx.execute(
+                        "UPDATE collections SET icon=?1 WHERE id=?2",
+                        params![icon.as_deref(), id],
+                    )
+                    .map_err(sql_err)?;
                 }
 
                 let version = bump(&tx, library_id)?;

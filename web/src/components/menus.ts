@@ -132,21 +132,7 @@ export function collectionMenu(collection: Collection): MenuItem[] {
   return [
     { label: t('menu.open'), onSelect: () => store.openCollection(collection.key) },
     {},
-    {
-      label: t('menu.rename'),
-      onSelect: async () => {
-        const name = await promptFor(t('dialog.renameCollection'), {
-          label: t('dialog.name'),
-          defaultValue: collection.name,
-        })
-        if (name && name !== collection.name) {
-          await withToast(() => store.renameCollection(collection.key, name), {
-            success: t('toast.renamed'),
-            failure: t('toast.renameFailed'),
-          })
-        }
-      },
-    },
+    { label: t('menu.edit'), onSelect: () => store.openCollectionEditor(collection.key) },
     {
       label: t('menu.newSubcollection'),
       onSelect: async () => {
@@ -187,8 +173,8 @@ export function collectionMenu(collection: Collection): MenuItem[] {
   ]
 }
 
-export function newSmartCollection(): void {
-  useStore.getState().openSmartEditor('new')
+export function newCollection(): void {
+  useStore.getState().openCollectionEditor('new')
 }
 
 export function smartMenu(smart: SmartCollection): MenuItem[] {
@@ -196,7 +182,7 @@ export function smartMenu(smart: SmartCollection): MenuItem[] {
   return [
     { label: t('menu.open'), onSelect: () => store.openSmart(smart.key) },
     {},
-    { label: t('menu.editSmart'), onSelect: () => store.openSmartEditor(smart.key) },
+    { label: t('menu.editSmart'), onSelect: () => store.openCollectionEditor(smart.key) },
     {},
     {
       label: t('menu.deleteSmart'),
@@ -246,7 +232,7 @@ export function libraryMenu(): MenuItem[] {
         }
       },
     },
-    { label: t('sidebar.newSmart'), onSelect: newSmartCollection },
+    { label: t('collection.new'), onSelect: newCollection },
     {},
     { label: t('menu.clearFilters'), onSelect: store.clearFilters },
     {

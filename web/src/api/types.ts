@@ -47,6 +47,10 @@ export interface Collection {
   name: string
   parentKey?: string
   sortIndex: number
+  /** Palette name, not a colour value. */
+  color?: string
+  /** Icon name the app resolves to a drawing it ships. */
+  icon?: string
   version: number
   itemCount: number
 }
@@ -188,6 +192,8 @@ export interface SmartCollection {
   key: string
   libraryId: number
   name: string
+  color?: string
+  icon?: string
   /** Exactly what would be typed into the search box. */
   query: string
   mode: SearchMode

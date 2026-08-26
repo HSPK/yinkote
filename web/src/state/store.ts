@@ -12,6 +12,7 @@ import { DEFAULT_VISIBLE } from '../lib/columns'
 import { inferMode } from '../lib/query'
 import { applyTheme, DEFAULT_THEME } from '../lib/theme'
 import { useOverlays } from '../ui/overlays'
+import type { CollectionValues } from '../components/CollectionEditor'
 import type {
   BadgeDescriptor,
   BadgeValue,
@@ -48,8 +49,8 @@ interface State {
 
   /** Which secondary surface is open, if any. */
   modal: Modal
-  /** The smart collection being edited: a key, `'new'`, or closed. */
-  smartEditor: string | null
+  /** The collection being edited: its key, `'new'`, or closed. */
+  collectionEditor: string | null
   /** Pane widths in pixels; dragged by the splitters, persisted server-side. */
   layout: { sidebar: number; detail: number }
   /** Item-table column widths in pixels, keyed by column id. */
@@ -117,7 +118,8 @@ interface State {
   moveCursor: (delta: number) => void
   setPanel: (p: Panel) => void
   setModal: (m: Modal) => void
-  openSmartEditor: (key: string | null) => void
+  openCollectionEditor: (key: string | null) => void
+  saveCollection: (key: string | null, values: CollectionValues) => Promise<void>
   setLayout: (patch: Partial<{ sidebar: number; detail: number }>, commit?: boolean) => void
   setColumnWidth: (id: string, width: number, commit?: boolean) => void
   setColumnOrder: (order: string[]) => void
@@ -174,7 +176,7 @@ export const useStore = create<State>((set, get) => ({
   server: null,
   plugins: [],
   modal: null,
-  smartEditor: null,
+  collectionEditor: null,
   layout: { sidebar: 232, detail: 380 },
   columnWidths: {},
   columnOrder: DEFAULT_VISIBLE,
@@ -452,8 +454,36 @@ export const useStore = create<State>((set, get) => ({
     set({ modal })
   },
 
-  openSmartEditor(smartEditor) {
-    set({ smartEditor })
+  openCollectionEditor(collectionEditor) {
+    set({ collectionEditor })
+  },
+
+  /** Create or update either kind of collection.
+   *
+   *  The two live in different tables because they answer different questions —
+   *  one holds items, the other holds a query — but the user made one choice in
+   *  one dialog, so the branch belongs here rather than in the UI. */
+  async saveCollection(key, values) {
+    const s = get()
+    const appearance = { name: values.name, color: values.color ?? null, icon: values.icon ?? null }
+
+    if (key) {
+      const isSmart = s.smartCollections.some((c) => c.key === key)
+      if (isSmart) await api.smart.update(s.library, key, { ...appearance, query: values.query })
+      else await api.collections.update(s.library, key, appearance)
+      await get().reloadSidebar()
+      return
+    }
+
+    if (values.smart) {
+      const created = await api.smart.create(s.library, { ...appearance, query: values.query })
+      await get().reloadSidebar()
+      get().openSmart(created.key)
+    } else {
+      const created = await api.collections.create(s.library, appearance)
+      await get().reloadSidebar()
+      get().openCollection(created.key)
+    }
   },
 
   setLayout(patch, commit) {
@@ -672,13 +702,13 @@ export const useStore = create<State>((set, get) => ({
 
   async createCollection(name, parentKey) {
     const s = get()
-    const created = await api.collections.create(s.library, name, parentKey)
+    const created = await api.collections.create(s.library, { name, parentKey })
     await get().reloadSidebar()
     get().openCollection(created.key)
   },
 
   async renameCollection(key, name) {
-    await api.collections.rename(get().library, key, name)
+    await api.collections.update(get().library, key, { name })
     await get().reloadSidebar()
   },
 

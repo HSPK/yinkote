@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react'
 
 import { compact } from '../lib/format'
 import { beginDrag, dropZone, endDrag } from '../lib/dnd'
+import { collectionColour, collectionIcon } from '../lib/collections'
 import type { DragPayload } from '../lib/dnd'
 import { buildTree } from '../lib/tree'
 import { useStore } from '../state/store'
 import { Icon, contextMenu, confirmAction, promptFor, withToast } from '../ui'
-import { collectionMenu, libraryMenu, newSmartCollection, smartMenu, trashMenu } from './menus' 
+import { collectionMenu, libraryMenu, newCollection, smartMenu, trashMenu } from './menus' 
 import { useT } from '../i18n'
 
 export function Sidebar() {
@@ -23,7 +24,6 @@ export function Sidebar() {
   const openTrash = useStore((s) => s.openTrash)
   const openCollection = useStore((s) => s.openCollection)
   const toggleTag = useStore((s) => s.toggleTag)
-  const createCollection = useStore((s) => s.createCollection)
   const addToCollection = useStore((s) => s.addToCollection)
   const moveCollection = useStore((s) => s.moveCollection)
   const tagItems = useStore((s) => s.tagItems)
@@ -94,23 +94,7 @@ export function Sidebar() {
       <div className="nav-group">
         <div className="nav-title">
           {t('sidebar.collections')}
-          <button title={t('sidebar.newSmart')} onClick={() => newSmartCollection()}>
-            <Icon.Smart size={11} />
-          </button>
-          <button
-            title={t('sidebar.newCollection')}
-            onClick={async () => {
-              const name = await promptFor(t('dialog.newCollection'), {
-                label: t('dialog.name'),
-              })
-              if (name) {
-                await withToast(() => createCollection(name), {
-                  success: t('toast.created', { name }),
-                  failure: t('toast.createFailed'),
-                })
-              }
-            }}
-          >
+          <button title={t('collection.new')} onClick={() => newCollection()}>
             <Icon.Plus size={11} />
           </button>
         </div>
@@ -118,23 +102,24 @@ export function Sidebar() {
           <div className="empty" style={{ padding: '8px 12px' }}>{t('sidebar.empty')}</div>
         )}
 
-        {smartCollections.length > 0 && (
-          <div className="nav-subtitle">{t('sidebar.smart')}</div>
-        )}
-        {smartCollections.map((sc) => (
-          <button
-            key={sc.key}
-            className="nav-item"
-            data-active={view === 'smart' && collection === sc.key}
-            onClick={() => openSmart(sc.key)}
-            onContextMenu={contextMenu(() => smartMenu(sc))}
-            title={sc.query || sc.name}
-          >
-            <Icon.Smart className="glyph" />
-            <span className="label">{sc.name}</span>
-            <span className="count">{sc.itemCount ?? ''}</span>
-          </button>
-        ))}
+        {smartCollections.map((sc) => {
+          const Glyph = collectionIcon(sc.icon, 'Smart')
+          return (
+            <button
+              key={sc.key}
+              className="nav-item"
+              data-active={view === 'smart' && collection === sc.key}
+              data-colour={collectionColour(sc.color)}
+              onClick={() => openSmart(sc.key)}
+              onContextMenu={contextMenu(() => smartMenu(sc))}
+              title={sc.query || sc.name}
+            >
+              <Glyph className="glyph" />
+              <span className="label">{sc.name}</span>
+              <span className="count">{sc.itemCount ?? ''}</span>
+            </button>
+          )
+        })}
 
         {tree.map((c) => (
           <button
@@ -144,6 +129,7 @@ export function Sidebar() {
             style={{ paddingLeft: 8 + c.depth * 12 }}
             onClick={() => openCollection(c.key)}
             onContextMenu={contextMenu(() => collectionMenu(c))}
+            data-colour={collectionColour(c.color)}
             title={c.name}
             draggable
             onDragStart={(e) => beginDrag(e, { kind: 'collection', key: c.key }, c.name)}
@@ -159,11 +145,10 @@ export function Sidebar() {
               },
             )}
           >
-            {c.children.length ? (
-              <Icon.FolderOpen className="glyph" />
-            ) : (
-              <Icon.Folder className="glyph" />
-            )}
+            {(() => {
+              const Glyph = collectionIcon(c.icon, c.children.length ? 'FolderOpen' : 'Folder')
+              return <Glyph className="glyph" />
+            })()}
             <span className="label">{c.name}</span>
             <span className="count">{c.itemCount || ''}</span>
           </button>

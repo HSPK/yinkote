@@ -26,6 +26,7 @@ export function SettingsPage() {
 
   const [sources, setSources] = useState<SourceInfo[]>([])
   const [filter, setFilter] = useState('')
+  const [current, setCurrent] = useState<string | null>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -271,7 +272,32 @@ export function SettingsPage() {
   const jump = (id: string) => {
     const target = bodyRef.current?.querySelector(`[data-section="${id}"]`)
     target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    setCurrent(id)
   }
+
+  /** Highlight whichever section the reader is actually looking at.
+   *
+   *  An observer rather than a scroll handler: it reports only when a section
+   *  crosses the band, so the rail is not recomputed on every scroll frame. */
+  useEffect(() => {
+    const root = bodyRef.current
+    if (!root) return
+    const sections = [...root.querySelectorAll('[data-section]')]
+    if (!sections.length) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]
+        if (hit) setCurrent(hit.target.getAttribute('data-section'))
+      },
+      // A band across the top: whatever has just reached the reading position.
+      { root, rootMargin: '0px 0px -70% 0px', threshold: 0 },
+    )
+    sections.forEach((s) => observer.observe(s))
+    return () => observer.disconnect()
+  }, [visible])
 
   return (
     <div className="settings">
@@ -286,7 +312,12 @@ export function SettingsPage() {
           />
         </div>
         {visible.map((section) => (
-          <button key={section.id} className="nav-item" onClick={() => jump(section.id)}>
+          <button
+            key={section.id}
+            className="nav-item"
+            data-active={current === section.id}
+            onClick={() => jump(section.id)}
+          >
             <span className="label">{section.title}</span>
             <span className="count">{section.fields.length}</span>
           </button>

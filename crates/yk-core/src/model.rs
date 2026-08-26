@@ -271,6 +271,12 @@ pub struct Collection {
     pub parent_key: Option<Key>,
     #[serde(rename = "sortIndex")]
     pub sort_index: f64,
+    /// Palette name, not a colour value — see `004_collection_appearance.sql`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    /// Name of an icon the app ships; unknown names fall back to a folder.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     pub version: i64,
     /// Number of items directly in this collection.
     #[serde(rename = "itemCount", default)]
@@ -285,12 +291,21 @@ pub struct CollectionDraft {
     #[serde(rename = "sortIndex", default)]
     pub sort_index: Option<f64>,
     #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
     pub key: Option<Key>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct CollectionPatch {
     pub name: Option<String>,
+    /// `Some(None)` clears the colour; absent leaves it alone.
+    #[serde(default, deserialize_with = "explicit_null")]
+    pub color: Option<Option<String>>,
+    #[serde(default, deserialize_with = "explicit_null")]
+    pub icon: Option<Option<String>>,
     /// `None` leaves the parent alone; `Some(None)` moves to the top level.
     #[serde(rename = "parentKey", default, deserialize_with = "explicit_null")]
     pub parent_key: Option<Option<Key>>,
@@ -328,6 +343,10 @@ pub struct SmartCollection {
     pub direction: String,
     #[serde(rename = "sortIndex")]
     pub sort_index: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
     pub version: i64,
     /// Filled in on demand; `None` when not evaluated.
     #[serde(rename = "itemCount", skip_serializing_if = "Option::is_none")]
@@ -339,6 +358,10 @@ pub struct SmartCollectionDraft {
     pub name: String,
     #[serde(default)]
     pub query: String,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
     #[serde(default)]
     pub mode: Option<String>,
     #[serde(default)]
@@ -353,6 +376,10 @@ pub struct SmartCollectionDraft {
 pub struct SmartCollectionPatch {
     pub name: Option<String>,
     pub query: Option<String>,
+    #[serde(default, deserialize_with = "explicit_null")]
+    pub color: Option<Option<String>>,
+    #[serde(default, deserialize_with = "explicit_null")]
+    pub icon: Option<Option<String>>,
     pub mode: Option<String>,
     pub sort: Option<String>,
     pub direction: Option<String>,

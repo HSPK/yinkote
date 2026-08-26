@@ -88,3 +88,25 @@ export function Badge({
     </span>
   )
 }
+
+export interface ToggleProps {
+  checked: boolean
+  disabled?: boolean
+  onChange: (checked: boolean) => void
+}
+
+/** A switch. Reads as on/off at a glance, which a checkbox at this size does not. */
+export function Toggle({ checked, disabled, onChange }: ToggleProps) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      className="toggle"
+      onClick={() => onChange(!checked)}
+    >
+      <span className="toggle-knob" />
+    </button>
+  )
+}

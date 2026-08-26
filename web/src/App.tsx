@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 
 import { CommandPalette } from './components/CommandPalette'
-import { SmartEditorHost } from './components/SmartEditorHost'
+import { CollectionEditorHost } from './components/CollectionEditorHost'
 import { DetailPanel } from './components/DetailPanel'
 import { ItemTable } from './components/ItemTable'
 import { Sidebar } from './components/Sidebar'
@@ -96,7 +96,7 @@ function useGlobalKeys() {
 const MODALS = {
   plugins: { title: 'nav.plugins', width: 'wide', Body: PluginsPage },
   status: { title: 'nav.status', width: 'wide', Body: StatusPage },
-  settings: { title: 'nav.settings', width: 'narrow', Body: SettingsPage },
+  settings: { title: 'nav.settings', width: 'wide', Body: SettingsPage },
 } as const
 
 export function App() {
@@ -166,7 +166,7 @@ export function App() {
 
       <StatusBar />
       <CommandPalette />
-      <SmartEditorHost />
+      <CollectionEditorHost />
       {open && (
         <Modal title={t(open.title)} width={open.width} onClose={() => setModal(null)}>
           <open.Body />

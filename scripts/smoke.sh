@@ -83,6 +83,14 @@ echo "▸ plugins"
 check "plugin list"      "$(j "$BASE/plugins" | jq -r 'type')"
 check "contributions"    "$(j "$BASE/plugins/contributions" | jq -r 'type')"
 
+echo "▸ collection appearance"
+APPK=$(j -X POST "$BASE/libraries/$LIB/collections" \
+         -d '{"name":"Smoke appearance","color":"violet","icon":"flask"}' | jq -r .key)
+check "colour saved"     "$(j "$BASE/libraries/$LIB/collections" \
+                            | jq -r --arg k "$APPK" '.[] | select(.key==$k) | .color')"
+check "colour cleared"   "$(j -X PATCH "$BASE/libraries/$LIB/collections/$APPK" -d '{"color":null}' \
+                            | jq -r 'if .color then "kept" else .icon end')"
+
 echo "▸ badges"
 check "badge columns"    "$(j "$BASE/badges" | jq -r 'length')"
 BKEY=$(j -X POST "$BASE/libraries/$LIB/items" \
