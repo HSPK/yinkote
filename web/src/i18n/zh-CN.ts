@@ -414,10 +414,10 @@ export const zhCN = {
   'import.confirm': '导入',
   'import.working': '导入中…',
   'import.found': '条目 {items} · 收藏夹 {collections} · 标签 {tags}',
-  'import.done': '已导入 {items} 条、{collections} 个收藏夹',
+  'import.done': '已导入 {items} 条、{collections} 个收藏夹、{files} 个文件',
   'import.doneWithFailures': '已导入 {items} 条，{failed} 条失败',
   'import.failed': '导入失败',
-  'import.note': '条目保留 Zotero 的 key，因此重复导入是更新而非复制。附件文件需另行拷贝。',
+  'import.note': '条目保留 Zotero 的 key，因此重复导入是更新而非复制。Zotero 存储的附件会一并拷贝；仅链接的文件只记录不搬运。',
 } as const
 
 export type MessageKey = keyof typeof zhCN

@@ -656,7 +656,8 @@ fn zotero_fixture(dir: &std::path::Path) -> std::path::PathBuf {
          CREATE TABLE collections (collectionID INTEGER PRIMARY KEY, collectionName TEXT,
                                    key TEXT, parentCollectionID INTEGER);
          CREATE TABLE collectionItems (collectionID INTEGER, itemID INTEGER);
-         CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INTEGER, path TEXT);
+         CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INTEGER,
+                                       path TEXT, contentType TEXT);
 
          INSERT INTO itemTypes VALUES (1, 'journalArticle');
          INSERT INTO fields VALUES (1, 'title');
@@ -738,4 +739,47 @@ async fn importing_something_that_is_not_a_zotero_library_says_so() {
             .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(body["title"].as_str().unwrap().contains("cannot read"));
+}
+
+#[tokio::test]
+async fn importing_brings_the_pdfs_across() {
+    // The PDFs are the point of a reference library; an import that left them
+    // behind would have moved the catalogue and not the books.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let dir = tempfile::tempdir().unwrap();
+    let path = zotero_fixture(dir.path());
+
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch(
+        "INSERT INTO itemTypes VALUES (2, 'attachment');
+         INSERT INTO items VALUES (30, 2, 'ZATT0001', '2020-01-01', '2020-01-02');
+         INSERT INTO itemAttachments VALUES (30, 10, 'storage:paper.pdf', 'application/pdf');",
+    )
+    .unwrap();
+    drop(db);
+
+    let stored = dir.path().join("storage").join("ZATT0001");
+    std::fs::create_dir_all(&stored).unwrap();
+    std::fs::write(stored.join("paper.pdf"), b"%PDF-1.7 imported").unwrap();
+
+    let done = c
+        .post(
+            &format!("/libraries/{lib}/import/zotero"),
+            json!({ "path": path.to_string_lossy() }),
+        )
+        .await;
+    assert_eq!(done["files"], 1);
+
+    // The attachment hangs off its item, and its bytes are readable.
+    let children = c.get(&format!("/libraries/{lib}/items/ZOTE1111/children")).await;
+    assert_eq!(children.as_array().unwrap().len(), 1);
+    assert_eq!(children[0]["itemType"], "attachment");
+
+    let key: yk_core::Key = "ZATT0001".parse().unwrap();
+    assert_eq!(
+        app.storage().get(&key, "paper.pdf").await.unwrap(),
+        b"%PDF-1.7 imported",
+        "the file came across intact"
+    );
 }

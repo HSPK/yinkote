@@ -31,7 +31,7 @@ fn zotero_library() -> (tempfile::TempDir, std::path::PathBuf) {
                                    key TEXT, parentCollectionID INTEGER);
          CREATE TABLE collectionItems (collectionID INTEGER, itemID INTEGER);
          CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INTEGER,
-                                       path TEXT);
+                                       path TEXT, contentType TEXT);
 
          INSERT INTO itemTypes VALUES (1, 'journalArticle'), (2, 'attachment'), (3, 'note');
          INSERT INTO fields VALUES (1, 'title'), (2, 'DOI'), (3, 'abstractNote');
@@ -42,7 +42,9 @@ fn zotero_library() -> (tempfile::TempDir, std::path::PathBuf) {
                                   (12, 1, 'CCCC3333', '2020-01-05', '2020-01-06'),
                                   (20, 2, 'DDDD4444', '2020-01-01', '2020-01-02');
          INSERT INTO deletedItems VALUES (12);
-         INSERT INTO itemAttachments VALUES (20, 10, 'storage:paper.pdf');
+         INSERT INTO itemAttachments VALUES (20, 10, 'storage:paper.pdf', 'application/pdf');
+         INSERT INTO items VALUES (21, 2, 'GGGG7777', '2020-01-01', '2020-01-02');
+         INSERT INTO itemAttachments VALUES (21, 10, '/elsewhere/linked.pdf', 'application/pdf');
 
          INSERT INTO itemDataValues VALUES (1, 'Attention Is All You Need'),
                                            (2, '10.1000/xyz'), (3, 'We propose the Transformer.'),
@@ -69,7 +71,7 @@ fn previews_a_library_without_reading_all_of_it() {
     let (_dir, path) = zotero_library();
     let seen = preview(&path).unwrap();
     // The attachment is not an item; the trashed one still counts as present.
-    assert_eq!(seen, Preview { items: 3, collections: 2, tags: 2, attachments: 1 });
+    assert_eq!(seen, Preview { items: 3, collections: 2, tags: 2, attachments: 2 });
 }
 
 #[test]
@@ -173,4 +175,78 @@ fn never_writes_to_the_library_it_reads() {
 
     assert_eq!(std::fs::metadata(&path).unwrap().len(), before);
     assert!(!path.with_extension("sqlite-wal").exists(), "read-only leaves no journal behind");
+}
+
+#[test]
+fn finds_stored_files_and_leaves_linked_ones_alone() {
+    let (dir, path) = zotero_library();
+    // Put the file where Zotero would have.
+    let stored = dir.path().join("storage").join("DDDD4444");
+    std::fs::create_dir_all(&stored).unwrap();
+    std::fs::write(stored.join("paper.pdf"), b"%PDF-1.7").unwrap();
+
+    let library = read(&path).unwrap();
+    assert_eq!(library.attachments.len(), 2);
+
+    let imported = library.attachments.iter().find(|a| a.filename == "paper.pdf").unwrap();
+    assert_eq!(imported.parent.as_str(), "AAAA1111");
+    assert_eq!(imported.content_type, "application/pdf");
+    assert!(imported.source.as_deref().is_some_and(|p| p.is_file()), "the bytes were found");
+
+    // A linked file lives somewhere this machine may not even have, and is not
+    // ours to copy.
+    let linked = library.attachments.iter().find(|a| a.filename == "linked.pdf").unwrap();
+    assert_eq!(linked.source, None);
+}
+
+#[test]
+fn an_attachment_whose_file_is_missing_is_still_recorded() {
+    // Zotero's own storage can be incomplete after a partial sync. The record
+    // is worth keeping; it says what the item is missing.
+    let (_dir, path) = zotero_library();
+    let library = read(&path).unwrap();
+
+    let imported = library.attachments.iter().find(|a| a.filename == "paper.pdf").unwrap();
+    assert_eq!(imported.source, None, "no bytes, but the attachment is known");
+}
+
+#[test]
+fn reads_a_library_that_predates_the_content_type_column() {
+    // Zotero added `contentType` along the way. An older library must still
+    // import — and, more importantly, asking for the column by name means a
+    // mistake anywhere else in the statement is still reported.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("zotero.sqlite");
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE itemTypes (itemTypeID INTEGER PRIMARY KEY, typeName TEXT);
+         CREATE TABLE items (itemID INTEGER PRIMARY KEY, itemTypeID INTEGER, key TEXT,
+                             dateAdded TEXT, dateModified TEXT);
+         CREATE TABLE deletedItems (itemID INTEGER PRIMARY KEY);
+         CREATE TABLE fields (fieldID INTEGER PRIMARY KEY, fieldName TEXT);
+         CREATE TABLE itemDataValues (valueID INTEGER PRIMARY KEY, value TEXT);
+         CREATE TABLE itemData (itemID INTEGER, fieldID INTEGER, valueID INTEGER);
+         CREATE TABLE creators (creatorID INTEGER PRIMARY KEY, firstName TEXT, lastName TEXT,
+                                fieldMode INTEGER);
+         CREATE TABLE creatorTypes (creatorTypeID INTEGER PRIMARY KEY, creatorType TEXT);
+         CREATE TABLE itemCreators (itemID INTEGER, creatorID INTEGER, creatorTypeID INTEGER,
+                                    orderIndex INTEGER);
+         CREATE TABLE tags (tagID INTEGER PRIMARY KEY, name TEXT);
+         CREATE TABLE itemTags (itemID INTEGER, tagID INTEGER, type INTEGER);
+         CREATE TABLE collections (collectionID INTEGER PRIMARY KEY, collectionName TEXT,
+                                   key TEXT, parentCollectionID INTEGER);
+         CREATE TABLE collectionItems (collectionID INTEGER, itemID INTEGER);
+         -- No contentType here.
+         CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INTEGER, path TEXT);
+         INSERT INTO itemTypes VALUES (1, 'journalArticle'), (2, 'attachment');
+         INSERT INTO fields VALUES (1, 'title');
+         INSERT INTO items VALUES (1, 1, 'OLDL1111', '', ''), (2, 2, 'OLDA2222', '', '');
+         INSERT INTO itemAttachments VALUES (2, 1, 'storage:old.pdf');",
+    )
+    .unwrap();
+    drop(db);
+
+    let library = read(&path).unwrap();
+    assert_eq!(library.attachments.len(), 1);
+    assert_eq!(library.attachments[0].content_type, "application/pdf", "a sensible default");
 }

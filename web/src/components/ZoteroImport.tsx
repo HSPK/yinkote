@@ -43,7 +43,11 @@ export function ZoteroImport() {
       // missing a tenth of itself is found out much later, by its absence.
       const message = done.failed
         ? t('import.doneWithFailures', { items: done.items, failed: done.failed })
-        : t('import.done', { items: done.items, collections: done.collections })
+        : t('import.done', {
+            items: done.items + done.updated,
+            collections: done.collections,
+            files: done.files,
+          })
       toast.success(message)
       setFound(null)
       await Promise.all([refresh(), reloadSidebar()])

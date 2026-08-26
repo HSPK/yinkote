@@ -108,6 +108,8 @@ async fn run(
         }
     }
 
+    let files = import_attachments(&app, lib, &library.attachments).await;
+
     let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
         library_id: lib,
         keys: Vec::new(),
@@ -121,12 +123,50 @@ async fn run(
         // than as a hundred failures, which is what it looked like before.
         "updated": updated,
         "collections": collections,
+        "files": files,
         // Reported rather than hidden: an import that quietly dropped a tenth
         // of a library would be found out much later, by its absence.
         "failed": failed,
         "total": total,
         "version": version,
     })))
+}
+
+/// Create attachment records and copy across whatever bytes Zotero has.
+///
+/// A file Zotero only links to is recorded but not copied: it lives somewhere
+/// else on the user's machine and is not ours to move. A file Zotero should
+/// have but does not — a half-finished sync — is recorded too, because the
+/// record is what says the item is missing its PDF.
+async fn import_attachments(
+    app: &App,
+    lib: i64,
+    attachments: &[yk_import::zotero::ImportedAttachment],
+) -> u64 {
+    let mut copied = 0;
+    for attachment in attachments {
+        let mut draft = yk_core::model::ItemDraft::new("attachment")
+            .with_field("title", attachment.title.as_str())
+            .with_field("filename", attachment.filename.as_str())
+            .with_field("contentType", attachment.content_type.as_str())
+            .with_field("linkMode", "imported_file");
+        draft.key = Some(attachment.key.clone());
+        draft.parent_key = Some(attachment.parent.clone());
+
+        // Already present from an earlier import; the bytes are what matter now.
+        let _ = app.store().items.create(lib, draft).await;
+
+        let Some(source) = &attachment.source else { continue };
+        match tokio::fs::read(source).await {
+            Ok(bytes) => {
+                if app.storage().put(&attachment.key, &attachment.filename, &bytes).await.is_ok() {
+                    copied += 1;
+                }
+            }
+            Err(e) => tracing::warn!(path = %source.display(), error = %e, "could not read a file"),
+        }
+    }
+    copied
 }
 
 /// Bring an already-imported item up to date with its Zotero original.

@@ -259,7 +259,11 @@ export interface ImportPreview {
 
 export interface ImportResult {
   items: number
+  /** Already present, and brought up to date. */
+  updated: number
   collections: number
+  /** Attachment files copied out of Zotero's storage. */
+  files: number
   failed: number
   total: number
 }

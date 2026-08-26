@@ -44,12 +44,27 @@ pub struct ImportedCollection {
     pub parent: Option<Key>,
 }
 
+/// A file Zotero holds for an item.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportedAttachment {
+    pub key: Key,
+    /// The item this belongs to.
+    pub parent: Key,
+    pub title: String,
+    pub filename: String,
+    pub content_type: String,
+    /// Where the bytes are, if Zotero has them. Absent for a link-only
+    /// attachment, which points at a file this machine may not even have.
+    pub source: Option<std::path::PathBuf>,
+}
+
 /// Everything read out of a Zotero library.
 pub struct Imported {
     pub items: Vec<ItemDraft>,
     pub collections: Vec<ImportedCollection>,
     /// Item key to the collection keys holding it.
     pub membership: HashMap<String, Vec<Key>>,
+    pub attachments: Vec<ImportedAttachment>,
 }
 
 /// Zotero field names this project does not have, and what they become here.
@@ -115,6 +130,7 @@ pub fn read(path: &Path) -> Result<Imported> {
     check_schema(&db)?;
 
     let collections = read_collections(&db)?;
+    let attachments = read_attachments(&db, path)?;
     let fields = read_fields(&db)?;
     let creators = read_creators(&db)?;
     let tags = read_tags(&db)?;
@@ -128,7 +144,7 @@ pub fn read(path: &Path) -> Result<Imported> {
              WHERE t.typeName NOT IN ('attachment','note','annotation') \
              AND i.itemID NOT IN (SELECT itemID FROM deletedItems)",
         )
-        .map_err(sql)?;
+        .map_err(sql_err)?;
 
     let rows = stmt
         .query_map([], |r| {
@@ -138,10 +154,10 @@ pub fn read(path: &Path) -> Result<Imported> {
                 r.get::<_, String>(2)?,
             ))
         })
-        .map_err(sql)?;
+        .map_err(sql_err)?;
 
     for row in rows {
-        let (id, key, item_type) = row.map_err(sql)?;
+        let (id, key, item_type) = row.map_err(sql_err)?;
         // A key Zotero considers valid but this project does not is not worth
         // losing the item over; a fresh one keeps everything else.
         let key = Key::parse(&key).unwrap_or_else(|_| Key::generate());
@@ -158,7 +174,7 @@ pub fn read(path: &Path) -> Result<Imported> {
         items.push(draft);
     }
 
-    Ok(Imported { items, collections, membership })
+    Ok(Imported { items, collections, membership, attachments })
 }
 
 fn map_field(name: &str) -> Option<&str> {
@@ -177,17 +193,17 @@ fn read_collections(db: &Connection) -> Result<Vec<ImportedCollection>> {
             "SELECT c.key, c.collectionName, p.key \
              FROM collections c LEFT JOIN collections p ON p.collectionID = c.parentCollectionID",
         )
-        .map_err(sql)?;
+        .map_err(sql_err)?;
 
     let rows = stmt
         .query_map([], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<String>>(2)?))
         })
-        .map_err(sql)?;
+        .map_err(sql_err)?;
 
     let mut out = Vec::new();
     for row in rows {
-        let (key, name, parent) = row.map_err(sql)?;
+        let (key, name, parent) = row.map_err(sql_err)?;
         out.push(ImportedCollection {
             key: Key::parse(&key).unwrap_or_else(|_| Key::generate()),
             name,
@@ -205,16 +221,16 @@ fn read_fields(db: &Connection) -> Result<HashMap<i64, Vec<(String, String)>>> {
              JOIN fields f ON f.fieldID = d.fieldID \
              JOIN itemDataValues v ON v.valueID = d.valueID",
         )
-        .map_err(sql)?;
+        .map_err(sql_err)?;
 
     let mut out: HashMap<i64, Vec<(String, String)>> = HashMap::new();
     let rows = stmt
         .query_map([], |r| {
             Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
         })
-        .map_err(sql)?;
+        .map_err(sql_err)?;
     for row in rows {
-        let (id, name, value) = row.map_err(sql)?;
+        let (id, name, value) = row.map_err(sql_err)?;
         out.entry(id).or_default().push((name, value));
     }
     Ok(out)
@@ -231,7 +247,7 @@ fn read_creators(db: &Connection) -> Result<HashMap<i64, Vec<Creator>>> {
              JOIN creatorTypes ct ON ct.creatorTypeID = ic.creatorTypeID \
              ORDER BY ic.itemID, ic.orderIndex",
         )
-        .map_err(sql)?;
+        .map_err(sql_err)?;
 
     let mut out: HashMap<i64, Vec<Creator>> = HashMap::new();
     let rows = stmt
@@ -244,10 +260,10 @@ fn read_creators(db: &Connection) -> Result<HashMap<i64, Vec<Creator>>> {
                 r.get::<_, String>(4)?,
             ))
         })
-        .map_err(sql)?;
+        .map_err(sql_err)?;
 
     for row in rows {
-        let (id, first, last, field_mode, creator_type) = row.map_err(sql)?;
+        let (id, first, last, field_mode, creator_type) = row.map_err(sql_err)?;
         // Field mode 1 means a single-field name — an organisation, or a name
         // that does not split into given and family.
         let creator = if field_mode == 1 {
@@ -269,18 +285,90 @@ fn read_tags(db: &Connection) -> Result<HashMap<i64, Vec<ItemTag>>> {
         .prepare(
             "SELECT it.itemID, t.name, it.type FROM itemTags it JOIN tags t ON t.tagID = it.tagID",
         )
-        .map_err(sql)?;
+        .map_err(sql_err)?;
 
     let mut out: HashMap<i64, Vec<ItemTag>> = HashMap::new();
     let rows = stmt
         .query_map([], |r| {
             Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
         })
-        .map_err(sql)?;
+        .map_err(sql_err)?;
     for row in rows {
-        let (id, name, kind) = row.map_err(sql)?;
+        let (id, name, kind) = row.map_err(sql_err)?;
         // Zotero uses the same convention: 0 is the user's own, 1 automatic.
         out.entry(id).or_default().push(ItemTag { tag: name, r#type: kind as u8 });
+    }
+    Ok(out)
+}
+
+/// Where Zotero keeps an item's files: `storage/<key>/<filename>`, beside the
+/// database. A path recorded as `storage:name.pdf` means exactly that; anything
+/// else is a link to a file somewhere on this machine, which is not ours to
+/// copy and may not exist.
+fn read_attachments(db: &Connection, database: &Path) -> Result<Vec<ImportedAttachment>> {
+    // `contentType` was added to `itemAttachments` partway through Zotero's
+    // history, so ask whether this library has it rather than attempting the
+    // query and interpreting the failure. Catching the failure would swallow
+    // every other mistake in the statement too — which it did, hiding a
+    // mistyped alias behind a warning about old libraries.
+    let content_type =
+        if has_column(db, "itemAttachments", "contentType") { "ia.contentType" } else { "NULL" };
+
+    let sql = format!(
+        "SELECT a.key, p.key, ia.path, {content_type}, v.value
+         FROM itemAttachments ia
+         JOIN items a ON a.itemID = ia.itemID
+         JOIN items p ON p.itemID = ia.parentItemID
+         LEFT JOIN itemData d ON d.itemID = ia.itemID
+              AND d.fieldID = (SELECT fieldID FROM fields WHERE fieldName = 'title')
+         LEFT JOIN itemDataValues v ON v.valueID = d.valueID
+         WHERE ia.path IS NOT NULL AND ia.parentItemID IS NOT NULL
+           AND ia.itemID NOT IN (SELECT itemID FROM deletedItems)"
+    );
+
+    let mut stmt = db.prepare(&sql).map_err(sql_err)?;
+
+    let storage = database.parent().map(|d| d.join("storage")).unwrap_or_default();
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })
+        .map_err(sql_err)?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        let (key, parent, path, content_type, title) = row.map_err(sql_err)?;
+        let (Ok(key), Ok(parent)) = (Key::parse(&key), Key::parse(&parent)) else { continue };
+
+        let filename = path.strip_prefix("storage:").map(str::to_string);
+        let source = filename
+            .as_ref()
+            .map(|name| storage.join(key.as_str()).join(name))
+            .filter(|p| p.is_file());
+
+        let filename = filename.unwrap_or_else(|| {
+            // A linked file still deserves a sensible name, taken from wherever
+            // it points.
+            Path::new(&path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "attachment".into())
+        });
+
+        out.push(ImportedAttachment {
+            title: title.unwrap_or_else(|| filename.clone()),
+            key,
+            parent,
+            content_type: content_type.unwrap_or_else(|| "application/pdf".into()),
+            filename,
+            source,
+        });
     }
     Ok(out)
 }
@@ -292,14 +380,14 @@ fn read_membership(db: &Connection) -> Result<HashMap<String, Vec<Key>>> {
              JOIN items i ON i.itemID = ci.itemID \
              JOIN collections c ON c.collectionID = ci.collectionID",
         )
-        .map_err(sql)?;
+        .map_err(sql_err)?;
 
     let mut out: HashMap<String, Vec<Key>> = HashMap::new();
     let rows = stmt
         .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-        .map_err(sql)?;
+        .map_err(sql_err)?;
     for row in rows {
-        let (item, collection) = row.map_err(sql)?;
+        let (item, collection) = row.map_err(sql_err)?;
         if let Ok(key) = Key::parse(&collection) {
             out.entry(item).or_default().push(key);
         }
@@ -307,7 +395,18 @@ fn read_membership(db: &Connection) -> Result<HashMap<String, Vec<Key>>> {
     Ok(out)
 }
 
-fn sql(e: rusqlite::Error) -> Error {
+/// Whether a table has a column, so an optional one can be asked for by name
+/// rather than by attempting the query and interpreting the failure.
+fn has_column(db: &Connection, table: &str, column: &str) -> bool {
+    db.prepare(&format!("PRAGMA table_info({table})"))
+        .and_then(|mut stmt| {
+            let names = stmt.query_map([], |r| r.get::<_, String>(1))?;
+            Ok(names.filter_map(|n| n.ok()).any(|n| n == column))
+        })
+        .unwrap_or(false)
+}
+
+fn sql_err(e: rusqlite::Error) -> Error {
     Error::invalid(format!("reading the Zotero library: {e}"))
 }
 

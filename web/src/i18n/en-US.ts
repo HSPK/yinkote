@@ -418,8 +418,8 @@ export const enUS: Record<MessageKey, string> = {
   'import.confirm': 'Import',
   'import.working': 'Importing…',
   'import.found': '{items} items · {collections} collections · {tags} tags',
-  'import.done': 'Imported {items} items and {collections} collections',
+  'import.done': 'Imported {items} items, {collections} collections and {files} files',
   'import.doneWithFailures': 'Imported {items} items; {failed} could not be read',
   'import.failed': 'Import failed',
-  'import.note': 'Items keep their Zotero keys, so importing the same library again updates rather than duplicates. Attachment files must be copied separately.',
+  'import.note': 'Items keep their Zotero keys, so importing the same library again updates rather than duplicates. Files Zotero stores are copied across; files it only links to are recorded but left where they are.',
 }
