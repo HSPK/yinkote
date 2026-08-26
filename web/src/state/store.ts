@@ -7,8 +7,10 @@
 import { create } from 'zustand'
 
 import { api, connectEvents } from '../api/client'
-import { detectLocale, schemaLabel, t, useI18n, type Locale } from '../i18n'
-import { DEFAULT_VISIBLE } from '../lib/columns'
+import { schemaLabel, t, useI18n } from '../i18n'
+import { createPrefsSlice, type PrefsSlice } from './slices/prefs'
+import { createChatSlice, type ChatSlice } from './slices/chat'
+import { createSidebarSlice, type SidebarSlice } from './slices/sidebar'
 import {
   applyClick,
   captureScope,
@@ -29,23 +31,15 @@ import {
   type TabKind,
 } from '../lib/tabs'
 import { inferMode } from '../lib/query'
-import { applyTheme, DEFAULT_THEME } from '../lib/theme'
 import { useOverlays } from '../ui/overlays'
-import type { CollectionValues } from '../components/CollectionEditor'
 import type {
-  AgentStatus,
   BadgeDescriptor,
   BadgeValue,
-  Collection,
-  Conversation,
-  Message,
   ListQuery,
   PluginStatus,
   Schema,
   ServerInfo,
-  SmartCollection,
   Stats,
-  Tag,
 } from '../api/types'
 
 /** Secondary surfaces. `null` means the workbench itself is in front. */
@@ -53,7 +47,7 @@ import type {
 export type Modal = null | 'settings'
 export type Panel = 'detail' | 'plugins' | 'stats'
 
-interface State extends Scope {
+export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   // connection & metadata
   ready: boolean
   connected: boolean
@@ -76,38 +70,15 @@ interface State extends Scope {
   /** What the toolbar's search box holds for surfaces that are not the library.
    *  Kept apart from `query` so switching tabs does not run one as the other. */
   filter: string
-  /** Pane widths in pixels; dragged by the splitters, persisted server-side. */
-  layout: { sidebar: number; detail: number }
-  /** Item-table column widths in pixels, keyed by column id. */
-  columnWidths: Record<string, number>
-  /** Visible columns, in display order. */
-  columnOrder: string[]
   /** Badge columns offered by plugins. */
   badgeDefs: BadgeDescriptor[]
   /** Resolved badges for the rows currently loaded, keyed by item key. */
   badges: Record<string, BadgeValue[]>
-  /** Whether the right-hand detail pane is showing. */
-  detailOpen: boolean
 
-  conversations: Conversation[]
-  /** Whether a model is configured; the chat box explains itself if not. */
-  agent: AgentStatus | null
-  /** A question is in flight. */
-  asking: boolean
-  conversation: string | null
-  messages: Message[]
-  /** Row height preference, persisted server-side under `ui.`. */
-  density: string
-  theme: string
-  /** Hex accent override, or empty to use the theme's own. */
-  accent: string
 
   // The active tab's library state is projected onto the store, so components
   // read `items` and `query` without knowing which tab they belong to.
 
-  collections: Collection[]
-  smartCollections: SmartCollection[]
-  tags: Tag[]
 
   panel: Panel
   paletteOpen: boolean
@@ -116,7 +87,6 @@ interface State extends Scope {
   refresh: () => Promise<void>
   loadMore: () => Promise<void>
   listQuery: (offset?: number) => ListQuery
-  reloadSidebar: () => Promise<void>
   setQuery: (q: string) => void
   setSort: (field: string) => void
   navigate: (patch: Partial<State>) => void
@@ -124,10 +94,6 @@ interface State extends Scope {
   openTrash: () => void
   openCollection: (key: string) => void
   openSmart: (key: string) => void
-  createSmart: (name: string, query: string) => Promise<void>
-  updateSmart: (key: string, patch: { name?: string; query?: string }) => Promise<void>
-  removeSmart: (key: string) => Promise<void>
-  toggleTag: (tag: string) => void
   clearFilters: () => void
   select: (key: string, modifier?: 'none' | 'toggle' | 'range') => void
   selectAll: () => void
@@ -142,24 +108,8 @@ interface State extends Scope {
   keepTab: (id: string) => void
   openReader: (itemKey: string, keep?: boolean) => void
   fetchPdf: (itemKey: string, url?: string) => Promise<void>
-  summarise: (itemKey: string) => Promise<void>
-  askAbout: (itemKey: string) => Promise<void>
   openCollectionEditor: (key: string | null) => void
-  saveCollection: (key: string | null, values: CollectionValues) => Promise<void>
-  setLayout: (patch: Partial<{ sidebar: number; detail: number }>, commit?: boolean) => void
-  setColumnWidth: (id: string, width: number, commit?: boolean) => void
-  setColumnOrder: (order: string[]) => void
-  resetColumns: () => void
   loadBadges: (keys: string[]) => Promise<void>
-  toggleDetail: (open?: boolean) => void
-  openConversation: (key: string) => Promise<void>
-  newConversation: () => Promise<void>
-  renameConversation: (key: string, title: string) => Promise<void>
-  removeConversation: (key: string) => Promise<void>
-  sendMessage: (text: string) => Promise<void>
-  setDensity: (d: string) => void
-  setTheme: (id: string, accent?: string) => void
-  setLocale: (locale: Locale) => void
   optimize: () => Promise<void>
   togglePalette: (open?: boolean) => void
   patchItem: (key: string, patch: Record<string, unknown>) => Promise<void>
@@ -170,15 +120,7 @@ interface State extends Scope {
   createItem: (itemType: string, title: string) => Promise<void>
   /** Ask for a type and title. Resolves to `null` when cancelled. */
   newItemDialog: () => Promise<{ itemType: string; title: string } | null>
-  createCollection: (name: string, parentKey?: string) => Promise<void>
-  renameCollection: (key: string, name: string) => Promise<void>
-  moveCollection: (key: string, parentKey: string | null) => Promise<void>
-  addToCollection: (collection: string, keys: string[]) => Promise<void>
-  tagItems: (tag: string, keys: string[]) => Promise<void>
   trashItems: (keys: string[]) => Promise<void>
-  removeCollection: (key: string) => Promise<void>
-  addSelectedToCollection: (key: string) => Promise<void>
-  tagSelected: (tag: string) => Promise<void>
   copySelected: (kind: 'title' | 'doi' | 'url' | 'citation') => Promise<number>
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
   reloadPlugins: () => Promise<void>
@@ -200,7 +142,11 @@ const DEBOUNCE_MS = 140
 let debounce: number | undefined
 let requestSeq = 0
 
-export const useStore = create<State>((set, get) => ({
+export const useStore = create<State>((set, get, store) => ({
+  ...createPrefsSlice(set, get, store),
+  ...createSidebarSlice(set, get, store),
+  ...createChatSlice(set, get, store),
+
   ready: false,
   connected: false,
   error: null,
@@ -215,28 +161,13 @@ export const useStore = create<State>((set, get) => ({
   scopes: {},
   collectionEditor: null,
   filter: '',
-  layout: { sidebar: 232, detail: 380 },
-  columnWidths: {},
-  columnOrder: DEFAULT_VISIBLE,
   badgeDefs: [],
   badges: {},
-  detailOpen: true,
-  conversations: [],
-  agent: null,
-  asking: false,
-  conversation: null,
-  messages: [],
-  density: 'compact',
-  theme: DEFAULT_THEME,
-  accent: '',
 
   // The library fields come from one place, so a new one cannot be forgotten
   // here or in `captureScope`.
   ...emptyScope(),
 
-  collections: [],
-  smartCollections: [],
-  tags: [],
 
   panel: 'detail',
   paletteOpen: false,
@@ -258,33 +189,7 @@ export const useStore = create<State>((set, get) => ({
         error: null,
       })
       // Restore preferences before the first paint of real content.
-      const saved = <T extends string>(key: string): T | undefined =>
-        typeof settings[key] === 'string' ? (settings[key] as T) : undefined
-
-      if (saved('ui.density')) get().setDensity(saved('ui.density')!)
-
-      const parsed = <T,>(key: string, fallback: T): T => {
-        const raw = saved(key)
-        if (!raw) return fallback
-        try {
-          return JSON.parse(raw) as T
-        } catch {
-          return fallback
-        }
-      }
-      set({
-        layout: parsed('ui.layout', get().layout),
-        columnWidths: parsed('ui.columnWidths', {}),
-        columnOrder: parsed('ui.columnOrder', DEFAULT_VISIBLE),
-        detailOpen: saved('ui.detailOpen') !== 'false',
-      })
-
-      const theme = saved('ui.theme') ?? DEFAULT_THEME
-      const accent = saved('ui.accent') ?? ''
-      set({ theme, accent })
-      applyTheme(theme, accent)
-
-      useI18n.getState().setLocale(saved<Locale>('ui.locale') ?? detectLocale())
+      get().restorePrefs(settings)
       await Promise.all([get().refresh(), get().reloadSidebar()])
 
       connectEvents((event) => {
@@ -370,29 +275,6 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async reloadSidebar() {
-    const s = get()
-    try {
-      const [collections, smartCollections, conversations, tags, stats, plugins, badgeDefs, agent] =
-        await Promise.all([
-          api.collections.list(s.library),
-          api.smart.list(s.library, true),
-          api.conversations.list(s.library),
-          api.tags.facets(s.library, {
-            collection: s.view === 'collection' ? s.collection ?? undefined : undefined,
-            trash: s.view === 'trash' ? 'only' : 'exclude',
-            limit: 80,
-          }),
-          api.stats(),
-          api.plugins.list(),
-          api.badges.descriptors(),
-          api.agent().catch(() => ({ configured: false }) as AgentStatus),
-        ])
-      set({ collections, smartCollections, conversations, tags, stats, plugins, badgeDefs, agent })
-    } catch {
-      /* sidebar is decoration; never block the main view on it */
-    }
-  },
 
   /** Setting a query also re-decides how to run it.
    *
@@ -453,29 +335,9 @@ export const useStore = create<State>((set, get) => ({
     })
   },
 
-  async createSmart(name, query) {
-    const created = await api.smart.create(get().library, { name, query })
-    await get().reloadSidebar()
-    get().openSmart(created.key)
-  },
 
-  async updateSmart(key, patch) {
-    await api.smart.update(get().library, key, patch)
-    await get().reloadSidebar()
-    if (get().view === 'smart' && get().collection === key) get().openSmart(key)
-  },
 
-  async removeSmart(key) {
-    await api.smart.remove(get().library, key)
-    if (get().view === 'smart' && get().collection === key) get().openLibrary()
-    await get().reloadSidebar()
-  },
 
-  toggleTag(tag) {
-    const active = get().activeTags
-    set({ activeTags: active.includes(tag) ? active.filter((t) => t !== tag) : [...active, tag] })
-    void get().refresh()
-  },
 
   clearFilters() {
     set({ activeTags: [], typeFilter: [], query: '' })
@@ -582,28 +444,7 @@ export const useStore = create<State>((set, get) => ({
     })
   },
 
-  /** Start a conversation about one item, seeded with what it is.
-   *
-   *  The agent could look the item up itself, but it would first have to guess
-   *  which one was meant — and the caller already knows. */
-  async askAbout(itemKey) {
-    const item = get().items.find((i) => i.key === itemKey)
-    if (!item) return
-    const title = String(item.title ?? itemKey)
 
-    const created = await api.conversations.create(get().library, { title })
-    set({ conversations: [created, ...get().conversations] })
-    await get().openConversation(created.key)
-    await get().sendMessage(
-      `About the item "${title}" (key ${itemKey}) in my library. Use get_item to read it first.`,
-    )
-  },
-
-  /** Ask the model for a summary; it lands as a note under the item. */
-  async summarise(itemKey) {
-    await api.summarise(get().library, itemKey)
-    await get().refresh()
-  },
 
   /** Download the item's PDF and attach it, then show it. */
   async fetchPdf(itemKey, url) {
@@ -617,56 +458,10 @@ export const useStore = create<State>((set, get) => ({
     set({ collectionEditor })
   },
 
-  /** Create or update either kind of collection.
-   *
-   *  The two live in different tables because they answer different questions —
-   *  one holds items, the other holds a query — but the user made one choice in
-   *  one dialog, so the branch belongs here rather than in the UI. */
-  async saveCollection(key, values) {
-    const s = get()
-    const appearance = { name: values.name, color: values.color ?? null, icon: values.icon ?? null }
 
-    if (key) {
-      const isSmart = s.smartCollections.some((c) => c.key === key)
-      if (isSmart) await api.smart.update(s.library, key, { ...appearance, query: values.query })
-      else await api.collections.update(s.library, key, appearance)
-      await get().reloadSidebar()
-      return
-    }
 
-    if (values.smart) {
-      const created = await api.smart.create(s.library, { ...appearance, query: values.query })
-      await get().reloadSidebar()
-      get().openSmart(created.key)
-    } else {
-      const created = await api.collections.create(s.library, appearance)
-      await get().reloadSidebar()
-      get().openCollection(created.key)
-    }
-  },
 
-  setLayout(patch, commit) {
-    const layout = { ...get().layout, ...patch }
-    set({ layout })
-    // Only persist when the drag ends; a write per mouse move is pointless.
-    if (commit) void api.settings.put({ layout: JSON.stringify(layout) })
-  },
 
-  setColumnWidth(id, width, commit) {
-    const columnWidths = { ...get().columnWidths, [id]: width }
-    set({ columnWidths })
-    if (commit) void api.settings.put({ columnWidths: JSON.stringify(columnWidths) })
-  },
-
-  setColumnOrder(columnOrder) {
-    set({ columnOrder })
-    void api.settings.put({ columnOrder: JSON.stringify(columnOrder) })
-  },
-
-  resetColumns() {
-    set({ columnOrder: DEFAULT_VISIBLE, columnWidths: {} })
-    void api.settings.put({ columnOrder: '', columnWidths: '' })
-  },
 
   /** Fill in plugin badges for rows that do not have them yet.
    *
@@ -688,106 +483,14 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  toggleDetail(open) {
-    const detailOpen = open ?? !get().detailOpen
-    set({ detailOpen })
-    void api.settings.put({ detailOpen: String(detailOpen) })
-  },
 
-  async openConversation(key) {
-    const title = get().conversations.find((c) => c.key === key)?.title
-    set({ conversation: key })
-    get().openTab({ id: tabId('chat', key), kind: 'chat', title: title || '', target: key })
-    try {
-      set({ messages: await api.conversations.messages(get().library, key) })
-    } catch {
-      set({ messages: [] })
-    }
-  },
 
-  async newConversation() {
-    const created = await api.conversations.create(get().library)
-    set({ conversations: [created, ...get().conversations] })
-    await get().openConversation(created.key)
-  },
 
-  async renameConversation(key, title) {
-    await api.conversations.rename(get().library, key, title)
-    set({ conversations: await api.conversations.list(get().library) })
-  },
 
-  async removeConversation(key) {
-    await api.conversations.remove(get().library, key)
-    get().closeTab(tabId('chat', key))
-    if (get().conversation === key) set({ conversation: null, messages: [] })
-    set({ conversations: await api.conversations.list(get().library) })
-  },
 
-  /** Ask the agent, or just record the turn when no model is configured.
-   *
-   *  Either way the question is persisted: a transcript that loses what was
-   *  typed because a model was unreachable would be worse than no transcript. */
-  async sendMessage(text) {
-    const s = get()
-    const body = text.trim()
-    if (!body || !s.conversation || s.asking) return
 
-    const optimistic: Message = {
-      id: -Date.now(),
-      role: 'user',
-      content: body,
-      createdAt: Date.now(),
-    }
-    set({ messages: [...s.messages, optimistic], asking: true })
 
-    try {
-      if (s.agent?.configured) {
-        await api.conversations.ask(s.library, s.conversation, body)
-      } else {
-        await api.conversations.append(s.library, s.conversation, { role: 'user', content: body })
-      }
-      // Re-read rather than splice: the server may have appended several
-      // messages, and it is the one that knows their ids.
-      set({ messages: await api.conversations.messages(s.library, s.conversation) })
-    } catch (e) {
-      set({ error: e instanceof Error ? e.message : String(e) })
-      if (s.conversation) {
-        set({ messages: await api.conversations.messages(s.library, s.conversation) })
-      }
-    } finally {
-      set({ asking: false })
-    }
 
-    // Name an untitled thread from its opening line.
-    const current = s.conversations.find((c) => c.key === s.conversation)
-    if (current && current.messageCount === 0) {
-      const title = body.length > 40 ? `${body.slice(0, 40)}…` : body
-      await get().renameConversation(s.conversation, title)
-    } else {
-      set({ conversations: await api.conversations.list(s.library) })
-    }
-  },
-
-  setDensity(density) {
-    set({ density })
-    document.documentElement.style.setProperty(
-      '--row-h',
-      density === 'comfortable' ? '32px' : '26px',
-    )
-    void api.settings.put({ density })
-  },
-
-  setTheme(theme, accent) {
-    const next = accent ?? get().accent
-    set({ theme, accent: next })
-    applyTheme(theme, next)
-    void api.settings.put({ theme, accent: next })
-  },
-
-  setLocale(locale) {
-    useI18n.getState().setLocale(locale)
-    void api.settings.put({ locale })
-  },
 
   async optimize() {
     await api.maintenance.optimize()
@@ -881,53 +584,12 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async createCollection(name, parentKey) {
-    const s = get()
-    const created = await api.collections.create(s.library, { name, parentKey })
-    await get().reloadSidebar()
-    get().openCollection(created.key)
-  },
 
-  async renameCollection(key, name) {
-    await api.collections.update(get().library, key, { name })
-    await get().reloadSidebar()
-  },
 
-  async moveCollection(key, parentKey) {
-    await api.collections.move(get().library, key, parentKey)
-    await get().reloadSidebar()
-  },
 
-  async removeCollection(key) {
-    const s = get()
-    await api.collections.remove(s.library, key)
-    if (s.collection === key) get().openLibrary()
-    await get().reloadSidebar()
-  },
 
-  async addSelectedToCollection(key) {
-    await get().addToCollection(key, get().selected)
-  },
 
-  async addToCollection(collection, keys) {
-    if (!keys.length) return
-    await api.items.addToCollection(get().library, collection, keys)
-    await Promise.all([get().refresh(), get().reloadSidebar()])
-  },
 
-  /** Tags the given items, skipping any that already carry the tag so a
-   *  repeated drop is a no-op rather than an error. */
-  async tagItems(tag, keys) {
-    const s = get()
-    const name = tag.trim()
-    if (!name || !keys.length) return
-    for (const key of keys) {
-      const item = s.items.find((i) => i.key === key)
-      if (!item || item.tags.some((t) => t.tag === name)) continue
-      await api.items.update(s.library, key, { tags: [...item.tags, { tag: name, type: 0 }] })
-    }
-    await Promise.all([get().refresh(), get().reloadSidebar()])
-  },
 
   async trashItems(keys) {
     if (!keys.length) return
@@ -936,17 +598,6 @@ export const useStore = create<State>((set, get) => ({
     await Promise.all([get().refresh(), get().reloadSidebar()])
   },
 
-  async tagSelected(tag) {
-    const s = get()
-    const name = tag.trim()
-    if (!name || !s.selected.length) return
-    for (const key of s.selected) {
-      const item = s.items.find((i) => i.key === key)
-      if (!item || item.tags.some((t) => t.tag === name)) continue
-      await api.items.update(s.library, key, { tags: [...item.tags, { tag: name, type: 0 }] })
-    }
-    await Promise.all([get().refresh(), get().reloadSidebar()])
-  },
 
   /** Copy something about the selection to the clipboard. Returns how many
    *  items contributed, so the caller can report accurately. */
