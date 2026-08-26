@@ -30,6 +30,44 @@ pub fn router() -> Router<App> {
         .route("/libraries/:lib/duplicates", post(duplicates))
 }
 
+/// Let plugins enrich drafts before anything is persisted.
+///
+/// One dispatch for the whole batch, not one per item: importing a library
+/// means tens of thousands of drafts, and a round-trip each would hold the
+/// request — and behind it the write lock — for minutes. A batch API that
+/// degenerates into N calls is not a batch API.
+///
+/// Plugins answer with `patches`, aligned by position; a shorter array or a
+/// null entry simply means "nothing for that one".
+async fn enrich(app: &App, lib: i64, drafts: &mut [ItemDraft]) {
+    if drafts.is_empty() {
+        return;
+    }
+    let payload = json!({
+        "libraryId": lib,
+        "items": drafts.iter().map(item_preview).collect::<Vec<_>>(),
+    });
+
+    for outcome in app.plugins.dispatch(HookEvent::new(hooks::ITEM_BEFORE_CREATE, payload)).await {
+        let Some(patches) = outcome.result.get("patches").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        for (draft, patch) in drafts.iter_mut().zip(patches) {
+            if let Some(fields) = patch.get("fields").and_then(|v| v.as_object()) {
+                // Never overwrite what the caller supplied: a plugin fills gaps.
+                for (k, v) in fields {
+                    draft.fields.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+            }
+            if let Some(tags) = patch.get("tags").and_then(|v| v.as_array()) {
+                for tag in tags.iter().filter_map(|t| t.as_str()) {
+                    draft.tags.push(ItemTag::automatic(tag));
+                }
+            }
+        }
+    }
+}
+
 /// An item plus, when the request was a search, why it matched.
 #[derive(Serialize)]
 pub struct ItemView {
@@ -151,24 +189,7 @@ async fn create(
         CreateBody::Many(v) => v,
     };
 
-    // Let plugins enrich or veto drafts before anything is persisted.
-    for draft in &mut drafts {
-        let payload = json!({ "libraryId": lib, "item": item_preview(draft) });
-        for outcome in
-            app.plugins.dispatch(HookEvent::new(hooks::ITEM_BEFORE_CREATE, payload)).await
-        {
-            if let Some(patch) = outcome.result.get("fields").and_then(|v| v.as_object()) {
-                for (k, v) in patch {
-                    draft.fields.entry(k.clone()).or_insert_with(|| v.clone());
-                }
-            }
-            if let Some(tags) = outcome.result.get("tags").and_then(|v| v.as_array()) {
-                for t in tags.iter().filter_map(|t| t.as_str()) {
-                    draft.tags.push(ItemTag::automatic(t));
-                }
-            }
-        }
-    }
+    enrich(&app, lib, &mut drafts).await;
 
     let results = app.store().items.create_many(lib, drafts).await?;
     let created: Vec<&Item> = results.iter().filter_map(|r| r.as_ref().ok()).collect();

@@ -112,10 +112,29 @@ plugins/
 | --- | --- | --- |
 | `startup` | 服务启动后 | 忽略 |
 | `shutdown` | 服务退出前 | 忽略 |
-| `item.beforeCreate` | 条目**写库之前** | `{fields: {...}, tags: ["x"]}` —— `fields` 仅填补**缺失**字段，`tags` 追加为自动标签 |
+| `item.beforeCreate` | 条目**写库之前**（整批一次） | `{patches: [...]}` —— 见下 |
 | `item.created` | 写库之后（异步） | 忽略 |
 | `item.updated` | 更新之后（异步） | 忽略 |
 | `item.trashed` | 移入回收站之后（异步） | 忽略 |
+
+### `item.beforeCreate` 是批量的
+
+宿主**对整批条目只调用一次**，而不是每条一次：导入一个文献库意味着数万条草稿，
+每条一次往返会把请求——以及它背后的写锁——占住好几分钟。
+**一个退化成 N 次调用的批量接口不是批量接口。**
+
+```jsonc
+// 宿主 → 插件
+{ "name": "item.beforeCreate",
+  "payload": { "libraryId": 1, "items": [ {...}, {...} ] } }
+
+// 插件 → 宿主：patches 按下标对齐
+{ "patches": [ { "tags": ["survey"] }, null ] }
+```
+
+- `patches` 比 `items` 短、或某项为 `null`，都表示"这条不改"。
+- `fields` 只填补**缺失**字段，不覆盖调用方给的值。
+- `tags` 追加为自动标签（type 1）。
 | `search.rerank` | 预留 | — |
 
 `item.beforeCreate` 是唯一能**改变**结果的钩子，它在事务之前同步执行，所以务必快

@@ -551,3 +551,20 @@ async fn annotations_are_ordinary_child_items() {
     let hits = c.get(&format!("/libraries/{lib}/search?q=attention")).await;
     assert!(!hits["hits"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn creating_many_items_dispatches_one_hook_for_the_batch() {
+    // The regression this guards: the hook fired once per draft, so a 500-item
+    // import made 500 sequential round-trips to every subscriber while holding
+    // the request — and behind it the write lock — open. At scale that is the
+    // difference between an import finishing and the database reporting a
+    // busy timeout.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let batch: Vec<_> = (0..50).map(|i| article(&format!("Batch item {i}"))).collect();
+    let body = c.post(&format!("/libraries/{lib}/items"), json!(batch)).await;
+
+    assert_eq!(body["created"].as_array().unwrap().len(), 50);
+    assert!(body["failed"].as_array().unwrap().is_empty());
+}

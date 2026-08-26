@@ -39,9 +39,14 @@ const methods = {
 
   hook: ({ name, payload } = {}) => {
     if (name !== 'item.beforeCreate') return {}
-    const tags = tagsFor(payload?.item)
-    // The host merges `tags` as automatic tags and `fields` only where absent.
-    return tags.length ? { tags } : {}
+    // The host sends the whole batch and expects patches aligned by position;
+    // one round-trip per item would hold its write lock for the whole import.
+    const patches = (payload?.items ?? []).map((item) => {
+      const tags = tagsFor(item)
+      // The host merges `tags` as automatic tags and `fields` only where absent.
+      return tags.length ? { tags } : null
+    })
+    return { patches }
   },
 
   shutdown: () => null,
