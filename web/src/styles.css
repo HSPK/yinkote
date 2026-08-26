@@ -1893,3 +1893,14 @@ select.ctl { padding: 4px 6px; }
 .graph-swatch[data-relation='collection'] { background: #5fb236; }
 .graph-swatch[data-relation='similar']    { background: #a28ae5; }
 .graph-hint { display: flex; align-items: center; gap: 6px; margin-top: 2px; opacity: 0.7; }
+
+
+.note-comment {
+  display: block;
+  color: var(--fg-dim);
+  font-style: italic;
+  /* The reader's own words, set apart from the passage they are about. */
+  border-left: 2px solid var(--line-2);
+  padding-left: 6px;
+  margin-top: 3px;
+}

@@ -205,7 +205,12 @@ export function ReaderView({ target }: { target?: string }) {
               ])}
             >
               <span className="note-page">{t('reader.page', { page: a.page })}</span>
-              <span className="note-text">{a.text}</span>
+              {/* A margin note highlights nothing, so its comment *is* its
+                  text. Showing only the quoted passage rendered every imported
+                  Zotero note as an empty card. */}
+              {a.text && <span className="note-text">{a.text}</span>}
+              {a.comment && <span className="note-comment">{a.comment}</span>}
+              {!a.text && !a.comment && <span className="note-text dim">{t('reader.blankNote')}</span>}
             </button>
           ))}
         </aside>

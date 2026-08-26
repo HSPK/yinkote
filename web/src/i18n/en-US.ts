@@ -395,6 +395,7 @@ export const enUS: Record<MessageKey, string> = {
   'reader.zoomOut': 'Zoom out',
   'reader.annotations': 'Annotations · {count}',
   'reader.noAnnotations': 'Select text to highlight it',
+  'reader.blankNote': 'Empty note',
   'reader.page': 'Page {page}',
   'reader.highlightFailed': 'Could not save the highlight',
   'tabs.keep': 'Keep open',

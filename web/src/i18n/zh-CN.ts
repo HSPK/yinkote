@@ -391,6 +391,7 @@ export const zhCN = {
   'reader.zoomOut': '缩小',
   'reader.annotations': '标注 · {count}',
   'reader.noAnnotations': '选中文字即可高亮',
+  'reader.blankNote': '空批注',
   'reader.page': '第 {page} 页',
   'reader.highlightFailed': '高亮保存失败',
   'tabs.keep': '固定此标签页',
