@@ -18,6 +18,15 @@ const MAX_CHUNKS: usize = 5;
 /// every row and probing the FTS index once per row. That turned a 5 ms query
 /// into an 18 s one on a 100k-item library. `CROSS JOIN` pins the virtual table
 /// as the outer loop. `tests/query_plan.rs` guards this.
+/// Scoping a hit to its library costs a rowid lookup per candidate row, and a
+/// keyword query has thousands of them. It looks like the obvious thing to
+/// optimise and it is not: measured with the server's own pragmas — a 64 MiB
+/// page cache and mmap — the join is worth about 7 ms of a 21 ms query, and a
+/// covering index carrying only `library_id` and `deleted` saves *nothing*,
+/// because those rows are already in memory. An earlier attempt appeared to win
+/// 33% only because the probe ran with SQLite's 2 MB default cache.
+///
+/// Dropping the join would be faster and wrong: the index holds every library.
 fn bm25_sql() -> String {
     format!(
         "SELECT items_fts.rowid, bm25(items_fts, {W_TITLE}, {W_CREATORS}, {W_BODY}, {W_TAGS}) AS s

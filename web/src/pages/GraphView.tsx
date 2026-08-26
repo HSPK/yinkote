@@ -23,7 +23,7 @@ export function GraphView({ target }: { target?: string }) {
   const library = useStore((s) => s.library)
   const openReader = useStore((s) => s.openReader)
   const openGraph = useStore((s) => s.openGraph)
-  const select = useStore((s) => s.select)
+  const showItem = useStore((s) => s.showItem)
   const setGraphSize = useStore((s) => s.setGraphSize)
 
   const [nodes, setNodes] = useState<GraphNode[]>([])
@@ -71,7 +71,7 @@ export function GraphView({ target }: { target?: string }) {
   const at = useMemo(() => new Map(placed.map((p) => [p.key, p])), [placed])
 
   const open = (node: Placed) => {
-    select(node.key)
+    void showItem(node.key)
     openReader(node.key)
   }
 
@@ -112,7 +112,7 @@ export function GraphView({ target }: { target?: string }) {
             role="button"
             onMouseEnter={() => setHover(node.key)}
             onMouseLeave={() => setHover(null)}
-            onClick={() => select(node.key)}
+            onClick={() => void showItem(node.key)}
             onDoubleClick={() => (node.focus ? open(node) : openGraph(node.key))}
             onKeyDown={(e) => e.key === 'Enter' && open(node)}
           >

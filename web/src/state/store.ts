@@ -36,6 +36,7 @@ import type {
   BadgeDescriptor,
   BadgeValue,
   CitationStyle,
+  Item,
   ListQuery,
   PluginStatus,
   Schema,
@@ -110,6 +111,15 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   openReader: (itemKey: string, keep?: boolean) => void
   /** Show the relationship graph around an item. */
   openGraph: (itemKey: string, keep?: boolean) => void
+  /** Show an item in the detail pane, whether or not the current list holds it.
+   *
+   *  `select` is the *table's* selection model — an index into the visible
+   *  list, so that shift-ranges mean something. A graph neighbour is
+   *  deliberately not in that list, and asking `select` for one silently did
+   *  nothing at all. */
+  showItem: (key: string) => Promise<void>
+  /** An item being shown that the current list does not contain. */
+  detached: Item | null
   /** What the graph tab is currently showing, for the status bar. */
   graphSize: { nodes: number; edges: number }
   setGraphSize: (nodes: number, edges: number) => void
@@ -460,6 +470,22 @@ export const useStore = create<State>((set, get, store) => ({
 
 
   graphSize: { nodes: 0, edges: 0 },
+  detached: null,
+
+  async showItem(key) {
+    const s = get()
+    if (s.items.some((i) => i.key === key)) {
+      s.select(key)
+      return
+    }
+
+    // Show the selection immediately and fill in the detail when it arrives;
+    // waiting for a round trip to highlight what was clicked feels broken.
+    set({ selected: [key], anchor: -1, cursor: -1, panel: 'detail', detached: null })
+    const item = await api.items.get(s.library, key).catch(() => null)
+    // Another click may have landed first; the newer one owns the pane.
+    if (item && get().selected[0] === key) set({ detached: item })
+  },
 
   setGraphSize(nodes, edges) {
     set({ graphSize: { nodes, edges } })

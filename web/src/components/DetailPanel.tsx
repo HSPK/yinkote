@@ -110,7 +110,14 @@ export function DetailPanel() {
   const collections = useStore((s) => s.collections)
   const addSelectedToCollection = useStore((s) => s.addSelectedToCollection)
 
-  const item = items.find((i) => i.key === selected[0])
+  const detached = useStore((s) => s.detached)
+
+  // The list is the usual source, but not the only one: a graph neighbour is
+  // shown here without ever appearing in the table behind it. The key check is
+  // what makes a stale detached item harmless.
+  const item =
+    items.find((i) => i.key === selected[0]) ??
+    (detached?.key === selected[0] ? detached : undefined)
 
   if (!item) {
     return (
