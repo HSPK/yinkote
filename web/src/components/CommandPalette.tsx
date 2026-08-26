@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { rankMatches } from '../lib/fuzzy'
-import { PAGES, navigate } from '../lib/router'
 import { useStore } from '../state/store'
 import { confirmAction, promptFor, withToast } from '../ui'
 import { useT } from '../i18n'
@@ -53,11 +52,12 @@ export function CommandPalette() {
       },
       
       { id: 'trash', label: t('menu.openTrash'), run: store.openTrash },
-      ...PAGES.map((id) => ({
-        id: `page-${id}`,
+      ...(['plugins', 'status', 'settings'] as const).map((id) => ({
+        id: `modal-${id}`,
         label: t('palette.goto', { page: t(`nav.${id}`) }),
-        run: () => navigate(id),
+        run: () => store.setModal(id),
       })),
+      { id: 'new-chat', label: t('chat.new'), run: store.newConversation },
       { id: 'clear', label: t('menu.clearFilters'), run: store.clearFilters },
       { id: 'reindex', label: t('menu.reindex'), run: store.reindex },
       { id: 'reload-plugins', label: t('plugins.rescan'), run: store.reloadPlugins },

@@ -4,16 +4,13 @@ import type { MessageKey } from './zh-CN'
  *  adding it here fails the build. */
 export const enUS: Record<MessageKey, string> = {
   'app.connecting': 'Connecting to Yinkote…',
-  'app.brand.subtitle': 'workbench',
 
   'nav.library': 'Library',
-  'nav.chat': 'Chat',
   'nav.plugins': 'Plugins',
   'nav.status': 'Status',
   'nav.settings': 'Settings',
 
-  'search.placeholder':
-    'Search titles, authors, abstracts…  supports tag:survey  type:book  year:2020..2024',
+  'search.placeholder': 'Search',
   'search.mode.hybrid': 'Hybrid',
   'search.mode.keyword': 'Keyword',
   'search.mode.fuzzy': 'Fuzzy',
@@ -24,7 +21,7 @@ export const enUS: Record<MessageKey, string> = {
   'search.mode.semantic.hint': 'Semantic: nearest neighbours in vector space',
   'search.empty': 'Nothing matches “{query}”',
 
-  'quickAdd.placeholder': 'Paste a DOI, arXiv link, ISBN or URL, then press Enter',
+  'quickAdd.placeholder': 'DOI / URL',
   'quickAdd.resolving': 'Resolving…',
   'quickAdd.added': 'Added: {title}',
   'quickAdd.addedMore': 'Added: {title} and {count} more',
@@ -251,4 +248,18 @@ export const enUS: Record<MessageKey, string> = {
   'chat.disabled': 'Conversational search and Q&A are not enabled yet.',
   'chat.hint':
     'You will be able to ask things like “how do the methods in this collection group?” or “find recent work on diffusion models for molecule generation”, with clickable citations back to your items.',
+  'sidebar.chat': 'Chat',
+  'chat.new': 'New conversation',
+  'chat.empty': 'No conversations',
+  'chat.none': 'Select or start a conversation',
+  'chat.start': 'Ask something to begin',
+  'chat.rename': 'Rename conversation',
+  'chat.confirmDelete': 'Delete conversation “{name}”?',
+  'chat.placeholder': 'Ask anything, Enter to send',
+  'chat.send': 'Send',
+  'chat.role.user': 'You',
+  'chat.role.assistant': 'Assistant',
+  'chat.role.tool': 'Tool',
+  'chat.role.system': 'System',
+  'menu.delete': 'Delete',
 }

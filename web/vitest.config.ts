@@ -2,11 +2,10 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    // Most suites are pure logic and run fastest in Node; the router talks to
-    // location/history, so it opts into a DOM.
+    // Most suites are pure logic and run fastest in Node; only the few that
+    // touch the document opt into a DOM.
     environment: 'node',
     environmentMatchGlobs: [
-      ['**/router.test.ts', 'jsdom'],
       ['**/theme.test.ts', 'jsdom'],
     ],
   },

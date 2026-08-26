@@ -368,3 +368,43 @@ async fn reindex_rebuilds_search_from_the_items_table() {
         1
     );
 }
+
+#[tokio::test]
+async fn conversations_keep_their_transcript_and_recency_order() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let base = format!("/libraries/{lib}/conversations");
+
+    let first = c.post(&base, json!({ "title": "Retrieval" })).await;
+    let second = c.post(&base, json!({})).await;
+    assert_eq!(second["messageCount"], 0);
+
+    let key = first["key"].as_str().unwrap().to_string();
+    c.post(&format!("{base}/{key}/messages"), json!({ "role": "user", "content": "Why RRF?" }))
+        .await;
+
+    let messages = c.get(&format!("{base}/{key}/messages")).await;
+    assert_eq!(messages.as_array().unwrap().len(), 1);
+    assert_eq!(messages[0]["content"], "Why RRF?");
+
+    // Appending is activity, so the thread that was just used sorts first.
+    let list = c.get(&base).await;
+    assert_eq!(list[0]["key"], key.as_str());
+    assert_eq!(list[0]["messageCount"], 1);
+
+    let renamed = c.send("PATCH", &format!("{base}/{key}"), Some(json!({ "title": "Fusion" }))).await;
+    assert_eq!(renamed.1["title"], "Fusion");
+
+    let gone = c.send("DELETE", &format!("{base}/{key}"), None).await;
+    assert_eq!(gone.1["deleted"], 1);
+    assert_eq!(c.get(&base).await.as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn unknown_conversations_are_not_found() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let (status, _) =
+        c.send("GET", &format!("/libraries/{lib}/conversations/NOPE1234"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}

@@ -14,6 +14,7 @@ pub type PooledConn = r2d2::PooledConnection<SqliteConnectionManager>;
 const MIGRATIONS: &[(&str, &str)] = &[
     ("001_init", include_str!("../migrations/001_init.sql")),
     ("002_smart_collections", include_str!("../migrations/002_smart_collections.sql")),
+    ("003_conversations", include_str!("../migrations/003_conversations.sql")),
 ];
 
 /// Handle to the SQLite database.

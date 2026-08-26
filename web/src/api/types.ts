@@ -196,3 +196,21 @@ export interface SmartCollection {
   version: number
   itemCount?: number
 }
+
+export interface Conversation {
+  key: string
+  libraryId: number
+  title: string
+  scope?: string
+  messageCount: number
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Message {
+  id: number
+  role: 'user' | 'assistant' | 'tool' | 'system'
+  content: string
+  meta?: Record<string, unknown>
+  createdAt: number
+}

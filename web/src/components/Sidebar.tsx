@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 import { compact } from '../lib/format'
 import { buildTree } from '../lib/tree'
 import { useStore } from '../state/store'
-import { contextMenu, promptFor, withToast } from '../ui'
+import { Icon, contextMenu, confirmAction, promptFor, withToast } from '../ui'
 import { collectionMenu, libraryMenu, newSmartCollection, smartMenu, trashMenu } from './menus' 
 import { useT } from '../i18n'
 
@@ -22,11 +22,17 @@ export function Sidebar() {
   const openCollection = useStore((s) => s.openCollection)
   const toggleTag = useStore((s) => s.toggleTag)
   const createCollection = useStore((s) => s.createCollection)
+  const conversations = useStore((s) => s.conversations)
+  const conversation = useStore((s) => s.conversation)
+  const openConversation = useStore((s) => s.openConversation)
+  const newConversation = useStore((s) => s.newConversation)
+  const renameConversation = useStore((s) => s.renameConversation)
+  const removeConversation = useStore((s) => s.removeConversation)
 
   const tree = useMemo(() => buildTree(collections), [collections])
 
   return (
-    <nav className="pane">
+    <nav className="sidebar-nav">
       <div className="nav-group">
         <button
           className="nav-item"
@@ -34,7 +40,7 @@ export function Sidebar() {
           onClick={openLibrary}
           onContextMenu={contextMenu(libraryMenu)}
         >
-          <span className="glyph">▤</span>
+          <Icon.Library className="glyph" />
           <span className="label">{t('sidebar.library')}</span>
           <span className="count">{stats ? compact(stats.items) : ''}</span>
         </button>
@@ -44,7 +50,7 @@ export function Sidebar() {
           onClick={openTrash}
           onContextMenu={contextMenu(trashMenu)}
         >
-          <span className="glyph">⌫</span>
+          <Icon.Trash className="glyph" />
           <span className="label">{t('sidebar.trash')}</span>
           <span className="count">{stats ? compact(stats.trashed) : ''}</span>
         </button>
@@ -54,7 +60,7 @@ export function Sidebar() {
         <div className="nav-title">
           {t('sidebar.smart')}
           <button title={t('sidebar.newSmart')} onClick={() => void newSmartCollection()}>
-            +
+            <Icon.Plus size={11} />
           </button>
         </div>
         {smartCollections.length === 0 && (
@@ -69,7 +75,7 @@ export function Sidebar() {
             onContextMenu={contextMenu(() => smartMenu(sc))}
             title={sc.query || sc.name}
           >
-            <span className="glyph">⌕</span>
+            <Icon.Smart className="glyph" />
             <span className="label">{sc.name}</span>
             <span className="count">{sc.itemCount ?? ''}</span>
           </button>
@@ -93,7 +99,7 @@ export function Sidebar() {
               }
             }}
           >
-            +
+            <Icon.Plus size={11} />
           </button>
         </div>
         {tree.length === 0 && (
@@ -109,7 +115,11 @@ export function Sidebar() {
             onContextMenu={contextMenu(() => collectionMenu(c))}
             title={c.name}
           >
-            <span className="glyph">{c.children.length ? '▾' : '·'}</span>
+            {c.children.length ? (
+              <Icon.FolderOpen className="glyph" />
+            ) : (
+              <Icon.Folder className="glyph" />
+            )}
             <span className="label">{c.name}</span>
             <span className="count">{c.itemCount || ''}</span>
           </button>
@@ -139,6 +149,52 @@ export function Sidebar() {
             <span className="empty" style={{ padding: 0 }}>{t('sidebar.noTags')}</span>
           )}
         </div>
+      </div>
+
+      <div className="nav-group">
+        <div className="nav-title">
+          {t('sidebar.chat')}
+          <button title={t('chat.new')} onClick={() => void newConversation()}>
+            <Icon.Plus size={11} />
+          </button>
+        </div>
+        {conversations.length === 0 && (
+          <div className="empty" style={{ padding: '8px 12px' }}>{t('chat.empty')}</div>
+        )}
+        {conversations.map((c) => (
+          <button
+            key={c.key}
+            className="nav-item"
+            data-active={view === 'chat' && conversation === c.key}
+            onClick={() => void openConversation(c.key)}
+            onContextMenu={contextMenu(() => [
+              {
+                label: t('menu.rename'),
+                run: async () => {
+                  const title = await promptFor(t('chat.rename'), {
+                    label: t('dialog.name'),
+                    defaultValue: c.title,
+                  })
+                  if (title) await renameConversation(c.key, title)
+                },
+              },
+              {
+                label: t('menu.delete'),
+                danger: true,
+                run: async () => {
+                  if (await confirmAction(t('chat.confirmDelete', { name: c.title }))) {
+                    await removeConversation(c.key)
+                  }
+                },
+              },
+            ])}
+            title={c.title}
+          >
+            <Icon.Chat className="glyph" />
+            <span className="label">{c.title}</span>
+            <span className="count">{c.messageCount || ''}</span>
+          </button>
+        ))}
       </div>
     </nav>
   )

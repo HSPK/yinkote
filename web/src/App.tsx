@@ -1,16 +1,18 @@
 import { useEffect } from 'react'
 
 import { CommandPalette } from './components/CommandPalette'
+import { DetailPanel } from './components/DetailPanel'
+import { ItemTable } from './components/ItemTable'
+import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
-import { onNavigate, pageFromHash } from './lib/router'
-import { ChatPage } from './pages/ChatPage'
-import { LibraryPage } from './pages/LibraryPage'
+import { useT } from './i18n'
+import { ChatView } from './pages/ChatView'
 import { PluginsPage } from './pages/PluginsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { StatusPage } from './pages/StatusPage'
 import { useStore } from './state/store'
-import { OverlayHost } from './ui'
+import { Modal, OverlayHost, Splitter } from './ui'
 
 /** True when a keystroke belongs to whatever the user is typing into. */
 function isEditing(target: EventTarget | null): boolean {
@@ -35,11 +37,11 @@ function useGlobalKeys() {
         store.togglePalette()
         return
       }
-      if (e.key === 'Escape' && store.paletteOpen) {
-        store.togglePalette(false)
-        return
+      if (e.key === 'Escape') {
+        if (store.paletteOpen) return store.togglePalette(false)
+        if (store.modal) return store.setModal(null)
       }
-      if (isEditing(e.target)) return
+      if (isEditing(e.target) || store.modal) return
 
       switch (e.key) {
         case '/':
@@ -86,30 +88,26 @@ function useGlobalKeys() {
   }, [store])
 }
 
-const PAGES = {
-  library: LibraryPage,
-  chat: ChatPage,
-  plugins: PluginsPage,
-  status: StatusPage,
-  settings: SettingsPage,
-}
+const MODALS = {
+  plugins: { title: 'nav.plugins', width: 'wide', Body: PluginsPage },
+  status: { title: 'nav.status', width: 'wide', Body: StatusPage },
+  settings: { title: 'nav.settings', width: 'narrow', Body: SettingsPage },
+} as const
 
 export function App() {
+  const t = useT()
   const ready = useStore((s) => s.ready)
   const error = useStore((s) => s.error)
-  const page = useStore((s) => s.page)
-  const setPage = useStore((s) => s.setPage)
+  const view = useStore((s) => s.view)
+  const modal = useStore((s) => s.modal)
+  const layout = useStore((s) => s.layout)
+  const setModal = useStore((s) => s.setModal)
+  const setLayout = useStore((s) => s.setLayout)
   const bootstrap = useStore((s) => s.bootstrap)
 
   useEffect(() => {
     void bootstrap()
   }, [bootstrap])
-
-  // The hash is the source of truth, so Back and deep links both work.
-  useEffect(() => {
-    setPage(pageFromHash())
-    return onNavigate(setPage)
-  }, [setPage])
 
   useGlobalKeys()
 
@@ -121,17 +119,52 @@ export function App() {
     )
   }
 
-  const Current = PAGES[page]
+  const open = modal ? MODALS[modal] : null
 
   return (
     <div className="app">
       <TopBar />
       {error && <div className="banner">{error}</div>}
-      <main className="page-host">
-        <Current />
-      </main>
+
+      <div className="workspace">
+        <div className="pane sidebar" style={{ width: layout.sidebar }}>
+          <Sidebar />
+        </div>
+        <Splitter
+          size={layout.sidebar}
+          min={180}
+          max={420}
+          grows="left"
+          onResize={(sidebar) => setLayout({ sidebar })}
+          onCommit={(sidebar) => setLayout({ sidebar }, true)}
+        />
+
+        {view === 'chat' ? <ChatView /> : <ItemTable />}
+
+        {view !== 'chat' && (
+          <>
+            <Splitter
+              size={layout.detail}
+              min={260}
+              max={640}
+              grows="right"
+              onResize={(detail) => setLayout({ detail })}
+              onCommit={(detail) => setLayout({ detail }, true)}
+            />
+            <div className="pane detail-pane" style={{ width: layout.detail }}>
+              <DetailPanel />
+            </div>
+          </>
+        )}
+      </div>
+
       <StatusBar />
       <CommandPalette />
+      {open && (
+        <Modal title={t(open.title)} width={open.width} onClose={() => setModal(null)}>
+          <open.Body />
+        </Modal>
+      )}
       <OverlayHost />
     </div>
   )

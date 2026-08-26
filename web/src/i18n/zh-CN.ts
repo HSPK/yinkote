@@ -5,15 +5,13 @@
  */
 export const zhCN = {
   'app.connecting': '正在连接 Yinkote 服务…',
-  'app.brand.subtitle': '工作台',
 
   'nav.library': '文库',
-  'nav.chat': '对话',
   'nav.plugins': '插件',
   'nav.status': '状态',
   'nav.settings': '设置',
 
-  'search.placeholder': '搜索标题 / 作者 / 摘要 …  支持 tag:综述  type:book  year:2020..2024',
+  'search.placeholder': '搜索',
   'search.mode.hybrid': '混合',
   'search.mode.keyword': '关键词',
   'search.mode.fuzzy': '模糊',
@@ -24,7 +22,7 @@ export const zhCN = {
   'search.mode.semantic.hint': '语义：向量近邻',
   'search.empty': '没有匹配 “{query}” 的条目',
 
-  'quickAdd.placeholder': '粘贴 DOI / arXiv / ISBN / 网址，回车添加',
+  'quickAdd.placeholder': 'DOI / 网址',
   'quickAdd.resolving': '解析中…',
   'quickAdd.added': '已添加：{title}',
   'quickAdd.addedMore': '已添加：{title} 等 {count} 条',
@@ -246,6 +244,20 @@ export const zhCN = {
   'chat.disabled': '对话式检索与问答尚未启用。',
   'chat.hint':
     '届时可以直接问「这个收藏夹里的方法怎么分类」或「帮我找扩散模型做分子生成的近三年工作」，答案会带可点击的条目引用。',
+  'sidebar.chat': '对话',
+  'chat.new': '新建对话',
+  'chat.empty': '暂无对话',
+  'chat.none': '从左侧选择或新建一个对话',
+  'chat.start': '输入问题开始对话',
+  'chat.rename': '重命名对话',
+  'chat.confirmDelete': '删除对话「{name}」？',
+  'chat.placeholder': '提问，Enter 发送',
+  'chat.send': '发送',
+  'chat.role.user': '我',
+  'chat.role.assistant': '助手',
+  'chat.role.tool': '工具',
+  'chat.role.system': '系统',
+  'menu.delete': '删除',
 } as const
 
 export type MessageKey = keyof typeof zhCN

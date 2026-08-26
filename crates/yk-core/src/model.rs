@@ -356,6 +356,44 @@ pub struct Tag {
     pub r#type: u8,
 }
 
+/// A chat thread. Messages hang off it; the agent loop lands later, but the
+/// history it will read and write is persisted from the start.
+#[derive(Clone, Debug, Serialize)]
+pub struct Conversation {
+    pub key: Key,
+    #[serde(rename = "libraryId")]
+    pub library_id: i64,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    #[serde(rename = "messageCount")]
+    pub message_count: i64,
+    #[serde(rename = "createdAt")]
+    pub created_at: i64,
+    #[serde(rename = "updatedAt")]
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Message {
+    pub id: i64,
+    /// `user`, `assistant`, `tool` or `system`.
+    pub role: String,
+    pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
+    #[serde(rename = "createdAt")]
+    pub created_at: i64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct MessageDraft {
+    pub role: String,
+    pub content: String,
+    #[serde(default)]
+    pub meta: Option<Value>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Library {
     pub id: i64,

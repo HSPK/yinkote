@@ -8,12 +8,13 @@ import { create } from 'zustand'
 
 import { api, connectEvents } from '../api/client'
 import { detectLocale, useI18n, type Locale } from '../i18n'
-import { pageFromHash, type Page } from '../lib/router'
 import { applyTheme, DEFAULT_THEME } from '../lib/theme'
 import { useOverlays } from '../ui/overlays'
 import type {
   Collection,
+  Conversation,
   Item,
+  Message,
   ListQuery,
   PluginStatus,
   Schema,
@@ -24,7 +25,10 @@ import type {
   Tag,
 } from '../api/types'
 
-export type View = 'library' | 'trash' | 'collection' | 'smart'
+export type View = 'library' | 'trash' | 'collection' | 'smart' | 'chat'
+
+/** Secondary surfaces. `null` means the workbench itself is in front. */
+export type Modal = null | 'plugins' | 'status' | 'settings'
 export type Panel = 'detail' | 'plugins' | 'stats'
 
 interface State {
@@ -38,8 +42,16 @@ interface State {
   server: ServerInfo | null
   plugins: PluginStatus[]
 
-  /** Which top-level page is showing; mirrors location.hash. */
-  page: Page
+  /** Which secondary surface is open, if any. */
+  modal: Modal
+  /** Pane widths in pixels; dragged by the splitters, persisted server-side. */
+  layout: { sidebar: number; detail: number }
+  /** Item-table column widths in pixels, keyed by column id. */
+  columns: Record<string, number>
+
+  conversations: Conversation[]
+  conversation: string | null
+  messages: Message[]
   /** Row height preference, persisted server-side under `ui.`. */
   density: string
   theme: string
@@ -91,7 +103,14 @@ interface State {
   select: (key: string, additive?: boolean) => void
   moveCursor: (delta: number) => void
   setPanel: (p: Panel) => void
-  setPage: (p: Page) => void
+  setModal: (m: Modal) => void
+  setLayout: (patch: Partial<{ sidebar: number; detail: number }>, commit?: boolean) => void
+  setColumn: (id: string, width: number, commit?: boolean) => void
+  openConversation: (key: string) => Promise<void>
+  newConversation: () => Promise<void>
+  renameConversation: (key: string, title: string) => Promise<void>
+  removeConversation: (key: string) => Promise<void>
+  sendMessage: (text: string) => Promise<void>
   setDensity: (d: string) => void
   setTheme: (id: string, accent?: string) => void
   setLocale: (locale: Locale) => void
@@ -132,7 +151,12 @@ export const useStore = create<State>((set, get) => ({
   stats: null,
   server: null,
   plugins: [],
-  page: pageFromHash(),
+  modal: null,
+  layout: { sidebar: 232, detail: 380 },
+  columns: {},
+  conversations: [],
+  conversation: null,
+  messages: [],
   density: 'compact',
   theme: DEFAULT_THEME,
   accent: '',
@@ -182,6 +206,20 @@ export const useStore = create<State>((set, get) => ({
 
       if (saved('ui.density')) get().setDensity(saved('ui.density')!)
       if (saved('ui.searchMode')) set({ mode: saved<SearchMode>('ui.searchMode')! })
+
+      const parsed = <T,>(key: string, fallback: T): T => {
+        const raw = saved(key)
+        if (!raw) return fallback
+        try {
+          return JSON.parse(raw) as T
+        } catch {
+          return fallback
+        }
+      }
+      set({
+        layout: parsed('ui.layout', get().layout),
+        columns: parsed('ui.columns', {}),
+      })
 
       const theme = saved('ui.theme') ?? DEFAULT_THEME
       const accent = saved('ui.accent') ?? ''
@@ -246,9 +284,11 @@ export const useStore = create<State>((set, get) => ({
   async reloadSidebar() {
     const s = get()
     try {
-      const [collections, smartCollections, tags, stats, plugins] = await Promise.all([
+      const [collections, smartCollections, conversations, tags, stats, plugins] =
+        await Promise.all([
         api.collections.list(s.library),
         api.smart.list(s.library, true),
+        api.conversations.list(s.library),
         api.tags.facets(s.library, {
           collection: s.view === 'collection' ? s.collection ?? undefined : undefined,
           trash: s.view === 'trash' ? 'only' : 'exclude',
@@ -257,7 +297,7 @@ export const useStore = create<State>((set, get) => ({
         api.stats(),
         api.plugins.list(),
       ])
-      set({ collections, smartCollections, tags, stats, plugins })
+      set({ collections, smartCollections, conversations, tags, stats, plugins })
     } catch {
       /* sidebar is decoration; never block the main view on it */
     }
@@ -375,8 +415,73 @@ export const useStore = create<State>((set, get) => ({
     set({ panel })
   },
 
-  setPage(page) {
-    set({ page })
+  setModal(modal) {
+    set({ modal })
+  },
+
+  setLayout(patch, commit) {
+    const layout = { ...get().layout, ...patch }
+    set({ layout })
+    // Only persist when the drag ends; a write per mouse move is pointless.
+    if (commit) void api.settings.put({ layout: JSON.stringify(layout) })
+  },
+
+  setColumn(id, width, commit) {
+    const columns = { ...get().columns, [id]: width }
+    set({ columns })
+    if (commit) void api.settings.put({ columns: JSON.stringify(columns) })
+  },
+
+  async openConversation(key) {
+    set({ view: 'chat', conversation: key, selected: [] })
+    try {
+      set({ messages: await api.conversations.messages(get().library, key) })
+    } catch {
+      set({ messages: [] })
+    }
+  },
+
+  async newConversation() {
+    const created = await api.conversations.create(get().library)
+    set({ conversations: [created, ...get().conversations] })
+    await get().openConversation(created.key)
+  },
+
+  async renameConversation(key, title) {
+    await api.conversations.rename(get().library, key, title)
+    set({ conversations: await api.conversations.list(get().library) })
+  },
+
+  async removeConversation(key) {
+    await api.conversations.remove(get().library, key)
+    if (get().conversation === key) {
+      set({ conversation: null, messages: [] })
+      get().openLibrary()
+    }
+    set({ conversations: await api.conversations.list(get().library) })
+  },
+
+  /** Records the user's turn. The assistant reply arrives with the agent loop;
+   *  until then the transcript is still real and still persisted. */
+  async sendMessage(text) {
+    const s = get()
+    const body = text.trim()
+    if (!body || !s.conversation) return
+
+    const sent = await api.conversations.append(s.library, s.conversation, {
+      role: 'user',
+      content: body,
+    })
+    set({ messages: [...get().messages, sent] })
+
+    // Name an untitled thread from its opening line.
+    const current = s.conversations.find((c) => c.key === s.conversation)
+    if (current && current.messageCount === 0) {
+      const title = body.length > 40 ? `${body.slice(0, 40)}…` : body
+      await get().renameConversation(s.conversation, title)
+    } else {
+      set({ conversations: await api.conversations.list(s.library) })
+    }
   },
 
   setDensity(density) {

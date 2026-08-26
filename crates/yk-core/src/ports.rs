@@ -87,6 +87,24 @@ pub trait CollectionRepository: Send + Sync {
 }
 
 #[async_trait]
+pub trait ConversationRepository: Send + Sync {
+    async fn list(&self, library_id: i64, limit: u32) -> Result<Vec<Conversation>>;
+    async fn get(&self, library_id: i64, key: &Key) -> Result<Conversation>;
+    async fn create(&self, library_id: i64, title: &str, scope: Option<&str>)
+        -> Result<Conversation>;
+    async fn rename(&self, library_id: i64, key: &Key, title: &str) -> Result<Conversation>;
+    async fn delete(&self, library_id: i64, key: &Key) -> Result<u64>;
+
+    async fn messages(&self, library_id: i64, key: &Key) -> Result<Vec<Message>>;
+    async fn append(
+        &self,
+        library_id: i64,
+        key: &Key,
+        draft: MessageDraft,
+    ) -> Result<Message>;
+}
+
+#[async_trait]
 pub trait SmartCollectionRepository: Send + Sync {
     async fn list(&self, library_id: i64) -> Result<Vec<SmartCollection>>;
     async fn get(&self, library_id: i64, key: &Key) -> Result<SmartCollection>;

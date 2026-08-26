@@ -1,4 +1,7 @@
 export { OverlayHost, contextMenu } from './OverlayHost'
+export { Icon, type IconName } from './Icon'
+export { Modal } from './Modal'
+export { Splitter } from './Splitter'
 export { Badge, Button, Empty, Field, Input, Section, Select, Textarea } from './controls'
 export {
   confirmAction,

@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import type { Item, MatchSource } from '../api/types'
 import { creatorSummary, shortDate, snippetParts, year } from '../lib/format'
@@ -8,19 +8,27 @@ import { contextMenu } from '../ui'
 import { itemMenu } from './menus'
 import { useT } from '../i18n'
 
-/** Column layout, shared by the header and every row so they stay aligned. */
-const GRID = '1fr 150px 48px 108px 132px 108px'
-
-/** Column definitions. The i18n key doubles as the React key so a language
- *  switch never reorders anything. */
+/** Column definitions. `id` keys the persisted widths, so renaming a label or
+ *  switching language never disturbs a user's layout. */
 const COLUMNS = [
-  { field: 'title', key: 'table.title' },
-  { field: 'creator', key: 'table.creator' },
-  { field: 'year', key: 'table.year' },
-  { field: 'itemType', key: 'table.type' },
-  { field: '', key: 'table.tags' },
-  { field: 'dateModified', key: 'table.modified' },
+  { id: 'title', field: 'title', key: 'table.title', width: 0, min: 160 },
+  { id: 'creator', field: 'creator', key: 'table.creator', width: 150, min: 80 },
+  { id: 'year', field: 'year', key: 'table.year', width: 48, min: 40 },
+  { id: 'type', field: 'itemType', key: 'table.type', width: 108, min: 64 },
+  { id: 'tags', field: '', key: 'table.tags', width: 132, min: 64 },
+  { id: 'modified', field: 'dateModified', key: 'table.modified', width: 108, min: 72 },
 ] as const
+
+const MAX_WIDTH = 640
+
+/** A width of 0 means "take what is left", which keeps the table filling the
+ *  pane at any window size until the user pins that column explicitly. */
+function template(widths: Record<string, number>): string {
+  return COLUMNS.map((c) => {
+    const w = widths[c.id] ?? c.width
+    return w > 0 ? `${w}px` : `minmax(${c.min}px, 1fr)`
+  }).join(' ')
+}
 
 const SOURCE_GLYPH: Record<MatchSource, string> = {
   keyword: 'K',
@@ -30,11 +38,12 @@ const SOURCE_GLYPH: Record<MatchSource, string> = {
   field: 'D',
 }
 
-function Row({ item, selected, cursor, style }: {
+function Row({ item, selected, cursor, style, grid }: {
   item: Item
   selected: boolean
   cursor: boolean
   style: React.CSSProperties
+  grid: string
 }) {
   const t = useT()
   const select = useStore((s) => s.select)
@@ -44,7 +53,7 @@ function Row({ item, selected, cursor, style }: {
   return (
     <div
       className="row"
-      style={{ ...style, gridTemplateColumns: GRID }}
+      style={{ ...style, gridTemplateColumns: grid }}
       data-selected={selected}
       data-cursor={cursor}
       onMouseDown={(e) => select(item.key, e.metaKey || e.ctrlKey)}
@@ -86,6 +95,34 @@ export function ItemTable() {
   const loading = useStore((s) => s.loading)
   const query = useStore((s) => s.query)
 
+  const columns = useStore((s) => s.columns)
+  const setColumn = useStore((s) => s.setColumn)
+  const grid = useMemo(() => template(columns), [columns])
+
+  // Resizing tracks the pointer on the window so the drag survives leaving the
+  // 4px grip, which is otherwise almost impossible to stay inside.
+  const startResize = (id: string, min: number) => (e: React.PointerEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const cell = (e.currentTarget as HTMLElement).parentElement
+    const from = e.clientX
+    const base = cell?.getBoundingClientRect().width ?? min
+    let last = base
+    const move = (ev: PointerEvent) => {
+      last = Math.max(min, Math.min(MAX_WIDTH, base + ev.clientX - from))
+      setColumn(id, last)
+    }
+    const up = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      document.body.style.cursor = ''
+      setColumn(id, last, true)
+    }
+    document.body.style.cursor = 'col-resize'
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
   const scrollRef = useRef<HTMLDivElement>(null)
   const rows = useVirtualizer({
     count: items.length,
@@ -100,18 +137,24 @@ export function ItemTable() {
   }, [cursor, items.length, rows])
 
   return (
-    <section className="pane table-pane">
-      <div className="table-head" style={{ gridTemplateColumns: GRID }}>
+    <section className="pane main table-pane">
+      <div className="table-head" style={{ gridTemplateColumns: grid }}>
         {COLUMNS.map((c) => (
-          <button
-            key={c.key}
-            className={sort === c.field ? 'sorted' : undefined}
-            disabled={!c.field}
-            onClick={() => c.field && setSort(c.field)}
-          >
-            {t(c.key)}
-            {sort === c.field ? (direction === 'asc' ? ' ↑' : ' ↓') : ''}
-          </button>
+          <div key={c.id} className="head-cell">
+            <button
+              className={sort === c.field ? 'sorted' : undefined}
+              disabled={!c.field}
+              onClick={() => c.field && setSort(c.field)}
+            >
+              {t(c.key)}
+              {sort === c.field ? (direction === 'asc' ? ' ↑' : ' ↓') : ''}
+            </button>
+            <span
+              className="col-grip"
+              onPointerDown={startResize(c.id, c.min)}
+              onDoubleClick={() => setColumn(c.id, c.width, true)}
+            />
+          </div>
         ))}
       </div>
 
@@ -132,6 +175,7 @@ export function ItemTable() {
                 selected={selected.includes(item.key)}
                 cursor={v.index === cursor}
                 style={{ transform: `translateY(${v.start}px)`, height: v.size }}
+                grid={grid}
               />
             )
           })}

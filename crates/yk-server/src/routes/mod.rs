@@ -1,6 +1,7 @@
 //! HTTP surface. One module per resource; `router` wires them together.
 
 mod collections;
+mod conversations;
 mod items;
 mod plugins;
 mod scrape;
@@ -24,6 +25,7 @@ pub fn router() -> Router<App> {
         .merge(system::router())
         .merge(items::router())
         .merge(collections::router())
+        .merge(conversations::router())
         .merge(search::router())
         .merge(scrape::router())
         .merge(smart::router())

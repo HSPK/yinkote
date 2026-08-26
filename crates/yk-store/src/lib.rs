@@ -5,6 +5,7 @@
 
 mod cache;
 mod collections;
+mod conversations;
 mod db;
 pub mod filter;
 pub mod index;
@@ -18,6 +19,7 @@ pub use cache::CachingTagRepository;
 pub use collections::{SqliteCollectionRepository, SqliteLibraryRepository, SqliteTagRepository};
 pub use db::{sql_err, write_tx, Db, Pool, PooledConn};
 pub use items::{SqliteItemRepository, SqliteSettingsRepository};
+pub use conversations::SqliteConversationRepository;
 pub use smart::SqliteSmartCollectionRepository;
 
 use yk_core::ports::*;
@@ -32,6 +34,7 @@ pub struct Store {
     pub collections: Arc<dyn CollectionRepository>,
     pub tags: Arc<dyn TagRepository>,
     pub smart: Arc<dyn SmartCollectionRepository>,
+    pub conversations: Arc<dyn ConversationRepository>,
     pub settings: Arc<dyn SettingsRepository>,
     /// Concrete handle for operations outside the port surface (index rebuild).
     items_impl: SqliteItemRepository,
@@ -58,6 +61,7 @@ impl Store {
             collections: Arc::new(SqliteCollectionRepository::new(db.clone())),
             tags,
             smart: Arc::new(SqliteSmartCollectionRepository::new(db.clone())),
+            conversations: Arc::new(SqliteConversationRepository::new(db.clone())),
             settings: Arc::new(SqliteSettingsRepository::new(db.clone())),
             items_impl,
             default_library,
@@ -422,6 +426,93 @@ mod tests {
         let kids = s.items.children(lib, &parent.key).await.unwrap();
         assert_eq!(kids.len(), 1);
         assert_eq!(kids[0].item_type, "note");
+    }
+
+    #[tokio::test]
+    async fn conversations_keep_history_in_order() {
+        let s = store();
+        let lib = s.default_library;
+        let convo = s.conversations.create(lib, "扩散模型", Some("collection:ABC")).await.unwrap();
+        assert_eq!(convo.message_count, 0);
+
+        for (role, content) in [("user", "找几篇综述"), ("assistant", "找到 3 篇")] {
+            s.conversations
+                .append(
+                    lib,
+                    &convo.key,
+                    MessageDraft { role: role.into(), content: content.into(), meta: None },
+                )
+                .await
+                .unwrap();
+        }
+
+        let messages = s.conversations.messages(lib, &convo.key).await.unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, "user", "insertion order is preserved");
+        assert_eq!(s.conversations.get(lib, &convo.key).await.unwrap().message_count, 2);
+    }
+
+    #[tokio::test]
+    async fn conversations_sort_by_recency() {
+        let s = store();
+        let lib = s.default_library;
+        let older = s.conversations.create(lib, "older", None).await.unwrap();
+        let newer = s.conversations.create(lib, "newer", None).await.unwrap();
+        // Appending to the older thread must float it back to the top.
+        s.conversations
+            .append(
+                lib,
+                &older.key,
+                MessageDraft { role: "user".into(), content: "ping".into(), meta: None },
+            )
+            .await
+            .unwrap();
+
+        let listed = s.conversations.list(lib, 10).await.unwrap();
+        assert_eq!(listed[0].key, older.key);
+        assert_eq!(listed[1].key, newer.key);
+    }
+
+    #[tokio::test]
+    async fn deleting_a_conversation_takes_its_messages() {
+        let s = store();
+        let lib = s.default_library;
+        let convo = s.conversations.create(lib, "temp", None).await.unwrap();
+        s.conversations
+            .append(
+                lib,
+                &convo.key,
+                MessageDraft { role: "user".into(), content: "x".into(), meta: None },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(s.conversations.delete(lib, &convo.key).await.unwrap(), 1);
+        let orphans: i64 = s
+            .db()
+            .call(|c| {
+                c.query_row("SELECT count(*) FROM messages", [], |r| r.get(0)).map_err(sql_err)
+            })
+            .await
+            .unwrap();
+        assert_eq!(orphans, 0);
+    }
+
+    #[tokio::test]
+    async fn rejects_an_unknown_message_role() {
+        let s = store();
+        let lib = s.default_library;
+        let convo = s.conversations.create(lib, "t", None).await.unwrap();
+        let err = s
+            .conversations
+            .append(
+                lib,
+                &convo.key,
+                MessageDraft { role: "hacker".into(), content: "x".into(), meta: None },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), yk_core::ErrorKind::Invalid);
     }
 
     #[tokio::test]

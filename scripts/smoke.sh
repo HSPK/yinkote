@@ -83,6 +83,15 @@ echo "▸ plugins"
 check "plugin list"      "$(j "$BASE/plugins" | jq -r 'type')"
 check "contributions"    "$(j "$BASE/plugins/contributions" | jq -r 'type')"
 
+echo "▸ conversations"
+CONV=$(j -X POST "$BASE/libraries/$LIB/conversations" -d '{"title":"smoke"}' | jq -r .key)
+check "conversation"     "$CONV"
+check "message append"   "$(j -X POST "$BASE/libraries/$LIB/conversations/$CONV/messages" \
+                              -d '{"role":"user","content":"hello"}' | jq -r .role)"
+check "transcript"       "$(j "$BASE/libraries/$LIB/conversations/$CONV/messages" | jq -r 'length')"
+check "conversation list" "$(j "$BASE/libraries/$LIB/conversations" | jq -r '.[0].messageCount')"
+check "conversation drop" "$(j -X DELETE "$BASE/libraries/$LIB/conversations/$CONV" | jq -r .deleted)"
+
 echo "▸ trash"
 check "trash"            "$(j -X DELETE "$BASE/libraries/$LIB/items" -d "{\"keys\":[\"$KEY\"]}" | jq -r .trashed)"
 check "trash view"       "$(j "$BASE/libraries/$LIB/items?trash=only" | jq -r .total)"
