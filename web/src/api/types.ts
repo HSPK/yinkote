@@ -243,3 +243,9 @@ export interface BadgeValue {
   title?: string
   pluginId: string
 }
+
+export interface AgentStatus {
+  configured: boolean
+  model?: string
+  endpoint?: string
+}

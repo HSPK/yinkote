@@ -2167,6 +2167,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
+name = "yk-agent"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "yk-core",
+]
+
+[[package]]
 name = "yk-core"
 version = "0.1.0"
 dependencies = [
@@ -2248,6 +2260,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "yk-agent",
  "yk-core",
  "yk-plugin",
  "yk-scrape",

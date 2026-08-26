@@ -35,6 +35,33 @@ pub struct Config {
     /// Optional bearer token. When set, every `/api` call must present it.
     pub api_key: Option<String>,
     pub embeddings: Embeddings,
+    pub agent: AgentConfig,
+}
+
+fn default_agent_timeout() -> u64 {
+    120
+}
+
+/// The library Q&A agent.
+///
+/// Off unless an endpoint and a model are named: an agent that silently talks
+/// to a service the user never configured would be a surprise, and a local-first
+/// tool should never make a network call nobody asked for.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AgentConfig {
+    /// An OpenAI-compatible base URL, e.g. `http://127.0.0.1:11434/v1`.
+    pub endpoint: Option<String>,
+    pub model: Option<String>,
+    pub api_key: Option<String>,
+    #[serde(default = "default_agent_timeout")]
+    pub timeout_secs: u64,
+}
+
+impl AgentConfig {
+    pub fn is_configured(&self) -> bool {
+        self.endpoint.is_some() && self.model.is_some()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +104,7 @@ impl Default for Config {
             plugin_dirs: Vec::new(),
             api_key: None,
             embeddings: Embeddings::default(),
+            agent: AgentConfig { timeout_secs: default_agent_timeout(), ..Default::default() },
         }
     }
 }
@@ -126,6 +154,15 @@ impl Config {
         if let Some(d) = std::env::var("YK_EMBED_DIM").ok().and_then(|s| s.parse().ok()) {
             cfg.embeddings.dimensions = d;
         }
+        if let Some(e) = std::env::var("YK_AGENT_ENDPOINT").ok().filter(|s| !s.is_empty()) {
+            cfg.agent.endpoint = Some(e);
+        }
+        if let Some(m) = std::env::var("YK_AGENT_MODEL").ok().filter(|s| !s.is_empty()) {
+            cfg.agent.model = Some(m);
+        }
+        if let Some(k) = std::env::var("YK_AGENT_API_KEY").ok().filter(|s| !s.is_empty()) {
+            cfg.agent.api_key = Some(k);
+        }
         cfg
     }
 
@@ -135,6 +172,12 @@ impl Config {
 
     pub fn database_path(&self) -> PathBuf {
         self.data_dir().join("yinkote.db")
+    }
+
+    /// Where attachment bytes live. Beside the database, so moving a library
+    /// means moving one directory.
+    pub fn storage_dir(&self) -> PathBuf {
+        self.data_dir().join("storage")
     }
 
     /// Built-in plugin directory plus any configured extras.

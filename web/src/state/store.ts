@@ -9,11 +9,23 @@ import { create } from 'zustand'
 import { api, connectEvents } from '../api/client'
 import { detectLocale, schemaLabel, t, useI18n, type Locale } from '../i18n'
 import { DEFAULT_VISIBLE } from '../lib/columns'
+import {
+  LIBRARY_TAB_ID,
+  closeAll,
+  closeOthers,
+  closeTab,
+  libraryTab,
+  nextActive,
+  openTab,
+  tabId,
+  type Tab,
+} from '../lib/tabs'
 import { inferMode } from '../lib/query'
 import { applyTheme, DEFAULT_THEME } from '../lib/theme'
 import { useOverlays } from '../ui/overlays'
 import type { CollectionValues } from '../components/CollectionEditor'
 import type {
+  AgentStatus,
   BadgeDescriptor,
   BadgeValue,
   Collection,
@@ -30,10 +42,11 @@ import type {
   Tag,
 } from '../api/types'
 
-export type View = 'library' | 'trash' | 'collection' | 'smart' | 'chat'
+export type View = 'library' | 'trash' | 'collection' | 'smart'
 
 /** Secondary surfaces. `null` means the workbench itself is in front. */
-export type Modal = null | 'plugins' | 'status' | 'settings' | 'collections'
+/** Only preferences remain modal: everything you *work in* is a tab. */
+export type Modal = null | 'settings'
 export type Panel = 'detail' | 'plugins' | 'stats'
 
 interface State {
@@ -49,6 +62,9 @@ interface State {
 
   /** Which secondary surface is open, if any. */
   modal: Modal
+  /** Open workspace tabs and the one in front. */
+  tabs: Tab[]
+  activeTab: string
   /** The collection being edited: its key, `'new'`, or closed. */
   collectionEditor: string | null
   /** Pane widths in pixels; dragged by the splitters, persisted server-side. */
@@ -65,6 +81,10 @@ interface State {
   detailOpen: boolean
 
   conversations: Conversation[]
+  /** Whether a model is configured; the chat box explains itself if not. */
+  agent: AgentStatus | null
+  /** A question is in flight. */
+  asking: boolean
   conversation: string | null
   messages: Message[]
   /** Row height preference, persisted server-side under `ui.`. */
@@ -123,6 +143,12 @@ interface State {
   moveCursor: (delta: number) => void
   setPanel: (p: Panel) => void
   setModal: (m: Modal) => void
+  openTab: (tab: Tab) => void
+  closeTab: (id: string) => void
+  closeTabs: (scope: 'all' | 'others', keep?: string) => void
+  activateTab: (id: string) => void
+  openReader: (itemKey: string) => void
+  fetchPdf: (itemKey: string, url?: string) => Promise<void>
   openCollectionEditor: (key: string | null) => void
   saveCollection: (key: string | null, values: CollectionValues) => Promise<void>
   setLayout: (patch: Partial<{ sidebar: number; detail: number }>, commit?: boolean) => void
@@ -185,6 +211,8 @@ export const useStore = create<State>((set, get) => ({
   server: null,
   plugins: [],
   modal: null,
+  tabs: [libraryTab('')],
+  activeTab: LIBRARY_TAB_ID,
   collectionEditor: null,
   layout: { sidebar: 232, detail: 380 },
   columnWidths: {},
@@ -193,6 +221,8 @@ export const useStore = create<State>((set, get) => ({
   badges: {},
   detailOpen: true,
   conversations: [],
+  agent: null,
+  asking: false,
   conversation: null,
   messages: [],
   density: 'compact',
@@ -355,7 +385,7 @@ export const useStore = create<State>((set, get) => ({
   async reloadSidebar() {
     const s = get()
     try {
-      const [collections, smartCollections, conversations, tags, stats, plugins, badgeDefs] =
+      const [collections, smartCollections, conversations, tags, stats, plugins, badgeDefs, agent] =
         await Promise.all([
           api.collections.list(s.library),
           api.smart.list(s.library, true),
@@ -368,8 +398,9 @@ export const useStore = create<State>((set, get) => ({
           api.stats(),
           api.plugins.list(),
           api.badges.descriptors(),
+          api.agent().catch(() => ({ configured: false }) as AgentStatus),
         ])
-      set({ collections, smartCollections, conversations, tags, stats, plugins, badgeDefs })
+      set({ collections, smartCollections, conversations, tags, stats, plugins, badgeDefs, agent })
     } catch {
       /* sidebar is decoration; never block the main view on it */
     }
@@ -501,6 +532,42 @@ export const useStore = create<State>((set, get) => ({
     set({ modal })
   },
 
+  openTab(tab) {
+    set({ tabs: openTab(get().tabs, tab), activeTab: tab.id })
+  },
+
+  closeTab(id) {
+    const s = get()
+    set({ activeTab: nextActive(s.tabs, id, s.activeTab), tabs: closeTab(s.tabs, id) })
+  },
+
+  closeTabs(scope, keep) {
+    const tabs = scope === 'all' ? closeAll(get().tabs) : closeOthers(get().tabs, keep ?? '')
+    set({ tabs, activeTab: tabs.some((t) => t.id === get().activeTab) ? get().activeTab : LIBRARY_TAB_ID })
+  },
+
+  activateTab(activeTab) {
+    set({ activeTab })
+  },
+
+  openReader(itemKey) {
+    const title = get().items.find((i) => i.key === itemKey)?.title
+    get().openTab({
+      id: tabId('reader', itemKey),
+      kind: 'reader',
+      title: String(title ?? itemKey),
+      target: itemKey,
+    })
+  },
+
+  /** Download the item's PDF and attach it, then show it. */
+  async fetchPdf(itemKey, url) {
+    const result = await api.files.fetch(get().library, itemKey, url)
+    await get().refresh()
+    get().openReader(itemKey)
+    return void result
+  },
+
   openCollectionEditor(collectionEditor) {
     set({ collectionEditor })
   },
@@ -583,7 +650,9 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async openConversation(key) {
-    set({ view: 'chat', conversation: key, selected: [] })
+    const title = get().conversations.find((c) => c.key === key)?.title
+    set({ conversation: key })
+    get().openTab({ id: tabId('chat', key), kind: 'chat', title: title || '', target: key })
     try {
       set({ messages: await api.conversations.messages(get().library, key) })
     } catch {
@@ -604,25 +673,45 @@ export const useStore = create<State>((set, get) => ({
 
   async removeConversation(key) {
     await api.conversations.remove(get().library, key)
-    if (get().conversation === key) {
-      set({ conversation: null, messages: [] })
-      get().openLibrary()
-    }
+    get().closeTab(tabId('chat', key))
+    if (get().conversation === key) set({ conversation: null, messages: [] })
     set({ conversations: await api.conversations.list(get().library) })
   },
 
-  /** Records the user's turn. The assistant reply arrives with the agent loop;
-   *  until then the transcript is still real and still persisted. */
+  /** Ask the agent, or just record the turn when no model is configured.
+   *
+   *  Either way the question is persisted: a transcript that loses what was
+   *  typed because a model was unreachable would be worse than no transcript. */
   async sendMessage(text) {
     const s = get()
     const body = text.trim()
-    if (!body || !s.conversation) return
+    if (!body || !s.conversation || s.asking) return
 
-    const sent = await api.conversations.append(s.library, s.conversation, {
+    const optimistic: Message = {
+      id: -Date.now(),
       role: 'user',
       content: body,
-    })
-    set({ messages: [...get().messages, sent] })
+      createdAt: Date.now(),
+    }
+    set({ messages: [...s.messages, optimistic], asking: true })
+
+    try {
+      if (s.agent?.configured) {
+        await api.conversations.ask(s.library, s.conversation, body)
+      } else {
+        await api.conversations.append(s.library, s.conversation, { role: 'user', content: body })
+      }
+      // Re-read rather than splice: the server may have appended several
+      // messages, and it is the one that knows their ids.
+      set({ messages: await api.conversations.messages(s.library, s.conversation) })
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : String(e) })
+      if (s.conversation) {
+        set({ messages: await api.conversations.messages(s.library, s.conversation) })
+      }
+    } finally {
+      set({ asking: false })
+    }
 
     // Name an untitled thread from its opening line.
     const current = s.conversations.find((c) => c.key === s.conversation)

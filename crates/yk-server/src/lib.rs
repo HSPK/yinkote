@@ -4,12 +4,14 @@
 //! store → search → host bridge → plugins → app state → router.
 //! Each layer only knows about the abstractions below it.
 
+pub mod agent;
 pub mod badges;
 pub mod config;
 mod error;
 pub mod hostapi;
 pub mod routes;
 pub mod security;
+pub mod storage;
 pub mod state;
 pub mod workers;
 
@@ -50,6 +52,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         store,
         search,
         scrape: Arc::new(yk_scrape::ScrapeEngine::with_defaults()),
+        storage: Arc::new(storage::Storage::new(config.storage_dir())),
         events: EventBus::default(),
     });
 
@@ -71,7 +74,32 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
     let plugins: Arc<dyn PluginHost> = builder.build(HostBridge::new(services.clone())).await?;
 
     let badges = badges::BadgeService::new(plugins.clone());
-    Ok(Arc::new(AppState { services, plugins, badges, config, started: Instant::now() }))
+    let agent = build_agent(&config, &services);
+    Ok(Arc::new(AppState { services, plugins, badges, config, agent, started: Instant::now() }))
+}
+
+/// The agent, when a model has been named.
+///
+/// A misconfigured endpoint disables the agent rather than refusing to start:
+/// the library is the point of the program, and it must open regardless.
+fn build_agent(
+    config: &Config,
+    services: &Arc<state::Services>,
+) -> Option<Arc<yk_agent::Agent>> {
+    if !config.agent.is_configured() {
+        return None;
+    }
+    match agent::OpenAiProvider::new(&config.agent) {
+        Ok(provider) => Some(Arc::new(yk_agent::Agent::new(
+            Arc::new(provider),
+            agent::tools(&services.store, &services.search),
+            agent::SYSTEM_PROMPT.to_string(),
+        ))),
+        Err(error) => {
+            tracing::warn!(%error, "agent disabled");
+            None
+        }
+    }
 }
 
 fn make_embedder(config: &Config) -> Arc<dyn yk_core::ports::EmbeddingProvider> {

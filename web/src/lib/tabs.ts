@@ -1,0 +1,85 @@
+/** The workspace's tabs.
+ *
+ *  A reference manager is not a dialog-driven application: reading a PDF,
+ *  annotating it, asking about it and browsing the library are all things a
+ *  user does *alongside* each other, sometimes for an hour. Modals cannot
+ *  express that — they take the screen, stack badly and lose their state on
+ *  close.
+ *
+ *  A tab is therefore data, and the registry maps a kind to a component. Adding
+ *  a surface is one entry in each, which is also what will let plugins
+ *  contribute their own.
+ */
+
+export type TabKind = 'library' | 'collections' | 'chat' | 'reader' | 'plugins' | 'status'
+
+export interface Tab {
+  /** Stable across reopening, so asking for the same thing twice focuses it. */
+  id: string
+  kind: TabKind
+  /** What the tab bar shows; resolved when opened, not stored per render. */
+  title: string
+  /** Kind-specific target: a conversation key, an item key, and so on. */
+  target?: string
+  /** The library tab is the workbench itself and is always present. */
+  permanent?: boolean
+}
+
+export const LIBRARY_TAB_ID = 'library'
+
+/** The tab every session starts with. */
+export function libraryTab(title: string): Tab {
+  return { id: LIBRARY_TAB_ID, kind: 'library', title, permanent: true }
+}
+
+/** One id per thing, so opening the same item twice focuses the first tab. */
+export function tabId(kind: TabKind, target?: string): string {
+  return target ? `${kind}:${target}` : kind
+}
+
+/**
+ * Open a tab, or focus it when it is already open.
+ *
+ * Returns the same array when nothing changed, so React can skip the render —
+ * clicking the active tab is common and should cost nothing.
+ */
+export function openTab(tabs: Tab[], tab: Tab): Tab[] {
+  const existing = tabs.findIndex((t) => t.id === tab.id)
+  if (existing < 0) return [...tabs, tab]
+  // Re-opening may carry a fresher title, e.g. a renamed conversation.
+  if (tabs[existing]!.title === tab.title) return tabs
+  return tabs.map((t) => (t.id === tab.id ? { ...t, title: tab.title } : t))
+}
+
+/** Close a tab; permanent tabs refuse. */
+export function closeTab(tabs: Tab[], id: string): Tab[] {
+  const target = tabs.find((t) => t.id === id)
+  if (!target || target.permanent) return tabs
+  return tabs.filter((t) => t.id !== id)
+}
+
+/**
+ * Which tab to show after closing `id`.
+ *
+ * The neighbour to the right, falling back to the left: closing a run of tabs
+ * left to right then keeps the hand in one place, which is what every editor
+ * does and what muscle memory expects.
+ */
+export function nextActive(tabs: Tab[], id: string, active: string): string {
+  if (active !== id) return active
+  const index = tabs.findIndex((t) => t.id === id)
+  if (index < 0) return active
+  const remaining = tabs.filter((t) => t.id !== id)
+  if (!remaining.length) return LIBRARY_TAB_ID
+  return (remaining[index] ?? remaining[remaining.length - 1]!).id
+}
+
+/** Close every tab that can be closed. */
+export function closeAll(tabs: Tab[]): Tab[] {
+  return tabs.filter((t) => t.permanent)
+}
+
+/** Close everything except one tab, and the permanent ones. */
+export function closeOthers(tabs: Tab[], keep: string): Tab[] {
+  return tabs.filter((t) => t.permanent || t.id === keep)
+}

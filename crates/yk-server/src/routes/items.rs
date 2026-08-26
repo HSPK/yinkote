@@ -277,6 +277,9 @@ async fn destroy(
     Json(body): Json<KeysBody>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let keys = parse_keys(&body.keys)?;
+    // Files first: once the rows are gone there is nothing left to say which
+    // directories belonged to them, and the bytes would sit there forever.
+    super::files::forget_files(&app, lib, &keys).await;
     let n = app.store().items.delete(lib, &keys).await?;
     let version = announce(&app, lib, |version| DomainEvent::ItemsDeleted {
         library_id: lib,
@@ -291,6 +294,25 @@ async fn empty_trash(
     State(app): State<App>,
     Path(lib): Path<i64>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    let doomed: Vec<Key> = app
+        .store()
+        .items
+        .list(&yk_core::query::ItemQuery {
+            filter: yk_core::query::ItemFilter {
+                library_id: lib,
+                trash: yk_core::query::TrashScope::Only,
+                ..Default::default()
+            },
+            limit: u32::MAX,
+            ..Default::default()
+        })
+        .await?
+        .items
+        .into_iter()
+        .map(|i| i.key)
+        .collect();
+    super::files::forget_files(&app, lib, &doomed).await;
+
     let n = app.store().items.empty_trash(lib).await?;
     let version = announce(&app, lib, |version| DomainEvent::ItemsDeleted {
         library_id: lib,

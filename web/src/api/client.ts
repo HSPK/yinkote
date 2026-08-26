@@ -4,6 +4,7 @@
  *  never touch `fetch` directly.
  */
 import type {
+  AgentStatus,
   BadgeDescriptor,
   BadgeValue,
   Collection,
@@ -186,6 +187,23 @@ export const api = {
         method: 'POST',
         ...json(body),
       }),
+    ask: (lib: number, key: string, content: string) =>
+      request<{ message: Message; truncated: boolean }>(
+        `/libraries/${lib}/conversations/${key}/ask`,
+        { method: 'POST', ...json({ content }) },
+      ),
+  },
+
+  agent: () => request<AgentStatus>('/agent'),
+
+  files: {
+    /** A browser-loadable address, not a fetch: the viewer streams it itself. */
+    url: (lib: number, key: string) => `${BASE}/libraries/${lib}/files/${key}`,
+    fetch: (lib: number, key: string, url?: string) =>
+      request<{ attachment: Item; bytes: number; url: string }>(
+        `/libraries/${lib}/items/${key}/fetch`,
+        { method: 'POST', ...json({ url }) },
+      ),
   },
 
   smart: {

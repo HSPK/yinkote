@@ -129,6 +129,7 @@ function Row({
   const label = useSchemaLabel()
   const select = useStore((s) => s.select)
   const selection = useStore((s) => s.selected)
+  const openReader = useStore((s) => s.openReader)
   const typeDef = useStore((s) => s.schema?.itemTypes.find((d) => d.type === item.itemType))
   const badges = useStore((s) => s.badges[item.key])
 
@@ -146,6 +147,7 @@ function Row({
       data-selected={selected}
       data-cursor={cursor}
       onMouseDown={(e) => select(item.key, e.metaKey || e.ctrlKey)}
+      onDoubleClick={() => openReader(item.key)}
       onContextMenu={contextMenu(() => itemMenu(item))}
       draggable
       onDragStart={(e) => {

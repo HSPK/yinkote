@@ -1553,3 +1553,85 @@ select.ctl { padding: 4px 6px; }
   border-top: 1px solid var(--line);
   background: var(--bg-2);
 }
+
+
+/* ─── workspace tabs ─────────────────────────────────────────────────────── */
+
+.workspace-main { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+
+.tab-bar {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  height: 26px;
+  overflow-x: auto;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  max-width: 200px;
+  padding: 0 6px 0 9px;
+  font-size: 12px;
+  color: var(--fg-mute);
+  border-right: 1px solid var(--line);
+  cursor: default;
+  user-select: none;
+}
+
+.tab:hover { background: var(--bg-3); color: var(--fg-dim); }
+
+/* The active tab joins the surface below it, which is what makes a tab bar
+   read as one thing with its content rather than a row of buttons. */
+.tab[data-active='true'] {
+  color: var(--fg);
+  background: var(--bg-1);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.tab-icon { flex: none; }
+.tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.tab-close {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  width: 14px;
+  height: 14px;
+  line-height: 0;
+  color: var(--fg-mute);
+}
+
+.tab-close:hover { color: #fff; background: var(--err, #c0554b); }
+
+/* ─── reader ─────────────────────────────────────────────────────────────── */
+
+.reader { display: flex; flex-direction: column; overflow: hidden; }
+
+.reader-files {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 3px 6px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.reader-files button {
+  padding: 2px 8px;
+  font: 11px/1.5 var(--mono);
+  color: var(--fg-mute);
+  border: 1px solid transparent;
+}
+
+.reader-files button[data-active='true'] {
+  color: var(--fg);
+  background: var(--bg-3);
+  border-color: var(--line-2);
+}
+
+.reader-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--bg); }

@@ -360,6 +360,17 @@ export const zhCN = {
   'collections.rule': '规则',
   'collections.none': '没有匹配的收藏夹',
   'table.hideColumn': '隐藏此列',
+  'tabs.close': '关闭标签页',
+  'tabs.closeOthers': '关闭其他',
+  'tabs.closeAll': '全部关闭',
+  'reader.title': '阅读',
+  'reader.none': '未选择文献',
+  'reader.noFile': '该文献还没有 PDF —— 可在详情中获取',
+  'reader.unsupported': '浏览器无法内嵌显示该文件',
+  'reader.open': '打开 PDF',
+  'reader.fetch': '获取 PDF',
+  'reader.fetched': '已获取 {name}',
+  'reader.fetchFailed': '获取失败',
 } as const
 
 export type MessageKey = keyof typeof zhCN

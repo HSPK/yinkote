@@ -30,6 +30,16 @@ export function itemMenu(item: Item): MenuItem[] {
   const inTrash = store.view === 'trash'
 
   return [
+    { label: t('reader.open'), onSelect: () => store.openReader(item.key) },
+    {
+      label: t('reader.fetch'),
+      onSelect: () =>
+        withToast(() => store.fetchPdf(item.key), {
+          success: t('reader.fetched', { name: String(item.title ?? item.key) }),
+          failure: t('reader.fetchFailed'),
+        }),
+    },
+    {},
     {
       label: t('menu.openDetail'),
       onSelect: () => {

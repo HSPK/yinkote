@@ -201,6 +201,7 @@ mod tests {
             store,
             search,
             scrape: Arc::new(yk_scrape::ScrapeEngine::with_defaults()),
+            storage: Arc::new(crate::storage::Storage::new(std::env::temp_dir().join("yk-test"))),
             events: yk_core::event::EventBus::default(),
         })
     }

@@ -3,16 +3,13 @@ import { useEffect } from 'react'
 import { CommandPalette } from './components/CommandPalette'
 import { CollectionEditorHost } from './components/CollectionEditorHost'
 import { DetailPanel } from './components/DetailPanel'
-import { ItemTable } from './components/ItemTable'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
+import { TabBar } from './components/TabBar'
 import { TopBar } from './components/TopBar'
+import { TABS } from './workspace/registry'
 import { useT } from './i18n'
-import { ChatView } from './pages/ChatView'
-import { CollectionsPage } from './pages/CollectionsPage'
-import { PluginsPage } from './pages/PluginsPage'
 import { SettingsPage } from './pages/SettingsPage'
-import { StatusPage } from './pages/StatusPage'
 import { useStore } from './state/store'
 import { Modal, OverlayHost, Splitter } from './ui'
 
@@ -94,25 +91,19 @@ function useGlobalKeys() {
   }, [store])
 }
 
+/** Only preferences stay modal. Everything you *work in* is a tab, because
+ *  reading, annotating and asking happen alongside each other. */
 const MODALS = {
-  plugins: { title: 'nav.plugins', width: 'wide', scroll: true, Body: PluginsPage },
-  status: { title: 'nav.status', width: 'wide', scroll: true, Body: StatusPage },
-  // Settings scrolls its own body so the section rail can stay put.
   settings: { title: 'nav.settings', width: 'wide', scroll: false, Body: SettingsPage },
-  collections: {
-    title: 'nav.collections',
-    width: 'wide',
-    scroll: false,
-    Body: CollectionsPage,
-  },
 } as const
 
 export function App() {
   const t = useT()
   const ready = useStore((s) => s.ready)
   const error = useStore((s) => s.error)
-  const view = useStore((s) => s.view)
   const modal = useStore((s) => s.modal)
+  const tabs = useStore((s) => s.tabs)
+  const activeTab = useStore((s) => s.activeTab)
   const layout = useStore((s) => s.layout)
   const detailOpen = useStore((s) => s.detailOpen)
   const setModal = useStore((s) => s.setModal)
@@ -134,6 +125,9 @@ export function App() {
   }
 
   const open = modal ? MODALS[modal] : null
+  const tab = tabs.find((t) => t.id === activeTab) ?? tabs[0]
+  const current = tab ? { tab, def: TABS[tab.kind] } : null
+  const showDetail = current?.def.withDetail ?? false
 
   return (
     <div className="app">
@@ -153,9 +147,12 @@ export function App() {
           onCommit={(sidebar) => setLayout({ sidebar }, true)}
         />
 
-        {view === 'chat' ? <ChatView /> : <ItemTable />}
+        <div className="workspace-main">
+          <TabBar />
+          {current && <current.def.Body target={current.tab.target} />}
+        </div>
 
-        {view !== 'chat' && detailOpen && (
+        {showDetail && detailOpen && (
           <>
             <Splitter
               size={layout.detail}

@@ -10,6 +10,7 @@ name = "yinkote"
 path = "src/main.rs"
 
 [dependencies]
+yk-agent = { path = "../yk-agent" }
 yk-core.workspace = true
 yk-store.workspace = true
 yk-search.workspace = true

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { rankMatches } from '../lib/fuzzy'
+import { tabId } from '../lib/tabs'
 import { useStore } from '../state/store'
 import { confirmAction, promptFor, withToast } from '../ui'
 import { useT } from '../i18n'
@@ -52,11 +53,16 @@ export function CommandPalette() {
       },
       
       { id: 'trash', label: t('menu.openTrash'), run: store.openTrash },
-      ...(['plugins', 'status', 'settings'] as const).map((id) => ({
-        id: `modal-${id}`,
-        label: t('palette.goto', { page: t(`nav.${id}`) }),
-        run: () => store.setModal(id),
+      ...(['collections', 'plugins', 'status'] as const).map((kind) => ({
+        id: `tab-${kind}`,
+        label: t('palette.goto', { page: t(`nav.${kind}`) }),
+        run: () => store.openTab({ id: tabId(kind), kind, title: '' }),
       })),
+      {
+        id: 'settings',
+        label: t('palette.goto', { page: t('nav.settings') }),
+        run: () => store.setModal('settings'),
+      },
       { id: 'new-chat', label: t('chat.new'), run: store.newConversation },
       { id: 'clear', label: t('menu.clearFilters'), run: store.clearFilters },
       { id: 'reindex', label: t('menu.reindex'), run: store.reindex },

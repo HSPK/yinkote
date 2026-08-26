@@ -1,6 +1,7 @@
 import { useT } from '../i18n'
 import { useStore } from '../state/store'
 import { Icon } from '../ui'
+import { tabId } from '../lib/tabs'
 import { QuickAdd } from './QuickAdd'
 import { SearchBar } from './SearchBar'
 
@@ -13,6 +14,7 @@ import { SearchBar } from './SearchBar'
 export function TopBar() {
   const t = useT()
   const setModal = useStore((s) => s.setModal)
+  const openTab = useStore((s) => s.openTab)
 
   return (
     <header className="toolbar">
@@ -26,10 +28,18 @@ export function TopBar() {
 
       <div className="toolbar-right">
         <QuickAdd />
-        <button className="icon-btn" title={t('nav.plugins')} onClick={() => setModal('plugins')}>
+        <button
+          className="icon-btn"
+          title={t('nav.plugins')}
+          onClick={() => openTab({ id: tabId('plugins'), kind: 'plugins', title: '' })}
+        >
           <Icon.Plugin />
         </button>
-        <button className="icon-btn" title={t('nav.status')} onClick={() => setModal('status')}>
+        <button
+          className="icon-btn"
+          title={t('nav.status')}
+          onClick={() => openTab({ id: tabId('status'), kind: 'status', title: '' })}
+        >
           <Icon.Gauge />
         </button>
         <button className="icon-btn" title={t('nav.settings')} onClick={() => setModal('settings')}>

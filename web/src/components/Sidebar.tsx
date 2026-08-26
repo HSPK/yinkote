@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import { compact } from '../lib/format'
 import { beginDrag, dropZone, endDrag } from '../lib/dnd'
 import { collectionColour, collectionIcon } from '../lib/collections'
+import { tabId } from '../lib/tabs'
 import type { DragPayload } from '../lib/dnd'
 import { buildTree } from '../lib/tree'
 import { useStore } from '../state/store'
@@ -49,9 +50,9 @@ export function Sidebar() {
       accepts,
       onDrop: (payload) => withToast(() => onDrop(payload), { failure: t('toast.dropFailed') }),
     })
-  const setModal = useStore((s) => s.setModal)
+  const openTab = useStore((s) => s.openTab)
   const conversations = useStore((s) => s.conversations)
-  const conversation = useStore((s) => s.conversation)
+  const activeTab = useStore((s) => s.activeTab)
   const openConversation = useStore((s) => s.openConversation)
   const newConversation = useStore((s) => s.newConversation)
   const renameConversation = useStore((s) => s.renameConversation)
@@ -181,7 +182,12 @@ export function Sidebar() {
           </button>
         )}
         {collections.length + smartCollections.length > SIDEBAR_LIMIT && (
-          <button className="nav-more" onClick={() => setModal('collections')}>
+          <button
+            className="nav-more"
+            onClick={() =>
+              openTab({ id: tabId('collections'), kind: 'collections', title: '' })
+            }
+          >
             {t('sidebar.browseAll')}
           </button>
         )}
@@ -243,7 +249,7 @@ export function Sidebar() {
           <button
             key={c.key}
             className="nav-item"
-            data-active={view === 'chat' && conversation === c.key}
+            data-active={activeTab === tabId('chat', c.key)}
             onClick={() => void openConversation(c.key)}
             onContextMenu={contextMenu(() => [
               {

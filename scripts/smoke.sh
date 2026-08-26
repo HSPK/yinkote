@@ -91,6 +91,9 @@ check "colour saved"     "$(j "$BASE/libraries/$LIB/collections" \
 check "colour cleared"   "$(j -X PATCH "$BASE/libraries/$LIB/collections/$APPK" -d '{"color":null}' \
                             | jq -r 'if .color then "kept" else .icon end')"
 
+echo "▸ agent"
+check "agent status"     "$(j "$BASE/agent" | jq -r 'has("configured")')"
+
 echo "▸ badges"
 check "badge columns"    "$(j "$BASE/badges" | jq -r 'length')"
 BKEY=$(j -X POST "$BASE/libraries/$LIB/items" \

@@ -463,3 +463,41 @@ async fn a_malformed_badge_sort_falls_back_to_an_ordinary_one() {
         assert_eq!(body["items"].as_array().unwrap().len(), 1, "{sort}");
     }
 }
+
+#[tokio::test]
+async fn the_agent_reports_itself_unconfigured_rather_than_pretending() {
+    let (c, _) = Client::new().await;
+    let body = c.get("/agent").await;
+    assert_eq!(body["configured"], false, "no model is configured by default");
+    assert!(body["model"].is_null());
+}
+
+#[tokio::test]
+async fn asking_without_a_model_still_records_the_question() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let base = format!("/libraries/{lib}/conversations");
+    let key = c.post(&base, json!({ "title": "Ask" })).await["key"].as_str().unwrap().to_string();
+
+    let (status, _) =
+        c.send("POST", &format!("{base}/{key}/ask"), Some(json!({ "content": "why RRF?" }))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "the caller is told what is missing");
+
+    // What the user typed must survive a failure to answer it.
+    let messages = c.get(&format!("{base}/{key}/messages")).await;
+    assert_eq!(messages.as_array().unwrap().len(), 1);
+    assert_eq!(messages[0]["role"], "user");
+}
+
+#[tokio::test]
+async fn an_empty_question_is_rejected_before_anything_is_stored() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let base = format!("/libraries/{lib}/conversations");
+    let key = c.post(&base, json!({})).await["key"].as_str().unwrap().to_string();
+
+    let (status, _) =
+        c.send("POST", &format!("{base}/{key}/ask"), Some(json!({ "content": "  " }))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(c.get(&format!("{base}/{key}/messages")).await.as_array().unwrap().is_empty());
+}
