@@ -3,6 +3,7 @@
 //! Exposes one concrete implementation per repository port plus a [`Store`]
 //! aggregate that owns the connection pool and hands out `Arc`'d ports.
 
+mod cache;
 mod collections;
 mod db;
 pub mod filter;
@@ -12,6 +13,7 @@ mod items;
 use std::path::Path;
 use std::sync::Arc;
 
+pub use cache::CachingTagRepository;
 pub use collections::{SqliteCollectionRepository, SqliteLibraryRepository, SqliteTagRepository};
 pub use db::{sql_err, write_tx, Db, Pool, PooledConn};
 pub use items::{SqliteItemRepository, SqliteSettingsRepository};
@@ -39,11 +41,19 @@ impl Store {
         let db = Db::open(path)?;
         let default_library = SqliteLibraryRepository::ensure_default(&db, "我的文库")?;
         let items_impl = SqliteItemRepository::new(db.clone());
+        let libraries: Arc<dyn LibraryRepository> =
+            Arc::new(SqliteLibraryRepository::new(db.clone()));
+        // Tag aggregates are read on every navigation and are pure derivations
+        // of the library version, so they are worth memoising.
+        let tags: Arc<dyn TagRepository> = Arc::new(CachingTagRepository::new(
+            Arc::new(SqliteTagRepository::new(db.clone())),
+            libraries.clone(),
+        ));
         Ok(Self {
-            libraries: Arc::new(SqliteLibraryRepository::new(db.clone())),
+            libraries,
             items: Arc::new(items_impl.clone()),
             collections: Arc::new(SqliteCollectionRepository::new(db.clone())),
-            tags: Arc::new(SqliteTagRepository::new(db.clone())),
+            tags,
             settings: Arc::new(SqliteSettingsRepository::new(db.clone())),
             items_impl,
             default_library,
@@ -313,6 +323,40 @@ mod tests {
         let tags = s.tags.list(lib, None, 10).await.unwrap();
         assert_eq!(tags.len(), 1);
         assert_eq!(tags[0].count, 2);
+    }
+
+    #[tokio::test]
+    async fn every_tag_mutation_bumps_the_library_version() {
+        let s = store();
+        let lib = s.default_library;
+        let mut a = article("A");
+        a.tags = vec![ItemTag::manual("ml")];
+        s.items.create(lib, a).await.unwrap();
+
+        // Colour changes must be visible to sync clients and read caches.
+        let before = s.libraries.version(lib).await.unwrap();
+        s.tags.set_color(lib, "ml", Some("#ff0000")).await.unwrap();
+        let after = s.libraries.version(lib).await.unwrap();
+        assert!(after > before, "set_color must bump the version");
+
+        s.tags.rename(lib, "ml", "machine learning").await.unwrap();
+        assert!(s.libraries.version(lib).await.unwrap() > after);
+    }
+
+    #[tokio::test]
+    async fn tag_counts_refresh_after_a_write() {
+        let s = store();
+        let lib = s.default_library;
+        let mut a = article("A");
+        a.tags = vec![ItemTag::manual("ml")];
+        s.items.create(lib, a).await.unwrap();
+        assert_eq!(s.tags.list(lib, None, 10).await.unwrap()[0].count, 1);
+
+        let mut b = article("B");
+        b.tags = vec![ItemTag::manual("ml")];
+        s.items.create(lib, b).await.unwrap();
+        // Would fail if the cache served the previous generation.
+        assert_eq!(s.tags.list(lib, None, 10).await.unwrap()[0].count, 2);
     }
 
     #[tokio::test]

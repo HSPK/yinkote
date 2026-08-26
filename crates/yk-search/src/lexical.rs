@@ -52,7 +52,7 @@ fn quote(token: &str, prefix: bool) -> String {
 /// Build an FTS5 MATCH expression. The final token becomes a prefix query so
 /// as-you-type search feels instant.
 pub fn match_expression(input: &str, conjunctive: bool) -> Option<String> {
-    let tokens = text::tokenize(input);
+    let tokens = text::tokenize_query(input);
     if tokens.is_empty() {
         return None;
     }

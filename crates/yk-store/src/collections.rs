@@ -513,12 +513,17 @@ impl TagRepository for SqliteTagRepository {
         let (name, color) = (name.to_string(), color.map(str::to_string));
         self.db
             .call(move |c| {
-                c.execute(
+                let tx = write_tx(c)?;
+                tx.execute(
                     "INSERT INTO tags(library_id, name, color) VALUES (?1,?2,?3) \
                      ON CONFLICT(library_id, name) DO UPDATE SET color = excluded.color",
                     params![library_id, name, color],
                 )
                 .map_err(sql_err)?;
+                // Like every other write: the version bump is what tells sync
+                // clients and read caches that something changed.
+                bump(&tx, library_id)?;
+                tx.commit().map_err(sql_err)?;
                 Ok(())
             })
             .await
