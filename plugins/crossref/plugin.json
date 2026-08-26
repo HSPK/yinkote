@@ -1,0 +1,18 @@
+{
+  "id": "crossref",
+  "name": "Crossref 元数据",
+  "version": "1.0.0",
+  "description": "通过 DOI 或标题从 Crossref 检索文献元数据，可一键入库。",
+  "author": "Yinkote",
+  "homepage": "https://www.crossref.org",
+  "apiVersion": 1,
+  "runtime": {
+    "type": "process",
+    "command": "node",
+    "args": ["main.mjs"]
+  },
+  "capabilities": ["metadata_source"],
+  "permissions": ["network", "items_write", "settings"],
+  "hooks": [],
+  "timeoutMs": 20000
+}

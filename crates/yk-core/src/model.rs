@@ -1,0 +1,374 @@
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+
+use crate::{now_ms, text, Key};
+
+/// Free-form, schema-validated field bag for an item (title, DOI, date, ...).
+pub type Fields = Map<String, Value>;
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct Creator {
+    #[serde(rename = "creatorType", default = "default_creator_type")]
+    pub creator_type: String,
+    /// Two-field mode.
+    #[serde(rename = "firstName", skip_serializing_if = "Option::is_none")]
+    pub first_name: Option<String>,
+    #[serde(rename = "lastName", skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
+    /// Single-field mode (institutions, most CJK personal names).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+fn default_creator_type() -> String {
+    "author".into()
+}
+
+impl Creator {
+    pub fn display(&self) -> String {
+        if let Some(n) = &self.name {
+            return n.clone();
+        }
+        match (&self.first_name, &self.last_name) {
+            (Some(f), Some(l)) => format!("{f} {l}"),
+            (None, Some(l)) => l.clone(),
+            (Some(f), None) => f.clone(),
+            _ => String::new(),
+        }
+    }
+
+    /// Family name (or the whole single-field name) — used for sorting and citekeys.
+    pub fn sort_name(&self) -> String {
+        self.last_name
+            .clone()
+            .or_else(|| self.name.clone())
+            .or_else(|| self.first_name.clone())
+            .unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct ItemTag {
+    pub tag: String,
+    /// 0 = manual, 1 = automatic (importer / plugin / agent generated).
+    #[serde(default)]
+    pub r#type: u8,
+}
+
+impl ItemTag {
+    pub fn manual(tag: impl Into<String>) -> Self {
+        Self { tag: tag.into(), r#type: 0 }
+    }
+    pub fn automatic(tag: impl Into<String>) -> Self {
+        Self { tag: tag.into(), r#type: 1 }
+    }
+}
+
+/// A bibliographic item. Notes, attachments and annotations are items too,
+/// distinguished by `item_type`, which keeps versioning and tagging uniform.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Item {
+    pub key: Key,
+    #[serde(rename = "libraryId")]
+    pub library_id: i64,
+    #[serde(rename = "itemType")]
+    pub item_type: String,
+    #[serde(rename = "parentKey", skip_serializing_if = "Option::is_none")]
+    pub parent_key: Option<Key>,
+    #[serde(flatten)]
+    pub fields: Fields,
+    #[serde(default)]
+    pub creators: Vec<Creator>,
+    #[serde(default)]
+    pub tags: Vec<ItemTag>,
+    #[serde(default)]
+    pub collections: Vec<Key>,
+    pub version: i64,
+    #[serde(default)]
+    pub deleted: bool,
+    #[serde(rename = "dateAdded")]
+    pub date_added: i64,
+    #[serde(rename = "dateModified")]
+    pub date_modified: i64,
+}
+
+impl Item {
+    pub fn field(&self, name: &str) -> Option<&str> {
+        self.fields.get(name).and_then(Value::as_str)
+    }
+
+    pub fn title(&self) -> &str {
+        self.field("title")
+            .or_else(|| self.field("caseName"))
+            .or_else(|| self.field("subject"))
+            .unwrap_or("")
+    }
+
+    pub fn date(&self) -> &str {
+        self.field("date").unwrap_or("")
+    }
+
+    /// First 4-digit run in the date field.
+    pub fn year(&self) -> Option<i32> {
+        let d = self.date();
+        let bytes: Vec<char> = d.chars().collect();
+        for w in bytes.windows(4) {
+            if w.iter().all(|c| c.is_ascii_digit()) {
+                return w.iter().collect::<String>().parse().ok();
+            }
+        }
+        None
+    }
+
+    pub fn creator_summary(&self) -> String {
+        let names: Vec<String> = self.creators.iter().map(Creator::sort_name).collect();
+        match names.len() {
+            0 => String::new(),
+            1 => names[0].clone(),
+            2 => format!("{} & {}", names[0], names[1]),
+            _ => format!("{} et al.", names[0]),
+        }
+    }
+
+    /// Deduplication fingerprint: strongest available identifier, else a
+    /// normalised title/author/year triple.
+    pub fn fingerprint(&self) -> String {
+        for id_field in ["DOI", "ISBN", "PMID", "arXiv"] {
+            if let Some(v) = self.field(id_field) {
+                let v = text::normalize(v);
+                if !v.is_empty() {
+                    return format!("{}:{}", id_field.to_lowercase(), v);
+                }
+            }
+        }
+        format!(
+            "t:{}|a:{}|y:{}",
+            text::normalize(self.title()),
+            text::normalize(&self.creators.first().map(Creator::sort_name).unwrap_or_default()),
+            self.year().map(|y| y.to_string()).unwrap_or_default()
+        )
+    }
+
+    /// Concatenated text used for indexing.
+    pub fn search_text(&self) -> String {
+        let mut s = String::with_capacity(256);
+        s.push_str(self.title());
+        s.push('\n');
+        for c in &self.creators {
+            s.push_str(&c.display());
+            s.push(' ');
+        }
+        s.push('\n');
+        for key in [
+            "abstractNote",
+            "publicationTitle",
+            "bookTitle",
+            "proceedingsTitle",
+            "publisher",
+            "series",
+            "extra",
+            "note",
+        ] {
+            if let Some(v) = self.field(key) {
+                s.push_str(v);
+                s.push('\n');
+            }
+        }
+        for t in &self.tags {
+            s.push_str(&t.tag);
+            s.push(' ');
+        }
+        s
+    }
+
+    pub fn is_regular(&self) -> bool {
+        !matches!(self.item_type.as_str(), "note" | "attachment" | "annotation")
+    }
+}
+
+/// Payload for creating an item. Server assigns key/version/timestamps.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ItemDraft {
+    #[serde(rename = "itemType")]
+    pub item_type: String,
+    #[serde(rename = "parentKey", default)]
+    pub parent_key: Option<Key>,
+    #[serde(flatten, default)]
+    pub fields: Fields,
+    #[serde(default)]
+    pub creators: Vec<Creator>,
+    #[serde(default)]
+    pub tags: Vec<ItemTag>,
+    #[serde(default)]
+    pub collections: Vec<Key>,
+    /// Optional explicit key, used by importers to preserve upstream ids.
+    #[serde(default)]
+    pub key: Option<Key>,
+}
+
+impl ItemDraft {
+    pub fn new(item_type: impl Into<String>) -> Self {
+        Self { item_type: item_type.into(), ..Default::default() }
+    }
+
+    pub fn with_field(mut self, k: &str, v: impl Into<Value>) -> Self {
+        self.fields.insert(k.to_string(), v.into());
+        self
+    }
+
+    pub fn with_creator(mut self, c: Creator) -> Self {
+        self.creators.push(c);
+        self
+    }
+
+    pub fn into_item(self, key: Key, library_id: i64, version: i64) -> Item {
+        let ts = now_ms();
+        Item {
+            key,
+            library_id,
+            item_type: self.item_type,
+            parent_key: self.parent_key,
+            fields: self.fields,
+            creators: self.creators,
+            tags: self.tags,
+            collections: self.collections,
+            version,
+            deleted: false,
+            date_added: ts,
+            date_modified: ts,
+        }
+    }
+}
+
+/// Sparse update. `None` means "leave untouched"; an explicit `null` inside
+/// `fields` clears that field.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ItemPatch {
+    #[serde(rename = "itemType", default)]
+    pub item_type: Option<String>,
+    #[serde(default)]
+    pub fields: Option<Fields>,
+    #[serde(default)]
+    pub creators: Option<Vec<Creator>>,
+    #[serde(default)]
+    pub tags: Option<Vec<ItemTag>>,
+    #[serde(default)]
+    pub collections: Option<Vec<Key>>,
+    #[serde(default)]
+    pub deleted: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Collection {
+    pub key: Key,
+    #[serde(rename = "libraryId")]
+    pub library_id: i64,
+    pub name: String,
+    #[serde(rename = "parentKey", skip_serializing_if = "Option::is_none")]
+    pub parent_key: Option<Key>,
+    #[serde(rename = "sortIndex")]
+    pub sort_index: f64,
+    pub version: i64,
+    /// Number of items directly in this collection.
+    #[serde(rename = "itemCount", default)]
+    pub item_count: i64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct CollectionDraft {
+    pub name: String,
+    #[serde(rename = "parentKey", default)]
+    pub parent_key: Option<Key>,
+    #[serde(rename = "sortIndex", default)]
+    pub sort_index: Option<f64>,
+    #[serde(default)]
+    pub key: Option<Key>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct CollectionPatch {
+    pub name: Option<String>,
+    #[serde(rename = "parentKey")]
+    pub parent_key: Option<Option<Key>>,
+    #[serde(rename = "sortIndex")]
+    pub sort_index: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct Tag {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    pub count: i64,
+    /// 0 = has at least one manual assignment, 1 = purely automatic.
+    pub r#type: u8,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct Library {
+    pub id: i64,
+    pub name: String,
+    pub r#type: String,
+    pub version: i64,
+}
+
+/// A page of results plus the total for the same filter.
+#[derive(Clone, Debug, Serialize)]
+pub struct Page<T> {
+    pub items: Vec<T>,
+    pub total: i64,
+    pub offset: u32,
+    pub limit: u32,
+}
+
+impl<T> Page<T> {
+    pub fn new(items: Vec<T>, total: i64, offset: u32, limit: u32) -> Self {
+        Self { items, total, offset, limit }
+    }
+
+    pub fn map<U>(self, f: impl FnMut(T) -> U) -> Page<U> {
+        Page {
+            items: self.items.into_iter().map(f).collect(),
+            total: self.total,
+            offset: self.offset,
+            limit: self.limit,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(title: &str, doi: Option<&str>, date: &str) -> Item {
+        let mut d = ItemDraft::new("journalArticle").with_field("title", title).with_field("date", date);
+        if let Some(doi) = doi {
+            d = d.with_field("DOI", doi);
+        }
+        d.into_item(Key::generate(), 1, 1)
+    }
+
+    #[test]
+    fn extracts_year() {
+        assert_eq!(item("x", None, "2017-06-12").year(), Some(2017));
+        assert_eq!(item("x", None, "June 2020").year(), Some(2020));
+        assert_eq!(item("x", None, "n.d.").year(), None);
+    }
+
+    #[test]
+    fn fingerprint_prefers_doi() {
+        assert!(item("x", Some("10.1/AB"), "2017").fingerprint().starts_with("doi:"));
+        assert!(item("x", None, "2017").fingerprint().starts_with("t:"));
+    }
+
+    #[test]
+    fn creator_summary_formats() {
+        let mut i = item("x", None, "2017");
+        i.creators = vec![
+            Creator { last_name: Some("Vaswani".into()), ..Default::default() },
+            Creator { last_name: Some("Shazeer".into()), ..Default::default() },
+            Creator { last_name: Some("Parmar".into()), ..Default::default() },
+        ];
+        assert_eq!(i.creator_summary(), "Vaswani et al.");
+    }
+}

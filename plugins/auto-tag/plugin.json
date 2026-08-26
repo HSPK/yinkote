@@ -1,0 +1,17 @@
+{
+  "id": "auto-tag",
+  "name": "自动标签",
+  "version": "1.0.0",
+  "description": "根据标题与摘要中的信号，在条目入库前自动补充标签（可随时停用）。",
+  "author": "Yinkote",
+  "apiVersion": 1,
+  "runtime": {
+    "type": "process",
+    "command": "node",
+    "args": ["main.mjs"]
+  },
+  "capabilities": ["hook"],
+  "permissions": [],
+  "hooks": ["item.beforeCreate", "startup"],
+  "timeoutMs": 3000
+}
