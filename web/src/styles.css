@@ -1185,3 +1185,40 @@ select.ctl { padding: 4px 6px; }
 .rule-editor { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
 .rule-editor .dialog-foot { margin-top: 4px; }
 .ctl-static { font: 12px/22px var(--mono); color: var(--fg-dim); }
+
+
+/* ─── settings ───────────────────────────────────────────────────────────── */
+
+.settings { display: grid; grid-template-columns: 190px minmax(0, 1fr); height: 100%; }
+
+.settings-rail {
+  padding: 8px;
+  overflow: auto;
+  background: var(--bg-2);
+  border-right: 1px solid var(--line);
+}
+
+.settings-search {
+  height: 22px;
+  margin-bottom: 8px;
+  max-width: none;
+}
+
+.settings-search input {
+  border: 0;
+  background: transparent;
+  height: 20px;
+}
+
+.settings-body { overflow: auto; padding: 4px 0; }
+.settings-body > div + div { margin-top: 2px; }
+
+
+.meter {
+  height: 4px;
+  margin-top: 10px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+}
+
+.meter > span { display: block; height: 100%; background: var(--accent); }

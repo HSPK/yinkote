@@ -104,6 +104,7 @@ export interface PluginStatus {
     importers: { id: string; label: string; pluginId: string }[]
     exporters: { id: string; label: string; pluginId: string }[]
     itemActions: { id: string; label: string; pluginId: string }[]
+    badges: BadgeDescriptor[]
   }
   calls: number
   failures: number

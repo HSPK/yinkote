@@ -1,15 +1,42 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { api } from '../api/client'
+import type { PluginStatus } from '../api/types'
 import { useStore } from '../state/store'
 import { Badge, Button, Empty, Field, Section, Textarea, toast, withToast } from '../ui'
 import { useT } from '../i18n'
 
 /** Full-page plugin manager: inventory, health, permissions and a console for
  *  calling a plugin's own methods while developing it. */
+/** Every contribution a plugin makes, rendered the same way.
+ *
+ *  Listing only metadata sources meant a plugin that contributed a badge or an
+ *  importer looked like it contributed nothing at all. */
+function contributionChips(plugin: PluginStatus) {
+  const c = plugin.contributions
+  return [
+    ...c.metadataSources.map((s) => ({ key: `s:${s.id}`, label: s.label, kind: 'plugins.kind.source' as const })),
+    ...c.importers.map((f) => ({ key: `i:${f.id}`, label: f.label, kind: 'plugins.kind.importer' as const })),
+    ...c.exporters.map((f) => ({ key: `e:${f.id}`, label: f.label, kind: 'plugins.kind.exporter' as const })),
+    ...c.itemActions.map((a) => ({ key: `a:${a.id}`, label: a.label, kind: 'plugins.kind.action' as const })),
+    ...(c.badges ?? []).map((b) => ({ key: `b:${b.id}`, label: b.label, kind: 'plugins.kind.badge' as const })),
+  ]
+}
+
+/** Anything broken first, then anything off, then the rest by name. */
+const STATE_RANK: Record<string, number> = { failed: 0, disabled: 1 }
+
 export function PluginsPage() {
   const t = useT()
-  const plugins = useStore((s) => s.plugins)
+  const allPlugins = useStore((s) => s.plugins)
+  const plugins = useMemo(
+    () =>
+      [...allPlugins].sort(
+        (a, b) =>
+          (STATE_RANK[a.state] ?? 2) - (STATE_RANK[b.state] ?? 2) || a.name.localeCompare(b.name),
+      ),
+    [allPlugins],
+  )
   const server = useStore((s) => s.server)
   const setEnabled = useStore((s) => s.setPluginEnabled)
   const reload = useStore((s) => s.reloadPlugins)
@@ -91,7 +118,7 @@ export function PluginsPage() {
                 {p.permissions.length > 0 && (
                   <div className="chip-row tight">
                     {p.permissions.map((perm) => (
-                      <Badge key={perm} tone="warn">
+                      <Badge key={perm} tone="warn" title={t('plugins.permission')}>
                         {perm}
                       </Badge>
                     ))}
@@ -100,15 +127,17 @@ export function PluginsPage() {
                 {p.hooks.length > 0 && (
                   <div className="chip-row tight">
                     {p.hooks.map((h) => (
-                      <Badge key={h}>{h}</Badge>
+                      <Badge key={h} title={t('plugins.hook')}>
+                        {h}
+                      </Badge>
                     ))}
                   </div>
                 )}
-                {p.contributions.metadataSources.length > 0 && (
+                {contributionChips(p).length > 0 && (
                   <div className="chip-row tight">
-                    {p.contributions.metadataSources.map((s) => (
-                      <Badge key={s.id} tone="accent">
-                        {t('plugins.source.label', { label: s.label })}
+                    {contributionChips(p).map((c) => (
+                      <Badge key={c.key} tone="accent" title={t(c.kind)}>
+                        {c.label}
                       </Badge>
                     ))}
                   </div>

@@ -1,7 +1,13 @@
+import { useEffect } from 'react'
+
 import { compact } from '../lib/format'
 import { useStore } from '../state/store'
-import { Button, Section, withToast } from '../ui'
+import { Badge, Button, Section, withToast } from '../ui'
 import { useT } from '../i18n'
+
+/** Ordered worst-first, so a failure is the first thing read. */
+const PLUGIN_STATES = ['failed', 'disabled', 'starting', 'stopped', 'ready'] as const
+type PluginState = (typeof PLUGIN_STATES)[number]
 
 function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -37,6 +43,25 @@ export function StatusPage() {
   const reindex = useStore((s) => s.reindex)
   const optimize = useStore((s) => s.optimize)
   const reloadSidebar = useStore((s) => s.reloadSidebar)
+  const plugins = useStore((s) => s.plugins)
+
+  // The status page is the one place where a stale number is the whole problem,
+  // and it only exists while its modal is open, so polling here is bounded.
+  useEffect(() => {
+    const timer = setInterval(() => void reloadSidebar(), 5000)
+    return () => clearInterval(timer)
+  }, [reloadSidebar])
+
+  // Typed by the catalogue, so an unknown state from a newer server shows its
+  // raw name instead of failing the build or rendering `[missing]`.
+  const health = plugins.reduce<Record<PluginState, number>>(
+    (acc, plugin) => {
+      const state = plugin.state as PluginState
+      acc[state] = (acc[state] ?? 0) + 1
+      return acc
+    },
+    {} as Record<PluginState, number>,
+  )
 
   const embedded = stats?.search.embedded ?? 0
   const documents = stats?.search.documents ?? 0
@@ -83,9 +108,15 @@ export function StatusPage() {
           <Metric label={t('statusPage.provider')} value={stats?.search.provider ?? '—'} />
           <Metric label={t('statusPage.lastQuery')} value={`${tookMs}ms`} />
         </div>
-        {coverage < 100 && (
-          <p className="note">{t('statusPage.coverageNote')}</p>
-        )}
+        <div
+          className="meter"
+          role="progressbar"
+          aria-valuenow={coverage}
+          title={`${compact(embedded)} / ${compact(documents)}`}
+        >
+          <span style={{ width: `${coverage}%` }} />
+        </div>
+        {coverage < 100 && <p className="note">{t('statusPage.coverageNote')}</p>}
       </Section>
 
       <Section
@@ -121,7 +152,14 @@ export function StatusPage() {
           <dt>{t('statusPage.wsClients')}</dt>
           <dd>{stats?.wsClients ?? 0}</dd>
           <dt>{t('statusPage.plugins')}</dt>
-          <dd>{stats?.plugins ?? 0}</dd>
+          <dd className="chip-row tight">
+            {PLUGIN_STATES.filter((state) => health[state]).map((state) => (
+              <Badge key={state} tone={state === 'failed' ? 'warn' : 'default'}>
+                {t(`plugins.state.${state}`)} {health[state]}
+              </Badge>
+            ))}
+            {plugins.length === 0 && '0'}
+          </dd>
         </dl>
       </Section>
     </div>
