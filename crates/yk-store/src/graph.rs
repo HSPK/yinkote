@@ -113,10 +113,16 @@ impl GraphRepository for SqliteGraphRepository {
 }
 
 /// The point above which a tag is too common to mean anything.
+///
+/// Deliberately counts *every* row rather than only top-level items. Adding
+/// `parent_id IS NULL` reads the table instead of the index — 156 ms against
+/// 3.7 ms on a hundred thousand items — and all it buys is excluding
+/// attachments and notes from a number that is then multiplied by a twentieth.
+/// Precision nobody can perceive is not worth forty times the cost.
 fn common_tag_ceiling(conn: &rusqlite::Connection, library_id: i64) -> Result<i64> {
     let items: i64 = conn
         .query_row(
-            "SELECT count(*) FROM items WHERE library_id=?1 AND deleted=0 AND parent_id IS NULL",
+            "SELECT count(*) FROM items WHERE library_id=?1 AND deleted=0",
             params![library_id],
             |r| r.get(0),
         )
@@ -132,58 +138,103 @@ fn by_tag(
     ceiling: i64,
     limit: u32,
 ) -> Result<Vec<Neighbour>> {
-    // The inner select names the focus item's *uncommon* tags. Doing it here
-    // rather than joining `item_tags` to itself keeps the outer scan to the
-    // rows that carry one of a handful of tags.
-    let sql = "SELECT i.key, i.fields, i.item_type, i.year, count(*) AS shared
+    // The inner select names the focus item's *uncommon* tags, so the outer
+    // scan only touches rows carrying one of a handful of tags.
+    //
+    // `CROSS JOIN` pins the join order. Left to itself the planner drove the
+    // query from `items` using `parent_id IS NULL` — a predicate matching the
+    // entire library — and probed the tags for each of a hundred thousand rows:
+    // 61 ms against 8. The keyword changes no results, only which table is the
+    // outer loop, and here only one choice is sane.
+    query(conn, TAG_SQL, params![library_id, id, ceiling, limit], Relation::Tag)
+}
+
+pub(crate) const TAG_SQL: &str = "SELECT i.key, i.fields, i.item_type, i.year, count(*) AS shared
                FROM item_tags it
-               JOIN items i ON i.id = it.item_id
+               CROSS JOIN items i ON i.id = it.item_id
                WHERE it.tag_id IN (
                      SELECT t.id FROM item_tags mine
                      JOIN tags t ON t.id = mine.tag_id
                      WHERE mine.item_id = ?2
-                       AND (SELECT count(*) FROM item_tags c WHERE c.tag_id = t.id) <= ?3)
+                       AND (SELECT count(*) FROM
+                            (SELECT 1 FROM item_tags c WHERE c.tag_id = t.id LIMIT ?3 + 1))
+                           <= ?3)
                  AND it.item_id != ?2
                  AND i.library_id = ?1 AND i.deleted = 0 AND i.parent_id IS NULL
                GROUP BY i.id
                ORDER BY shared DESC, i.year DESC
                LIMIT ?4";
-    query(conn, sql, params![library_id, id, ceiling, limit], Relation::Tag)
-}
+
+/// How many of a prolific author's works are considered before picking the
+/// newest few.
+///
+/// The inner lookup is what keeps this bounded, and the bound is what makes it
+/// safe: without it, `ORDER BY year` tempts the planner to walk the year index
+/// looking for a name, which costs 150 ms for an author with *no* other works —
+/// the most common case in a real library, since most authors appear once.
+/// Seeking by name first and sorting the handful found takes 0.1 ms.
+const AUTHOR_CANDIDATES: u32 = 200;
 
 /// Items by the same leading author.
 ///
-/// `sort_creator` is the normalised leading name and is indexed, so this is a
-/// lookup rather than a scan. It is only the *leading* author: a full
-/// co-authorship graph needs a creators table, and inventing one to answer a
-/// question nobody has asked yet is how schemas rot.
+/// Only the *leading* author: a full co-authorship graph needs a creators
+/// table, and inventing one to answer a question nobody has asked yet is how
+/// schemas rot.
+///
+/// An item with no creator matches nothing, and is asked about not at all —
+/// empty is not a name, and joining every anonymous item to every other is the
+/// loudest possible wrong answer.
 fn by_author(
     conn: &rusqlite::Connection,
     library_id: i64,
     id: i64,
     limit: u32,
 ) -> Result<Vec<Neighbour>> {
-    let sql = "SELECT i.key, i.fields, i.item_type, i.year, 1
-               FROM items i
-               WHERE i.library_id = ?1 AND i.deleted = 0 AND i.parent_id IS NULL
-                 AND i.id != ?2
-                 AND i.sort_creator != ''
-                 AND i.sort_creator = (SELECT sort_creator FROM items WHERE id = ?2)
-               ORDER BY i.year DESC
-               LIMIT ?3";
-    query(conn, sql, params![library_id, id, limit], Relation::Author)
+    let creator: String = conn
+        .query_row("SELECT sort_creator FROM items WHERE id=?1", params![id], |r| r.get(0))
+        .map_err(sql_err)?;
+    if creator.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // The inner select seeks by name — an equality with no ordering, which is
+    // exactly what `idx_items_creator` answers. Sorting happens afterwards, on
+    // the few hundred rows it returned rather than on the whole library.
+    query(
+        conn,
+        AUTHOR_SQL,
+        params![library_id, id, creator, limit, AUTHOR_CANDIDATES],
+        Relation::Author,
+    )
 }
 
+pub(crate) const AUTHOR_SQL: &str = "SELECT i.key, i.fields, i.item_type, i.year, 1
+               FROM items i
+               WHERE i.id IN (SELECT id FROM items
+                              WHERE library_id = ?1 AND deleted = 0
+                                AND sort_creator = ?3 AND id != ?2
+                              LIMIT ?5)
+                 AND i.parent_id IS NULL
+               ORDER BY i.year DESC
+               LIMIT ?4";
+
 /// Items filed in the same collections.
+///
+/// `CROSS JOIN` for the same reason as the tag query, and it mattered more: the
+/// planner walked the whole library to answer a question about an item in no
+/// collections at all — 28 ms to return nothing, against a hundredth of one.
 fn by_collection(
     conn: &rusqlite::Connection,
     library_id: i64,
     id: i64,
     limit: u32,
 ) -> Result<Vec<Neighbour>> {
-    let sql = "SELECT i.key, i.fields, i.item_type, i.year, count(*) AS shared
+    query(conn, COLLECTION_SQL, params![library_id, id, limit], Relation::Collection)
+}
+
+pub(crate) const COLLECTION_SQL: &str = "SELECT i.key, i.fields, i.item_type, i.year, count(*) AS shared
                FROM collection_items ci
-               JOIN items i ON i.id = ci.item_id
+               CROSS JOIN items i ON i.id = ci.item_id
                WHERE ci.collection_id IN
                      (SELECT collection_id FROM collection_items WHERE item_id = ?2)
                  AND ci.item_id != ?2
@@ -191,8 +242,6 @@ fn by_collection(
                GROUP BY i.id
                ORDER BY shared DESC, i.year DESC
                LIMIT ?3";
-    query(conn, sql, params![library_id, id, limit], Relation::Collection)
-}
 
 fn query(
     conn: &rusqlite::Connection,

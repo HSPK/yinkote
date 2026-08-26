@@ -161,6 +161,31 @@ async function main() {
   await measure('tag operator', `/libraries/${lib}/search?q=tag:survey`)
   await measure('hybrid + hydrate items', `/libraries/${lib}/items?q=attention&limit=50`)
 
+  // The graph and citation endpoints joined the interactive path after these
+  // numbers were first taken, and an endpoint nobody measures is an endpoint
+  // that quietly gets slow.
+  console.log('\n▸ relationships')
+  const sample = await get(`/libraries/${lib}/items?limit=1`)
+  const key = sample.items?.[0]?.key
+  if (key) {
+    await measure('graph neighbourhood', `/libraries/${lib}/graph/${key}`, 20)
+  }
+
+  console.log('\n▸ citations')
+  if (key) {
+    const runs = []
+    for (let i = 0; i < 20; i++) {
+      const t = performance.now()
+      await post(`/libraries/${lib}/citations`, { keys: [key], style: 'apa' })
+      runs.push(performance.now() - t)
+    }
+    const c = stats(runs)
+    console.log(
+      `  ${'render one reference'.padEnd(34)} p50 ${c.p50.toFixed(1).padStart(6)}ms  ` +
+        `p95 ${c.p95.toFixed(1).padStart(6)}ms  p99 ${c.p99.toFixed(1).padStart(6)}ms`,
+    )
+  }
+
   console.log('\n▸ write')
   const writes = []
   for (let i = 0; i < 20; i++) {

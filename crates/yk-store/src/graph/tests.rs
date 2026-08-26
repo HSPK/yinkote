@@ -148,3 +148,50 @@ async fn asking_about_an_item_that_is_not_here_says_so() {
     let err = s.graph.neighbours(lib, &missing, 10).await.unwrap_err();
     assert!(err.to_string().contains(missing.as_str()), "{err}");
 }
+
+/// What SQLite says it will do, rather than what it returns.
+///
+/// Parameters are bound so the planner sees the same statement the repository
+/// runs; their values are irrelevant to the plan but their presence is not.
+fn plan(sql: &str, params: usize) -> String {
+    let store = Store::in_memory().unwrap();
+    let conn = store.db().conn().unwrap();
+    let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+    let bound: Vec<i64> = (0..params).map(|_| 1).collect();
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(bound), |r| r.get::<_, String>(3))
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>();
+    rows.join(" | ")
+}
+
+#[test]
+fn the_tag_query_is_driven_by_the_tags_not_by_the_library() {
+    // `CROSS JOIN` in these queries is not decoration and is invisible to every
+    // other test here, so it will look like something to tidy away. Left to
+    // itself the planner drove this from `items` on `parent_id IS NULL` — a
+    // predicate matching the whole library — and probed tags for each of a
+    // hundred thousand rows: 61 ms against 8.
+    let plan = plan(crate::graph::TAG_SQL, 4);
+    assert!(plan.starts_with("SEARCH it USING"), "the tag index must be the outer loop: {plan}");
+    assert!(!plan.contains("SCAN i"), "{plan}");
+}
+
+#[test]
+fn the_collection_query_is_driven_by_the_memberships() {
+    // The same, and it mattered more: 28 ms to walk the library and report that
+    // an item in no collection has no shelf-mates.
+    let plan = plan(crate::graph::COLLECTION_SQL, 3);
+    assert!(plan.starts_with("SEARCH ci USING"), "{plan}");
+    assert!(!plan.contains("SCAN i"), "{plan}");
+}
+
+#[test]
+fn the_author_query_seeks_by_name_before_it_sorts_by_year() {
+    // Sorting first tempts the planner to walk the year index looking for a
+    // name, which costs 150 ms for an author with no other works — the common
+    // case, since most authors appear once.
+    let plan = plan(crate::graph::AUTHOR_SQL, 5);
+    assert!(plan.contains("idx_items_creator"), "must seek by name: {plan}");
+}
