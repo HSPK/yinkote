@@ -23,6 +23,15 @@ export interface Tab {
   target?: string
   /** The library tab is the workbench itself and is always present. */
   permanent?: boolean
+  /**
+   * A preview tab, shown in italics and reused by the next preview.
+   *
+   * Clicking through a list of papers should not leave twenty tabs behind. So
+   * a single glance-at reuses one slot until the user says otherwise — by
+   * double-clicking the tab, or by editing in it. Borrowed from editors
+   * because it is the solved version of this problem.
+   */
+  preview?: boolean
 }
 
 export const LIBRARY_TAB_ID = 'library'
@@ -45,10 +54,30 @@ export function tabId(kind: TabKind, target?: string): string {
  */
 export function openTab(tabs: Tab[], tab: Tab): Tab[] {
   const existing = tabs.findIndex((t) => t.id === tab.id)
-  if (existing < 0) return [...tabs, tab]
-  // Re-opening may carry a fresher title, e.g. a renamed conversation.
-  if (tabs[existing]!.title === tab.title) return tabs
-  return tabs.map((t) => (t.id === tab.id ? { ...t, title: tab.title } : t))
+
+  if (existing >= 0) {
+    const found = tabs[existing]!
+    // Re-opening keeps a tab that was already kept, and may carry a fresher
+    // title — a renamed conversation, say.
+    const preview = found.preview && tab.preview
+    if (found.title === tab.title && found.preview === preview) return tabs
+    return tabs.map((t) => (t.id === tab.id ? { ...t, title: tab.title, preview } : t))
+  }
+
+  if (!tab.preview) return [...tabs, tab]
+
+  // A new preview takes over the slot the last one held, keeping its position
+  // so the bar does not shuffle under the pointer.
+  const slot = tabs.findIndex((t) => t.preview)
+  if (slot < 0) return [...tabs, tab]
+  return tabs.map((t, i) => (i === slot ? tab : t))
+}
+
+/** Promote a preview tab to one that stays. */
+export function keepTab(tabs: Tab[], id: string): Tab[] {
+  const found = tabs.find((t) => t.id === id)
+  if (!found?.preview) return tabs
+  return tabs.map((t) => (t.id === id ? { ...t, preview: false } : t))
 }
 
 /** Close a tab; permanent tabs refuse. */

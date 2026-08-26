@@ -15,6 +15,7 @@ import {
 } from '../lib/query'
 import { useStore } from '../state/store'
 import { Icon } from '../ui'
+import { TABS } from '../workspace/registry'
 
 /** How many tag suggestions to offer; more than this is a list, not a hint. */
 const SUGGESTIONS = 8
@@ -27,7 +28,58 @@ const SUGGESTIONS = 8
  * excluded — a useful thing to want and a safe thing to hit by accident;
  * removal is the explicit × beside it. The retrieval mode is shown, not chosen.
  */
+/**
+ * The toolbar's search box.
+ *
+ * What it searches depends on what is in front: the library's items, the
+ * collection list, or text in the open PDF. One box in one place, meaning the
+ * obvious thing for the surface you are looking at — rather than a box that
+ * quietly searches something you cannot see.
+ */
 export function SearchBar() {
+  const tabs = useStore((s) => s.tabs)
+  const activeTab = useStore((s) => s.activeTab)
+  const kind = tabs.find((tab) => tab.id === activeTab)?.kind ?? 'library'
+  const mode = TABS[kind].search ?? 'none'
+
+  if (mode === 'items') return <ItemSearch />
+  if (mode === 'none') return <div className="search search-idle" />
+  return <PlainFilter kind={mode} />
+}
+
+/** A plain text box for surfaces that filter rather than search. */
+function PlainFilter({ kind }: { kind: 'collections' | 'find' }) {
+  const t = useT()
+  const filter = useStore((s) => s.filter)
+  const setFilter = useStore((s) => s.setFilter)
+
+  return (
+    <div className="search">
+      <Icon.Search size={12} className="search-icon" />
+      <input
+        id="search-input"
+        value={filter}
+        spellCheck={false}
+        autoComplete="off"
+        placeholder={t(kind === 'find' ? 'search.inDocument' : 'search.inCollections')}
+        onChange={(e) => setFilter(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            setFilter('')
+            e.currentTarget.blur()
+          }
+        }}
+      />
+      {filter && (
+        <button className="chip-remove" title={t('search.clear')} onClick={() => setFilter('')}>
+          <Icon.Close size={9} />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function ItemSearch() {
   const t = useT()
   const query = useStore((s) => s.query)
   const mode = useStore((s) => s.mode)

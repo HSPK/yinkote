@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   LIBRARY_TAB_ID,
+  keepTab,
   closeAll,
   closeOthers,
   closeTab,
@@ -62,5 +63,42 @@ describe('tabs', () => {
 
   it('falls back to the library when the last tab closes', () => {
     expect(nextActive([chat], chat.id, chat.id)).toBe(LIBRARY_TAB_ID)
+  })
+})
+
+
+describe('preview tabs', () => {
+  const preview = (id: string) =>
+    ({ id, kind: 'reader', title: id, target: id, preview: true }) as Tab
+
+  it('reuses one slot, so glancing through a list leaves one tab', () => {
+    let tabs = openTab([library], preview('A'))
+    tabs = openTab(tabs, preview('B'))
+    expect(tabs.map((t) => t.id)).toEqual([library.id, 'B'])
+  })
+
+  it('keeps the slot position so the bar does not shuffle under the pointer', () => {
+    let tabs = openTab([library], preview('A'))
+    tabs = openTab(tabs, chat)
+    tabs = openTab(tabs, preview('B'))
+    expect(tabs.map((t) => t.id)).toEqual([library.id, 'B', chat.id])
+  })
+
+  it('leaves a kept tab alone when a new preview opens', () => {
+    let tabs = keepTab(openTab([library], preview('A')), 'A')
+    tabs = openTab(tabs, preview('B'))
+    expect(tabs.map((t) => t.id)).toEqual([library.id, 'A', 'B'])
+  })
+
+  it('promotes a preview and never demotes a kept tab', () => {
+    const tabs = keepTab(openTab([library], preview('A')), 'A')
+    expect(tabs.find((t) => t.id === 'A')?.preview).toBe(false)
+    expect(keepTab(tabs, 'A')).toBe(tabs)
+  })
+
+  it('opening a kept tab again does not turn it back into a preview', () => {
+    const kept = keepTab(openTab([library], preview('A')), 'A')
+    const again = openTab(kept, preview('A'))
+    expect(again.find((t) => t.id === 'A')?.preview).toBe(false)
   })
 })

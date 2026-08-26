@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import type { BadgeValue, Item, MatchSource } from '../api/types'
 import { useSchemaLabel, useT } from '../i18n'
@@ -15,8 +15,7 @@ import {
 import { beginDrag, endDrag } from '../lib/dnd'
 import { creatorSummary, shortDate, snippetParts, year } from '../lib/format'
 import { useStore } from '../state/store'
-import { Icon, contextMenu, type MenuItem } from '../ui'
-import { ColumnPicker } from './ColumnPicker'
+import { contextMenu, type MenuItem } from '../ui'
 import { itemMenu } from './menus'
 
 const MAX_WIDTH = 640
@@ -146,7 +145,9 @@ function Row({
       style={{ ...style, gridTemplateColumns: grid }}
       data-selected={selected}
       data-cursor={cursor}
-      onMouseDown={(e) => select(item.key, e.metaKey || e.ctrlKey)}
+      onMouseDown={(e) =>
+        select(item.key, e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : 'none')
+      }
       onDoubleClick={() => openReader(item.key)}
       onContextMenu={contextMenu(() => itemMenu(item))}
       draggable
@@ -154,7 +155,7 @@ function Row({
         // Dragging an unselected row acts on that row alone, which is what
         // every file manager does and what the hand expects.
         const keys = selected ? selection : [item.key]
-        if (!selected) select(item.key, false)
+        if (!selected) select(item.key)
         beginDrag(e, { kind: 'items', keys }, `${keys.length} item(s)`)
       }}
       onDragEnd={endDrag}
@@ -174,9 +175,7 @@ export function ItemTable() {
   const sort = useStore((s) => s.sort)
   const direction = useStore((s) => s.direction)
   const setSort = useStore((s) => s.setSort)
-  const total = useStore((s) => s.total)
   const loading = useStore((s) => s.loading)
-  const loadingMore = useStore((s) => s.loadingMore)
   const loadMore = useStore((s) => s.loadMore)
   const query = useStore((s) => s.query)
 
@@ -185,9 +184,6 @@ export function ItemTable() {
   const widths = useStore((s) => s.columnWidths)
   const setColumnWidth = useStore((s) => s.setColumnWidth)
   const setColumnOrder = useStore((s) => s.setColumnOrder)
-  const detailOpen = useStore((s) => s.detailOpen)
-  const toggleDetail = useStore((s) => s.toggleDetail)
-  const [picking, setPicking] = useState(false)
 
   const available = useMemo(() => allColumns(badgeDefs.map((b) => badgeColumn(b))), [badgeDefs])
   const columns = useMemo(() => visibleColumns(order, available), [order, available])
@@ -209,7 +205,6 @@ export function ItemTable() {
     { label: t('table.moveRight'), onSelect: () => reorder(c.id, 1) },
     {},
     { label: t('table.hideColumn'), onSelect: () => setColumnOrder(hideColumn(c.id)) },
-    { label: t('table.columns'), onSelect: () => setPicking(true) },
   ]
 
   const hideColumn = (id: string) =>
@@ -311,36 +306,6 @@ export function ItemTable() {
         </div>
       </div>
 
-      <div className="pane-header table-foot">
-        {t('table.count', { shown: items.length, total })}
-        <span className="spacer" />
-        {loading || loadingMore ? t('table.loading') : ''}
-        <span className="column-anchor">
-          <button
-            className="icon-btn"
-            data-active={picking}
-            title={t('table.columns')}
-            onClick={() => setPicking((p) => !p)}
-          >
-            <Icon.Columns />
-          </button>
-          {picking && (
-            <ColumnPicker
-              available={available}
-              label={headerLabel}
-              onClose={() => setPicking(false)}
-            />
-          )}
-        </span>
-        <button
-          className="icon-btn"
-          data-active={detailOpen}
-          title={detailOpen ? t('detail.hide') : t('detail.show')}
-          onClick={() => toggleDetail()}
-        >
-          <Icon.Panel />
-        </button>
-      </div>
     </section>
   )
 }

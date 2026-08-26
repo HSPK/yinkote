@@ -17,10 +17,7 @@ export function TabBar() {
   const activateTab = useStore((s) => s.activateTab)
   const closeTab = useStore((s) => s.closeTab)
   const closeTabs = useStore((s) => s.closeTabs)
-
-  // One tab is the workbench itself; a bar showing only that is chrome for
-  // nothing, so it stays out of the way until there is a choice to make.
-  if (tabs.length <= 1) return null
+  const keepTab = useStore((s) => s.keepTab)
 
   return (
     <div className="tab-bar">
@@ -32,6 +29,7 @@ export function TabBar() {
             key={tab.id}
             className="tab"
             data-active={tab.id === active}
+            data-preview={tab.preview || undefined}
             onMouseDown={(e) => {
               // Middle-click closes, as it does in every browser.
               if (e.button === 1) {
@@ -41,7 +39,16 @@ export function TabBar() {
                 activateTab(tab.id)
               }
             }}
+            // Double-clicking says "I am staying", which is the one gesture
+            // that turns a glance into a place.
+            onDoubleClick={() => keepTab(tab.id)}
             onContextMenu={contextMenu(() => [
+              {
+                label: t('tabs.keep'),
+                disabled: !tab.preview,
+                onSelect: () => keepTab(tab.id),
+              },
+              {},
               { label: t('tabs.close'), disabled: tab.permanent, onSelect: () => closeTab(tab.id) },
               { label: t('tabs.closeOthers'), onSelect: () => closeTabs('others', tab.id) },
               { label: t('tabs.closeAll'), onSelect: () => closeTabs('all') },

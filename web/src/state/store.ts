@@ -10,8 +10,15 @@ import { api, connectEvents } from '../api/client'
 import { detectLocale, schemaLabel, t, useI18n, type Locale } from '../i18n'
 import { DEFAULT_VISIBLE } from '../lib/columns'
 import {
+  applyClick,
+  captureScope,
+  emptyScope,
+  type Scope,
+} from './scope'
+import {
   LIBRARY_TAB_ID,
   closeAll,
+  keepTab,
   closeOthers,
   closeTab,
   libraryTab,
@@ -19,6 +26,7 @@ import {
   openTab,
   tabId,
   type Tab,
+  type TabKind,
 } from '../lib/tabs'
 import { inferMode } from '../lib/query'
 import { applyTheme, DEFAULT_THEME } from '../lib/theme'
@@ -30,26 +38,22 @@ import type {
   BadgeValue,
   Collection,
   Conversation,
-  Item,
   Message,
   ListQuery,
   PluginStatus,
   Schema,
-  SearchMode,
   ServerInfo,
   SmartCollection,
   Stats,
   Tag,
 } from '../api/types'
 
-export type View = 'library' | 'trash' | 'collection' | 'smart'
-
 /** Secondary surfaces. `null` means the workbench itself is in front. */
 /** Only preferences remain modal: everything you *work in* is a tab. */
 export type Modal = null | 'settings'
 export type Panel = 'detail' | 'plugins' | 'stats'
 
-interface State {
+interface State extends Scope {
   // connection & metadata
   ready: boolean
   connected: boolean
@@ -65,8 +69,13 @@ interface State {
   /** Open workspace tabs and the one in front. */
   tabs: Tab[]
   activeTab: string
+  /** Saved library state for tabs that are not in front. */
+  scopes: Record<string, Scope>
   /** The collection being edited: its key, `'new'`, or closed. */
   collectionEditor: string | null
+  /** What the toolbar's search box holds for surfaces that are not the library.
+   *  Kept apart from `query` so switching tabs does not run one as the other. */
+  filter: string
   /** Pane widths in pixels; dragged by the splitters, persisted server-side. */
   layout: { sidebar: number; detail: number }
   /** Item-table column widths in pixels, keyed by column id. */
@@ -93,32 +102,13 @@ interface State {
   /** Hex accent override, or empty to use the theme's own. */
   accent: string
 
-  // navigation
-  view: View
-  collection: string | null
+  // The active tab's library state is projected onto the store, so components
+  // read `items` and `query` without knowing which tab they belong to.
+
   collections: Collection[]
   smartCollections: SmartCollection[]
   tags: Tag[]
-  activeTags: string[]
-  typeFilter: string[]
 
-  // query
-  query: string
-  mode: SearchMode
-  sort: string
-  direction: 'asc' | 'desc'
-
-  // results
-  items: Item[]
-  total: number
-  loading: boolean
-  /** A further page is on its way; distinct from `loading`, which replaces. */
-  loadingMore: boolean
-  tookMs: number
-
-  // selection & UI
-  selected: string[]
-  cursor: number
   panel: Panel
   paletteOpen: boolean
 
@@ -139,15 +129,18 @@ interface State {
   removeSmart: (key: string) => Promise<void>
   toggleTag: (tag: string) => void
   clearFilters: () => void
-  select: (key: string, additive?: boolean) => void
+  select: (key: string, modifier?: 'none' | 'toggle' | 'range') => void
+  selectAll: () => void
   moveCursor: (delta: number) => void
   setPanel: (p: Panel) => void
   setModal: (m: Modal) => void
+  setFilter: (value: string) => void
   openTab: (tab: Tab) => void
   closeTab: (id: string) => void
   closeTabs: (scope: 'all' | 'others', keep?: string) => void
   activateTab: (id: string) => void
-  openReader: (itemKey: string) => void
+  keepTab: (id: string) => void
+  openReader: (itemKey: string, keep?: boolean) => void
   fetchPdf: (itemKey: string, url?: string) => Promise<void>
   summarise: (itemKey: string) => Promise<void>
   openCollectionEditor: (key: string | null) => void
@@ -193,9 +186,13 @@ interface State {
 
 const PAGE = 200
 
-/** What a view falls back to when it has no opinion of its own. */
-const DEFAULT_SORT = 'dateModified'
-const DEFAULT_DIRECTION = 'desc' as const
+/** Tab kinds whose content is a list of items, and so own a library scope. */
+const TAB_OWNS_LIBRARY = new Set<TabKind>(['library'])
+
+/** The scope a freshly shown tab starts with. */
+function scopeFor(tab: Tab): Partial<Scope> {
+  return tab.target ? { view: 'collection', collection: tab.target } : {}
+}
 /** Long enough to avoid a request per keystroke, short enough to feel live. */
 const DEBOUNCE_MS = 140
 
@@ -214,7 +211,9 @@ export const useStore = create<State>((set, get) => ({
   modal: null,
   tabs: [libraryTab('')],
   activeTab: LIBRARY_TAB_ID,
+  scopes: {},
   collectionEditor: null,
+  filter: '',
   layout: { sidebar: 232, detail: 380 },
   columnWidths: {},
   columnOrder: DEFAULT_VISIBLE,
@@ -230,27 +229,14 @@ export const useStore = create<State>((set, get) => ({
   theme: DEFAULT_THEME,
   accent: '',
 
-  view: 'library',
-  collection: null,
+  // The library fields come from one place, so a new one cannot be forgotten
+  // here or in `captureScope`.
+  ...emptyScope(),
+
   collections: [],
   smartCollections: [],
   tags: [],
-  activeTags: [],
-  typeFilter: [],
 
-  query: '',
-  mode: 'keyword',
-  sort: DEFAULT_SORT,
-  direction: DEFAULT_DIRECTION,
-
-  items: [],
-  total: 0,
-  loading: false,
-  loadingMore: false,
-  tookMs: 0,
-
-  selected: [],
-  cursor: 0,
   panel: 'detail',
   paletteOpen: false,
 
@@ -432,16 +418,9 @@ export const useStore = create<State>((set, get) => ({
    *  collection. Leaving it must put them back, or the next view silently
    *  inherits a filter the user never typed and cannot see the origin of. */
   navigate(patch) {
-    set({
-      query: '',
-      mode: inferMode(''),
-      sort: DEFAULT_SORT,
-      direction: DEFAULT_DIRECTION,
-      activeTags: [],
-      cursor: 0,
-      selected: [],
-      ...patch,
-    })
+    // A fresh scope, then whatever the destination asked for: one definition of
+    // "clean slate", shared with a newly shown tab.
+    set({ ...emptyScope(), items: get().items, ...patch })
     void get().refresh()
     void get().reloadSidebar()
   },
@@ -502,19 +481,17 @@ export const useStore = create<State>((set, get) => ({
     void get().refresh()
   },
 
-  select(key, additive = false) {
+  select(key, modifier = 'none') {
     const s = get()
-    const index = s.items.findIndex((i) => i.key === key)
-    if (additive) {
-      set({
-        selected: s.selected.includes(key)
-          ? s.selected.filter((k) => k !== key)
-          : [...s.selected, key],
-        cursor: index >= 0 ? index : s.cursor,
-      })
-    } else {
-      set({ selected: [key], cursor: index >= 0 ? index : s.cursor, panel: 'detail' })
-    }
+    const keys = s.items.map((i) => i.key)
+    const index = keys.indexOf(key)
+    if (index < 0) return
+    set({ ...applyClick(keys, s, index, modifier), panel: 'detail' })
+  },
+
+  selectAll() {
+    const s = get()
+    set({ selected: s.items.map((i) => i.key), anchor: 0, cursor: s.items.length - 1 })
   },
 
   moveCursor(delta) {
@@ -533,13 +510,32 @@ export const useStore = create<State>((set, get) => ({
     set({ modal })
   },
 
+  setFilter(filter) {
+    set({ filter })
+  },
+
   openTab(tab) {
-    set({ tabs: openTab(get().tabs, tab), activeTab: tab.id })
+    const s = get()
+    if (tab.id === s.activeTab) return set({ tabs: openTab(s.tabs, tab) })
+    // Capture before the switch, then let `activateTab` restore.
+    set({ tabs: openTab(s.tabs, tab), scopes: { ...s.scopes, [s.activeTab]: captureScope(s) } })
+    const previous = get().activeTab
+    set({ activeTab: previous })
+    get().activateTab(tab.id)
   },
 
   closeTab(id) {
     const s = get()
-    set({ activeTab: nextActive(s.tabs, id, s.activeTab), tabs: closeTab(s.tabs, id) })
+    const next = nextActive(s.tabs, id, s.activeTab)
+    // Forget the closed tab's scope; keeping it would leak a list of items per
+    // tab ever opened.
+    const scopes = { ...s.scopes }
+    delete scopes[id]
+    set({ tabs: closeTab(s.tabs, id), scopes })
+    if (next !== s.activeTab) {
+      set({ activeTab: s.activeTab })
+      get().activateTab(next)
+    }
   },
 
   closeTabs(scope, keep) {
@@ -547,17 +543,41 @@ export const useStore = create<State>((set, get) => ({
     set({ tabs, activeTab: tabs.some((t) => t.id === get().activeTab) ? get().activeTab : LIBRARY_TAB_ID })
   },
 
+  /** Switch tabs, saving what the old one owned and restoring the new one's.
+   *
+   *  The only place scopes are captured or applied: a scope that is sometimes
+   *  saved would be worse than having none. */
   activateTab(activeTab) {
-    set({ activeTab })
+    const s = get()
+    if (activeTab === s.activeTab) return
+
+    const scopes = { ...s.scopes, [s.activeTab]: captureScope(s) }
+    const restored = scopes[activeTab]
+    set({ activeTab, scopes, ...(restored ?? {}) })
+
+    // A library tab that has never been shown has nothing to restore, so it
+    // fetches once rather than sitting empty.
+    const tab = s.tabs.find((t) => t.id === activeTab)
+    if (!restored && tab && TAB_OWNS_LIBRARY.has(tab.kind)) {
+      set(emptyScope(scopeFor(tab)))
+      void get().refresh()
+    }
   },
 
-  openReader(itemKey) {
+  keepTab(id) {
+    set({ tabs: keepTab(get().tabs, id) })
+  },
+
+  /** Show a paper. A preview by default, so skimming a list of results does
+   *  not leave a tab behind for every one glanced at. */
+  openReader(itemKey, keep = false) {
     const title = get().items.find((i) => i.key === itemKey)?.title
     get().openTab({
       id: tabId('reader', itemKey),
       kind: 'reader',
       title: String(title ?? itemKey),
       target: itemKey,
+      preview: !keep,
     })
   },
 

@@ -36,6 +36,20 @@ function useGlobalKeys() {
         store.togglePalette()
         return
       }
+      // One search box, so Ctrl+F goes to it rather than opening a second one
+      // that searches something else.
+      if (mod && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        const box = document.getElementById('search-input') as HTMLInputElement | null
+        box?.focus()
+        box?.select()
+        return
+      }
+      if (mod && e.key.toLowerCase() === 'a' && !isEditing(e.target)) {
+        e.preventDefault()
+        store.selectAll()
+        return
+      }
       if (e.key === 'Escape') {
         if (store.paletteOpen) return store.togglePalette(false)
         if (store.modal) return store.setModal(null)

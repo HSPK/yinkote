@@ -389,6 +389,16 @@ export const zhCN = {
   'reader.noAnnotations': '选中文字即可高亮',
   'reader.page': '第 {page} 页',
   'reader.highlightFailed': '高亮保存失败',
+  'tabs.keep': '固定此标签页',
+  'collections.footer': '普通 {plain} · 智能 {smart}',
+  'chat.turns': '{count} 条消息',
+  'search.inCollections': '搜索收藏夹',
+  'search.inDocument': '在文档中查找',
+  'search.clear': '清除',
+  'search.next': '下一个',
+  'search.previous': '上一个',
+  'search.matches': '{index} / {total}',
+  'search.noMatches': '无匹配',
 } as const
 
 export type MessageKey = keyof typeof zhCN

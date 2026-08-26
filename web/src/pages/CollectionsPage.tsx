@@ -6,6 +6,7 @@ import { rankMatches } from '../lib/fuzzy'
 import { compact } from '../lib/format'
 import { useStore } from '../state/store'
 import { Badge, Empty, Icon, contextMenu } from '../ui'
+import { tabId } from '../lib/tabs'
 import { collectionMenu, smartMenu } from '../components/menus'
 
 interface Entry {
@@ -34,9 +35,9 @@ export function CollectionsPage() {
   const openCollection = useStore((s) => s.openCollection)
   const openSmart = useStore((s) => s.openSmart)
   const openCollectionEditor = useStore((s) => s.openCollectionEditor)
-  const setModal = useStore((s) => s.setModal)
+  const openTab = useStore((s) => s.openTab)
 
-  const [filter, setFilter] = useState('')
+  const filter = useStore((s) => s.filter)
   const [sort, setSort] = useState<SortKey>('name')
   const [descending, setDescending] = useState(false)
 
@@ -90,31 +91,27 @@ export function CollectionsPage() {
     </button>
   )
 
-  const open = (entry: Entry) => {
+  /** Show a collection in its own tab, so two can be compared side by side. */
+  const open = (entry: Entry, keep = false) => {
+    openTab({
+      id: tabId('library', entry.key),
+      kind: 'library',
+      title: entry.name,
+      target: entry.key,
+      preview: !keep,
+    })
     if (entry.smart) openSmart(entry.key)
     else openCollection(entry.key)
-    setModal(null)
   }
 
   return (
     <div className="collections-browser">
-      <div className="search browser-search">
-        <Icon.Search size={12} className="search-icon" />
-        <input
-          value={filter}
-          autoFocus
-          spellCheck={false}
-          placeholder={t('collections.search')}
-          onChange={(e) => setFilter(e.target.value)}
-        />
-        <span className="search-mode">{visible.length}</span>
-      </div>
-
       <div className="table-head browser-grid">
         {header('name', t('dialog.name'))}
         {header('kind', t('collections.kind'))}
         {header('items', t('collections.items'))}
         <button disabled>{t('collections.rule')}</button>
+        <span />
       </div>
 
       <div className="browser-body">
@@ -129,18 +126,17 @@ export function CollectionsPage() {
               key={entry.key}
               className="row browser-grid"
               data-colour={collectionColour(entry.color)}
-              onDoubleClick={() => open(entry)}
+              onClick={() => open(entry)}
+              onDoubleClick={() => open(entry, true)}
               onContextMenu={contextMenu(() =>
                 entry.smart && source && 'query' in source
                   ? smartMenu(source)
                   : collectionMenu(source as never),
               )}
             >
-              <div className="cell">
+              <div className="cell name-cell" title={entry.name}>
                 <Glyph className="glyph" />
-                <button className="link" onClick={() => open(entry)}>
-                  {entry.name}
-                </button>
+                <span className="name">{entry.name}</span>
               </div>
               <div className="cell">
                 <Badge tone={entry.smart ? 'accent' : 'default'}>

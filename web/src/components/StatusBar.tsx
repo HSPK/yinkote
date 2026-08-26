@@ -1,18 +1,21 @@
 import { useStore } from '../state/store'
 import { useT } from '../i18n'
+import { TABS } from '../workspace/registry'
 
 export function StatusBar() {
   const t = useT()
   const connected = useStore((s) => s.connected)
-  const total = useStore((s) => s.total)
   const selected = useStore((s) => s.selected)
   const tookMs = useStore((s) => s.tookMs)
   const mode = useStore((s) => s.mode)
   const query = useStore((s) => s.query)
   const error = useStore((s) => s.error)
   const stats = useStore((s) => s.stats)
-  const panel = useStore((s) => s.panel)
-  const setPanel = useStore((s) => s.setPanel)
+  const tabs = useStore((s) => s.tabs)
+  const activeTab = useStore((s) => s.activeTab)
+
+  const active = tabs.find((t) => t.id === activeTab)
+  const Footer = active ? TABS[active.kind].Footer : undefined
 
   return (
     <footer className="statusbar">
@@ -20,16 +23,19 @@ export function StatusBar() {
         ●
       </span>
       <span>{connected ? t('status.live') : t('status.offline')}</span>
-      <span>{t('status.items', { count: total })}</span>
       {selected.length > 0 && <span>{t('status.selected', { count: selected.length })}</span>}
-      {query && <span>{mode.toUpperCase()} · {tookMs}ms</span>}
-      {!query && <span>{tookMs}ms</span>}
-
-      <span className="spacer" />
-
-      {error && <span className="err" title={error}>⚠ {error}</span>}
-      {stats && (
+      {query && (
         <span>
+          {mode.toUpperCase()} · {tookMs}ms
+        </span>
+      )}
+      {error && (
+        <span className="err" title={error}>
+          ⚠ {error}
+        </span>
+      )}
+      {stats && (
+        <span className="dim">
           {t('status.vectors', {
             done: stats.search.embedded,
             total: stats.search.documents,
@@ -37,9 +43,8 @@ export function StatusBar() {
         </span>
       )}
 
-      <button className="toolbtn" data-active={panel === 'detail'} onClick={() => setPanel('detail')}>
-        {t('status.detailPanel')}
-      </button>
+      <span className="statusbar-sep" />
+      {Footer ? <Footer /> : <span className="spacer" />}
     </footer>
   )
 }

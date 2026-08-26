@@ -34,7 +34,6 @@ export function Sidebar() {
   const tagItems = useStore((s) => s.tagItems)
   const trashItems = useStore((s) => s.trashItems)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState(false)
   const [tagsExpanded, setTagsExpanded] = useState(false)
 
   /** A drop target, with the shared highlight and error reporting applied. */
@@ -63,10 +62,8 @@ export function Sidebar() {
   // The sidebar is a shortcut list, not an inventory. Past a point another row
   // stops helping and starts hiding the rows below it, so the rest lives in a
   // browser that can search and sort.
-  const shownSmart = expanded ? smartCollections : smartCollections.slice(0, SIDEBAR_LIMIT)
-  const shownTree = expanded ? tree : tree.slice(0, SIDEBAR_LIMIT)
-  const hiddenCollections =
-    smartCollections.length - shownSmart.length + (tree.length - shownTree.length)
+  const shownSmart = smartCollections.slice(0, SIDEBAR_LIMIT)
+  const shownTree = tree.slice(0, SIDEBAR_LIMIT)
   const shownTags = tagsExpanded ? tags : tags.slice(0, TAG_LIMIT)
 
   return (
@@ -171,26 +168,12 @@ export function Sidebar() {
           </button>
         ))}
 
-        {hiddenCollections > 0 && !expanded && (
-          <button className="nav-more" onClick={() => setExpanded(true)}>
-            {t('sidebar.more', { count: hiddenCollections })}
-          </button>
-        )}
-        {expanded && (
-          <button className="nav-more" onClick={() => setExpanded(false)}>
-            {t('sidebar.less')}
-          </button>
-        )}
-        {collections.length + smartCollections.length > SIDEBAR_LIMIT && (
-          <button
-            className="nav-more"
-            onClick={() =>
-              openTab({ id: tabId('collections'), kind: 'collections', title: '' })
-            }
-          >
-            {t('sidebar.browseAll')}
-          </button>
-        )}
+        <button
+          className="nav-more"
+          onClick={() => openTab({ id: tabId('collections'), kind: 'collections', title: '' })}
+        >
+          {t('sidebar.browseAll')}
+        </button>
       </div>
 
       <div className="nav-group">

@@ -1474,7 +1474,17 @@ select.ctl { padding: 4px 6px; }
   background: var(--bg-2);
 }
 
-.browser-grid { grid-template-columns: minmax(0, 2fr) 90px 72px minmax(0, 2fr) 28px; }
+/* The header and the rows share this, so a column added to one without the
+   other is impossible rather than merely noticeable. */
+.browser-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 84px 64px minmax(0, 2fr) 28px;
+  align-items: center;
+  gap: 0;
+}
+
+.name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.name-cell .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .browser-body { flex: 1; min-height: 0; overflow: auto; }
 
 .browser-body .row {
@@ -1484,7 +1494,7 @@ select.ctl { padding: 4px 6px; }
 }
 
 .browser-body .row:hover { background: var(--bg-2); }
-.browser-body .glyph { flex: none; width: 13px; margin-right: 6px; color: var(--fg-mute); }
+.browser-body .glyph { flex: none; width: 13px; color: var(--fg-mute); }
 .browser-body .row[data-colour='red'] .glyph { color: var(--c-red); }
 .browser-body .row[data-colour='amber'] .glyph { color: var(--c-amber); }
 .browser-body .row[data-colour='green'] .glyph { color: var(--c-green); }
@@ -1594,6 +1604,9 @@ select.ctl { padding: 4px 6px; }
 }
 
 .tab-icon { flex: none; }
+
+/* Italic means "this slot is up for grabs" — the same signal editors use. */
+.tab[data-preview] .tab-label { font-style: italic; }
 .tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .tab-close {
@@ -1744,3 +1757,13 @@ select.ctl { padding: 4px 6px; }
 }
 
 .pdf-text ::selection { background: rgb(77 163 255 / 45%); }
+
+
+.statusbar-sep { width: 1px; height: 12px; margin: 0 4px; background: var(--line-2); }
+.statusbar .dim { color: var(--fg-mute); }
+.statusbar .icon-btn { width: 18px; height: 18px; }
+.search-idle { visibility: hidden; }
+
+/* The picker opens upwards from the status bar, which is the bottom of the
+   window; opening downwards would put it off screen. */
+.statusbar .column-pop { bottom: calc(100% + 6px); }

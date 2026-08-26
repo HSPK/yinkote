@@ -9,6 +9,7 @@ import { PluginsPage } from '../pages/PluginsPage'
 import { ReaderView } from '../pages/ReaderView'
 import { StatusPage } from '../pages/StatusPage'
 import type { IconName } from '../ui'
+import { ChatFooter, CollectionsFooter, LibraryFooter, ReaderFooter } from './footers'
 
 export interface TabDefinition {
   Body: ComponentType<{ target?: string }>
@@ -17,6 +18,10 @@ export interface TabDefinition {
   labelKey: MessageKey
   /** Whether the detail pane is useful beside this surface. */
   withDetail?: boolean
+  /** What this surface contributes to the status bar. */
+  Footer?: ComponentType
+  /** What the toolbar's search box does here. */
+  search?: 'items' | 'collections' | 'find' | 'none'
 }
 
 /**
@@ -27,10 +32,31 @@ export interface TabDefinition {
  * seam a plugin-contributed view would slot into.
  */
 export const TABS: Record<TabKind, TabDefinition> = {
-  library: { Body: ItemTable, icon: 'Library', labelKey: 'nav.library', withDetail: true },
-  collections: { Body: CollectionsPage, icon: 'Folder', labelKey: 'nav.collections' },
-  chat: { Body: ChatView, icon: 'Chat', labelKey: 'sidebar.chat' },
-  reader: { Body: ReaderView, icon: 'Library', labelKey: 'reader.title', withDetail: true },
-  plugins: { Body: PluginsPage, icon: 'Plugin', labelKey: 'nav.plugins' },
-  status: { Body: StatusPage, icon: 'Gauge', labelKey: 'nav.status' },
+  library: {
+    Body: ItemTable,
+    icon: 'Library',
+    labelKey: 'nav.library',
+    withDetail: true,
+    Footer: LibraryFooter,
+    search: 'items',
+  },
+  collections: {
+    Body: CollectionsPage,
+    icon: 'Folder',
+    labelKey: 'nav.collections',
+    withDetail: true,
+    Footer: CollectionsFooter,
+    search: 'collections',
+  },
+  chat: { Body: ChatView, icon: 'Chat', labelKey: 'sidebar.chat', Footer: ChatFooter, search: 'none' },
+  reader: {
+    Body: ReaderView,
+    icon: 'Library',
+    labelKey: 'reader.title',
+    withDetail: true,
+    Footer: ReaderFooter,
+    search: 'find',
+  },
+  plugins: { Body: PluginsPage, icon: 'Plugin', labelKey: 'nav.plugins', search: 'none' },
+  status: { Body: StatusPage, icon: 'Gauge', labelKey: 'nav.status', search: 'none' },
 }
