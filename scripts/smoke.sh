@@ -99,6 +99,11 @@ BKEY=$(j -X POST "$BASE/libraries/$LIB/items" \
 check "badge resolve"    "$(j -X POST "$BASE/libraries/$LIB/badges" -d "{\"keys\":[\"$BKEY\"]}" \
                             | jq -r ".\"$BKEY\" | length")"
 
+check "badge sort"       "$(j "$BASE/libraries/$LIB/items?sort=badge:journal-metrics:if&direction=asc&limit=1" \
+                            | jq -r '.items | length')"
+check "badge sort junk"  "$(j "$BASE/libraries/$LIB/items?sort=badge:&limit=1" | jq -r '.items | length')"
+check "paging offset"    "$(j "$BASE/libraries/$LIB/items?limit=1&offset=1" | jq -r '.items[0].key')"
+
 echo "▸ conversations"
 CONV=$(j -X POST "$BASE/libraries/$LIB/conversations" -d '{"title":"smoke"}' | jq -r .key)
 check "conversation"     "$CONV"

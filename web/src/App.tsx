@@ -9,6 +9,7 @@ import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
 import { useT } from './i18n'
 import { ChatView } from './pages/ChatView'
+import { CollectionsPage } from './pages/CollectionsPage'
 import { PluginsPage } from './pages/PluginsPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { StatusPage } from './pages/StatusPage'
@@ -94,9 +95,16 @@ function useGlobalKeys() {
 }
 
 const MODALS = {
-  plugins: { title: 'nav.plugins', width: 'wide', Body: PluginsPage },
-  status: { title: 'nav.status', width: 'wide', Body: StatusPage },
-  settings: { title: 'nav.settings', width: 'wide', Body: SettingsPage },
+  plugins: { title: 'nav.plugins', width: 'wide', scroll: true, Body: PluginsPage },
+  status: { title: 'nav.status', width: 'wide', scroll: true, Body: StatusPage },
+  // Settings scrolls its own body so the section rail can stay put.
+  settings: { title: 'nav.settings', width: 'wide', scroll: false, Body: SettingsPage },
+  collections: {
+    title: 'nav.collections',
+    width: 'wide',
+    scroll: false,
+    Body: CollectionsPage,
+  },
 } as const
 
 export function App() {
@@ -168,7 +176,12 @@ export function App() {
       <CommandPalette />
       <CollectionEditorHost />
       {open && (
-        <Modal title={t(open.title)} width={open.width} onClose={() => setModal(null)}>
+        <Modal
+          title={t(open.title)}
+          width={open.width}
+          scroll={open.scroll}
+          onClose={() => setModal(null)}
+        >
           <open.Body />
         </Modal>
       )}

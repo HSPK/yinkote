@@ -28,13 +28,22 @@ function lookup(fields) {
 
 /** Impact factor colouring: the thresholds are conventional, not derived. */
 function impactTone(value) {
-  if (value >= 10) return 'high'
-  if (value >= 5) return 'mid'
-  return 'low'
+  if (value >= 20) return 'violet'
+  if (value >= 10) return 'red'
+  if (value >= 5) return 'amber'
+  if (value >= 2) return 'green'
+  return 'blue'
 }
 
-const QUARTILE_TONE = { Q1: 'high', Q2: 'mid', Q3: 'low', Q4: 'low' }
-const CAS_TONE = { 1: 'high', 2: 'mid', 3: 'low', 4: 'low' }
+/* Every level gets its own colour rather than three shades of one, so a
+   quartile can be told apart at a glance without reading it. */
+const QUARTILE_TONE = { Q1: 'red', Q2: 'amber', Q3: 'green', Q4: 'blue' }
+const CAS_TONE = { 1: 'red', 2: 'amber', 3: 'green', 4: 'blue' }
+
+/* Ranks are "higher is better", which is what the host sorts by. Quartiles and
+   tiers count the other way round, so they are inverted here — the host has no
+   way to know that Q1 beats Q4. */
+const QUARTILE_RANK = { Q1: 4, Q2: 3, Q3: 2, Q4: 1 }
 
 function badgesFor(item, wanted) {
   const metrics = lookup(item?.fields)
@@ -45,6 +54,7 @@ function badgesFor(item, wanted) {
     out.push({
       badge: 'if',
       text: metrics.if.toFixed(1),
+      rank: metrics.if,
       tone: impactTone(metrics.if),
       title: `Impact factor ${metrics.if}`,
     })
@@ -53,6 +63,7 @@ function badgesFor(item, wanted) {
     out.push({
       badge: 'jcr',
       text: metrics.jcr,
+      rank: QUARTILE_RANK[metrics.jcr] ?? 0,
       tone: QUARTILE_TONE[metrics.jcr] ?? 'neutral',
       title: `JCR ${metrics.jcr}`,
     })
@@ -60,7 +71,8 @@ function badgesFor(item, wanted) {
   if (wanted.includes('cas') && metrics.cas) {
     out.push({
       badge: 'cas',
-      text: `${metrics.cas}`,
+      text: `${metrics.cas}区`,
+      rank: 5 - metrics.cas,
       tone: CAS_TONE[metrics.cas] ?? 'neutral',
       title: `CAS tier ${metrics.cas}`,
     })
@@ -78,6 +90,7 @@ const methods = {
       badges: [
         {
           id: 'if',
+          sortable: true,
           label: 'IF',
           description: 'Journal impact factor',
           needs: ['ISSN', 'publicationTitle'],
@@ -85,6 +98,7 @@ const methods = {
         },
         {
           id: 'jcr',
+          sortable: true,
           label: 'JCR',
           description: 'JCR quartile',
           needs: ['ISSN', 'publicationTitle'],
@@ -92,6 +106,7 @@ const methods = {
         },
         {
           id: 'cas',
+          sortable: true,
           label: 'CAS',
           description: 'Chinese Academy of Sciences journal tier',
           needs: ['ISSN', 'publicationTitle'],

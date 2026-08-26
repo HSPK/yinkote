@@ -173,6 +173,8 @@ export function ItemTable() {
   const setSort = useStore((s) => s.setSort)
   const total = useStore((s) => s.total)
   const loading = useStore((s) => s.loading)
+  const loadingMore = useStore((s) => s.loadingMore)
+  const loadMore = useStore((s) => s.loadMore)
   const query = useStore((s) => s.query)
 
   const badgeDefs = useStore((s) => s.badgeDefs)
@@ -249,6 +251,15 @@ export function ItemTable() {
     if (items.length) rows.scrollToIndex(cursor, { align: 'auto' })
   }, [cursor, items.length, rows])
 
+  // Fetch the next page as the last rendered rows come into view. Driven by the
+  // virtualiser rather than a scroll handler, so it also fires when the cursor
+  // is walked to the end with the keyboard.
+  const virtual = rows.getVirtualItems()
+  const lastVisible = virtual[virtual.length - 1]?.index ?? 0
+  useEffect(() => {
+    if (items.length && lastVisible >= items.length - 24) void loadMore()
+  }, [lastVisible, items.length, loadMore])
+
   return (
     <section className="pane main table-pane">
       <div
@@ -285,7 +296,7 @@ export function ItemTable() {
           </div>
         )}
         <div style={{ height: rows.getTotalSize(), position: 'relative' }}>
-          {rows.getVirtualItems().map((v) => {
+          {virtual.map((v) => {
             const item = items[v.index]
             if (!item) return null
             return (
@@ -306,7 +317,7 @@ export function ItemTable() {
       <div className="pane-header table-foot">
         {t('table.count', { shown: items.length, total })}
         <span className="spacer" />
-        {loading ? t('table.loading') : ''}
+        {loading || loadingMore ? t('table.loading') : ''}
         <button className="icon-btn" title={t('table.columns')} onClick={contextMenu(columnMenu)}>
           <Icon.Columns />
         </button>

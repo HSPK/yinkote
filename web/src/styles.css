@@ -1189,6 +1189,11 @@ select.ctl { padding: 4px 6px; }
 
 .modal-close:hover { color: var(--fg); background: var(--bg-3); }
 .modal-body { flex: 1; min-height: 0; overflow: auto; }
+.modal-body[data-scroll='false'] { overflow: hidden; }
+
+/* Content that scrolls its own panes needs a definite height to divide up; an
+   auto-height modal would collapse to the tallest pane and scroll as one. */
+.modal[data-fill] { height: 84vh; }
 
 
 /* ─── drag and drop ──────────────────────────────────────────────────────── */
@@ -1222,10 +1227,17 @@ select.ctl { padding: 4px 6px; }
   background: var(--bg-2);
 }
 
-/* Tone is a ranking, so the scale reads top to bottom at a glance. */
+/* A tone is either a severity or a palette colour: a plugin with three levels
+   wants one scale, a plugin with four quartiles wants four distinct colours. */
 .badge-pill[data-tone='high'] { color: #fff; background: var(--accent); border-color: var(--accent); }
 .badge-pill[data-tone='mid'] { color: var(--fg); border-color: var(--accent-dim); }
 .badge-pill[data-tone='low'] { color: var(--fg-mute); }
+
+.badge-pill[data-tone='red'] { color: #fff; background: var(--c-red); border-color: var(--c-red); }
+.badge-pill[data-tone='amber'] { color: #17110a; background: var(--c-amber); border-color: var(--c-amber); }
+.badge-pill[data-tone='green'] { color: #fff; background: var(--c-green); border-color: var(--c-green); }
+.badge-pill[data-tone='blue'] { color: #fff; background: var(--c-blue); border-color: var(--c-blue); }
+.badge-pill[data-tone='violet'] { color: #fff; background: var(--c-violet); border-color: var(--c-violet); }
 
 .menu-check {
   display: inline-block;
@@ -1393,3 +1405,91 @@ select.ctl { padding: 4px 6px; }
 }
 
 .toggle[aria-checked='true'] .toggle-knob { background: #fff; transform: translateX(14px); }
+
+
+/* ─── accent picker ──────────────────────────────────────────────────────── */
+
+.accent-row { position: relative; display: flex; align-items: center; gap: 8px; }
+
+.accent-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  height: 24px;
+  font: 11px/1 var(--mono);
+  color: var(--fg-dim);
+  border: 1px solid var(--line-2);
+  background: var(--bg);
+}
+
+.accent-button:hover { border-color: var(--accent-dim); color: var(--fg); }
+.accent-preview { width: 12px; height: 12px; border: 1px solid var(--line-2); }
+
+.accent-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 40%);
+}
+
+.accent-grid { display: grid; grid-template-columns: repeat(4, 22px); gap: 4px; }
+.accent-grid .swatch { width: 22px; height: 22px; }
+.accent-custom { display: flex; align-items: center; gap: 6px; }
+.accent-custom .ctl { width: 92px; font: 11px/1 var(--mono); }
+.accent-picker { width: 26px; height: 24px; padding: 0; border: 1px solid var(--line-2); }
+
+
+/* ─── sidebar overflow ───────────────────────────────────────────────────── */
+
+.nav-more {
+  display: block;
+  width: 100%;
+  padding: 3px 12px 3px 26px;
+  text-align: left;
+  font: 11px/1.5 var(--mono);
+  color: var(--fg-mute);
+}
+
+.nav-more:hover { color: var(--accent); background: var(--bg-2); }
+.tag-chip.more { color: var(--fg-mute); border-style: dashed; }
+
+/* ─── collections browser ────────────────────────────────────────────────── */
+
+.collections-browser { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+
+.browser-search {
+  flex: none;
+  height: 26px;
+  max-width: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+.browser-grid { grid-template-columns: minmax(0, 2fr) 90px 72px minmax(0, 2fr) 28px; }
+.browser-body { flex: 1; min-height: 0; overflow: auto; }
+
+.browser-body .row {
+  position: static;
+  height: 26px;
+  border-bottom: 1px solid var(--line);
+}
+
+.browser-body .row:hover { background: var(--bg-2); }
+.browser-body .glyph { flex: none; width: 13px; margin-right: 6px; color: var(--fg-mute); }
+.browser-body .row[data-colour='red'] .glyph { color: var(--c-red); }
+.browser-body .row[data-colour='amber'] .glyph { color: var(--c-amber); }
+.browser-body .row[data-colour='green'] .glyph { color: var(--c-green); }
+.browser-body .row[data-colour='blue'] .glyph { color: var(--c-blue); }
+.browser-body .row[data-colour='violet'] .glyph { color: var(--c-violet); }
+
+.link { color: inherit; text-align: left; }
+.link:hover { color: var(--accent); text-decoration: underline; }

@@ -216,6 +216,11 @@ pub struct BadgeDescriptor {
     /// Preferred column width in pixels.
     #[serde(default)]
     pub width: Option<u32>,
+    /// Whether the column can be ordered by. Requires the plugin to return a
+    /// `rank` with each value: sorting the *text* would put "10.5" before
+    /// "9.8" and Q10 before Q2, which is worse than not offering it.
+    #[serde(default)]
+    pub sortable: bool,
     #[serde(rename = "pluginId", skip_deserializing, default)]
     pub plugin_id: String,
 }
@@ -226,7 +231,14 @@ pub struct BadgeValue {
     /// Matches `BadgeDescriptor::id`.
     pub badge: String,
     pub text: String,
-    /// Optional severity, used for colour: `high`, `mid`, `low`, `neutral`.
+    /// How this value ranks against others in the same column. Higher sorts
+    /// first when descending. The plugin decides what "higher" means, because
+    /// only it knows whether tier 1 beats tier 4 or the reverse.
+    #[serde(default)]
+    pub rank: Option<f64>,
+    /// Colour for this value. Either a severity (`high`, `mid`, `low`,
+    /// `neutral`) or one of the collection palette names, so a plugin can give
+    /// each level its own colour rather than three shades of one.
     #[serde(default)]
     pub tone: Option<String>,
     /// Longer text for a tooltip.

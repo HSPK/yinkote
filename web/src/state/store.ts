@@ -33,7 +33,7 @@ import type {
 export type View = 'library' | 'trash' | 'collection' | 'smart' | 'chat'
 
 /** Secondary surfaces. `null` means the workbench itself is in front. */
-export type Modal = null | 'plugins' | 'status' | 'settings'
+export type Modal = null | 'plugins' | 'status' | 'settings' | 'collections'
 export type Panel = 'detail' | 'plugins' | 'stats'
 
 interface State {
@@ -92,6 +92,8 @@ interface State {
   items: Item[]
   total: number
   loading: boolean
+  /** A further page is on its way; distinct from `loading`, which replaces. */
+  loadingMore: boolean
   tookMs: number
 
   // selection & UI
@@ -102,6 +104,8 @@ interface State {
 
   bootstrap: () => Promise<void>
   refresh: () => Promise<void>
+  loadMore: () => Promise<void>
+  listQuery: (offset?: number) => ListQuery
   reloadSidebar: () => Promise<void>
   setQuery: (q: string) => void
   setSort: (field: string) => void
@@ -206,6 +210,7 @@ export const useStore = create<State>((set, get) => ({
   items: [],
   total: 0,
   loading: false,
+  loadingMore: false,
   tookMs: 0,
 
   selected: [],
@@ -280,24 +285,31 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async refresh() {
+  /** Build the list query for the current view; shared by the first page and
+   *  every one after it, so they cannot disagree about what is being listed. */
+  listQuery(offset = 0) {
     const s = get()
-    const seq = ++requestSeq
-    set({ loading: true })
-    const started = performance.now()
-    const query: ListQuery = {
+    return {
       q: s.query || undefined,
       mode: s.query ? s.mode : undefined,
-      collection: s.view === 'collection' ? s.collection ?? undefined : undefined,
+      collection: s.view === 'collection' ? (s.collection ?? undefined) : undefined,
       tag: s.activeTags.length ? s.activeTags : undefined,
       itemType: s.typeFilter.length ? s.typeFilter : undefined,
       trash: s.view === 'trash' ? 'only' : 'exclude',
       sort: s.sort,
       direction: s.direction,
       limit: PAGE,
-    }
+      offset: offset || undefined,
+    } satisfies ListQuery
+  },
+
+  async refresh() {
+    const s = get()
+    const seq = ++requestSeq
+    set({ loading: true })
+    const started = performance.now()
     try {
-      const page = await api.items.list(s.library, query)
+      const page = await api.items.list(s.library, get().listQuery())
       // Ignore responses that a newer keystroke has already superseded.
       if (seq !== requestSeq) return
       set({
@@ -312,6 +324,26 @@ export const useStore = create<State>((set, get) => ({
     } catch (e) {
       if (seq !== requestSeq) return
       set({ loading: false, error: e instanceof Error ? e.message : String(e) })
+    }
+  },
+
+  /** Append the next page.
+   *
+   *  Guarded by the same sequence number as `refresh`, so a page that arrives
+   *  after the view has changed is dropped instead of being stitched onto a
+   *  list it does not belong to. */
+  async loadMore() {
+    const s = get()
+    if (s.loadingMore || s.loading || s.items.length >= s.total) return
+    const seq = requestSeq
+    set({ loadingMore: true })
+    try {
+      const page = await api.items.list(s.library, get().listQuery(s.items.length))
+      if (seq !== requestSeq) return
+      set({ items: [...get().items, ...page.items], total: page.total, loadingMore: false })
+      void get().loadBadges(page.items.map((i) => i.key))
+    } catch {
+      if (seq === requestSeq) set({ loadingMore: false })
     }
   },
 

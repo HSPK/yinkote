@@ -83,6 +83,12 @@ pub struct ListParams {
     pub keys: Option<String>,
 }
 
+/// A request to order by a plugin-supplied badge column.
+pub struct BadgeSort {
+    pub plugin_id: String,
+    pub badge: String,
+}
+
 fn split(value: &Option<String>) -> Vec<String> {
     value
         .iter()
@@ -120,6 +126,20 @@ impl ListParams {
             since: self.since,
             keys,
         })
+    }
+
+    /// `sort=badge:<pluginId>:<badgeId>`, if that is what was asked for.
+    pub fn badge_sort(&self) -> Option<BadgeSort> {
+        let rest = self.sort.as_deref()?.strip_prefix("badge:")?;
+        let (plugin_id, badge) = rest.split_once(':')?;
+        (!plugin_id.is_empty() && !badge.is_empty())
+            .then(|| BadgeSort { plugin_id: plugin_id.to_string(), badge: badge.to_string() })
+    }
+
+    /// Whether the request asked for descending order, defaulting to it: a
+    /// badge sort is nearly always "show me the best first".
+    pub fn descending(&self) -> bool {
+        self.direction.as_deref() != Some("asc")
     }
 
     pub fn query(&self, library_id: i64) -> Result<ItemQuery> {

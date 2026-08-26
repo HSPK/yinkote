@@ -222,8 +222,15 @@ mod tests {
             let mut out = serde_json::Map::new();
             for item in items {
                 let key = item["key"].as_str().unwrap_or_default().to_string();
-                if item["fields"].get("ISSN").is_some() {
-                    out.insert(key, json!([{ "badge": "if", "text": "12.3", "tone": "high" }]));
+                if let Some(issn) = item["fields"].get("ISSN").and_then(Value::as_str) {
+                    // The ISSN's leading digit stands in for a metric, so a
+                    // test can control the ranking it expects.
+                    let rank: f64 = issn.chars().next().and_then(|c| c.to_digit(10)).unwrap_or(0)
+                        as f64;
+                    out.insert(
+                        key,
+                        json!([{ "badge": "if", "text": "12.3", "rank": rank, "tone": "violet" }]),
+                    );
                 }
             }
             Ok(json!({ "badges": out }))
@@ -243,6 +250,7 @@ mod tests {
                 description: None,
                 needs: vec!["ISSN".into()],
                 width: None,
+                sortable: true,
                 plugin_id: "metrics".into(),
             }],
             calls: calls.clone(),
@@ -318,6 +326,17 @@ mod tests {
         let second = asked[1]["items"].as_array().unwrap();
         assert_eq!(second.len(), 1, "only the edited item is re-asked");
         assert_eq!(second[0]["key"], "AAA");
+    }
+
+    #[tokio::test]
+    async fn carries_the_rank_and_colour_the_plugin_chose() {
+        // The host cannot know that Q1 beats Q4 or that tier 1 is the best, so
+        // the plugin ranks and colours its own values and the host only orders.
+        let (host, _) = host(false);
+        let svc = BadgeService::new(host);
+        let got = svc.resolve(&[item("AAA", Some("9000-0000"))]).await;
+        assert_eq!(got["AAA"][0].rank, Some(9.0));
+        assert_eq!(got["AAA"][0].tone.as_deref(), Some("violet"));
     }
 
     #[tokio::test]

@@ -347,6 +347,18 @@ export const zhCN = {
   'collection.new': '新建收藏夹',
   'collection.edit': '编辑收藏夹',
   'menu.edit': '编辑…',
+  'settings.accentDefault': '跟随主题',
+  'sidebar.more': '还有 {count} 个…',
+  'sidebar.less': '收起',
+  'sidebar.browseAll': '全部收藏夹…',
+  'nav.collections': '收藏夹',
+  'collections.search': '搜索收藏夹',
+  'collections.kind': '类型',
+  'collections.kind.smart': '智能',
+  'collections.kind.plain': '普通',
+  'collections.items': '条目',
+  'collections.rule': '规则',
+  'collections.none': '没有匹配的收藏夹',
 } as const
 
 export type MessageKey = keyof typeof zhCN

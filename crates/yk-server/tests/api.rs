@@ -434,3 +434,32 @@ async fn collections_reparent_and_return_to_the_top_level() {
         c.send("PATCH", &format!("{base}/{pk}"), Some(json!({ "parentKey": pk }))).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a collection cannot contain itself");
 }
+
+#[tokio::test]
+async fn sorting_by_a_badge_needs_a_plugin_and_degrades_without_one() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    c.post(&format!("/libraries/{lib}/items"), json!([article("Unranked")])).await;
+
+    // No badge plugin is loaded in tests, so nothing can be ranked. The list
+    // must still come back — an unorderable column is not a broken request.
+    let (status, body) = c
+        .send("GET", &format!("/libraries/{lib}/items?sort=badge:metrics:if"), None)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["items"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_malformed_badge_sort_falls_back_to_an_ordinary_one() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    c.post(&format!("/libraries/{lib}/items"), json!([article("Anything")])).await;
+
+    for sort in ["badge:", "badge:metrics", "badge::if"] {
+        let (status, body) =
+            c.send("GET", &format!("/libraries/{lib}/items?sort={sort}"), None).await;
+        assert_eq!(status, StatusCode::OK, "{sort} must not fail the request");
+        assert_eq!(body["items"].as_array().unwrap().len(), 1, "{sort}");
+    }
+}

@@ -3,8 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { SourceInfo } from '../api/types'
 import { LOCALES, useI18n, useT, type Locale } from '../i18n'
+import { AccentPicker } from '../components/AccentPicker'
 import { filterSettings, type SettingSection } from '../lib/settings'
-import { THEMES, isHexColour } from '../lib/theme'
+import { THEMES } from '../lib/theme'
 import { useStore } from '../state/store'
 import { Badge, Button, Field, Icon, Input, Section, Select, toast, withToast } from '../ui'
 
@@ -89,20 +90,7 @@ export function SettingsPage() {
             label: t('settings.accent'),
             keywords: t('settings.keywords.accent'),
             render: () => (
-              <div className="accent-row">
-                <input
-                  type="color"
-                  className="accent-picker"
-                  value={isHexColour(accent) ? accent : '#4da3ff'}
-                  onChange={(e) => setTheme(theme, e.target.value)}
-                />
-                <code>{accent || '—'}</code>
-                {accent && (
-                  <Button tone="ghost" onClick={() => setTheme(theme, '')}>
-                    {t('settings.reset')}
-                  </Button>
-                )}
-              </div>
+              <AccentPicker value={accent} onChange={(next) => setTheme(theme, next)} />
             ),
           },
           {

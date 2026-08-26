@@ -14,7 +14,7 @@ use yk_core::plugin::{hooks, HookEvent};
 use yk_core::query::{SearchHit, SearchRequest};
 use yk_core::Key;
 
-use super::{announce, key, notify_plugins, ListParams};
+use super::{announce, key, notify_plugins, BadgeSort, ListParams};
 use crate::error::ApiResult;
 use crate::state::App;
 
@@ -53,6 +53,14 @@ fn version_header(version: i64) -> HeaderMap {
     h
 }
 
+/// How many items a badge sort will consider.
+///
+/// Badge values come from a plugin, not the database, so ordering by one means
+/// asking the plugin about every candidate. That is fine for a working set and
+/// unreasonable for a whole library, so the sort is bounded and says so in a
+/// header rather than quietly returning a wrong order.
+const BADGE_SORT_CAP: u32 = 2_000;
+
 /// List or search, depending on whether `q` is present.
 ///
 /// Keeping both behind one endpoint means the UI has a single code path and
@@ -64,6 +72,10 @@ async fn list(
 ) -> ApiResult<(HeaderMap, Json<Page<ItemView>>)> {
     let version = app.store().libraries.version(lib).await?;
     let text = params.text().to_string();
+
+    if let Some(badge) = params.badge_sort() {
+        return list_by_badge(app, lib, params, badge, version).await;
+    }
 
     if text.is_empty() {
         let page = app.store().items.list(&params.query(lib)?).await?;
@@ -316,4 +328,60 @@ async fn duplicates(
     Json(body): Json<DuplicateBody>,
 ) -> ApiResult<Json<Vec<Item>>> {
     Ok(Json(app.store().items.find_by_fingerprint(lib, &body.fingerprints).await?))
+}
+
+
+/// List ordered by a plugin-supplied badge.
+///
+/// Items the plugin has nothing to say about sort last in either direction:
+/// "no impact factor" is not the same as "the lowest impact factor", and
+/// burying real values under blanks when sorting ascending would be useless.
+async fn list_by_badge(
+    app: App,
+    lib: i64,
+    params: ListParams,
+    badge: BadgeSort,
+    version: i64,
+) -> ApiResult<(HeaderMap, Json<Page<ItemView>>)> {
+    let mut query = params.query(lib)?;
+    let (offset, limit) = (query.offset, query.limit);
+    query.offset = 0;
+    query.limit = BADGE_SORT_CAP;
+
+    let page = app.store().items.list(&query).await?;
+    let total = page.total;
+    let mut items = page.items;
+
+    let badges = app.badges.resolve(&items).await;
+    let rank_of = |item: &Item| -> Option<f64> {
+        badges.get(item.key.as_str())?.iter().find_map(|v| {
+            (v.badge == badge.badge && v.plugin_id == badge.plugin_id).then_some(v.rank).flatten()
+        })
+    };
+
+    let descending = params.descending();
+    items.sort_by(|a, b| match (rank_of(a), rank_of(b)) {
+        (Some(x), Some(y)) => {
+            let ordering = x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal);
+            if descending { ordering.reverse() } else { ordering }
+        }
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+
+    let window: Vec<ItemView> = items
+        .into_iter()
+        .skip(offset as usize)
+        .take(limit as usize)
+        .map(ItemView::from)
+        .collect();
+
+    let mut headers = version_header(version);
+    if total > BADGE_SORT_CAP as i64 {
+        if let Ok(v) = BADGE_SORT_CAP.to_string().parse() {
+            headers.insert("X-Badge-Sort-Cap", v);
+        }
+    }
+    Ok((headers, Json(Page::new(window, total, offset, limit))))
 }

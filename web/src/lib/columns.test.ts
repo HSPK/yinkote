@@ -11,7 +11,7 @@ import {
   visibleColumns,
 } from './columns'
 
-const badge = badgeColumn({ id: 'if', label: 'IF', pluginId: 'metrics' })
+const badge = badgeColumn({ id: 'if', label: 'IF', pluginId: 'metrics', sortable: true })
 
 describe('columns', () => {
   it('defaults to columns that all exist', () => {
@@ -23,6 +23,15 @@ describe('columns', () => {
     const other = badgeColumn({ id: 'if', label: 'IF', pluginId: 'other' })
     expect(badge.id).not.toBe(other.id)
     expect(badge.badge).toBe('if')
+  })
+
+  it('sorts by the column id, so the server knows which plugin to ask', () => {
+    expect(badge.sort).toBe(badge.id)
+  })
+
+  it('offers no sort for a badge whose plugin cannot rank its values', () => {
+    // Sorting the text would put "10.5" before "9.8"; refusing is better.
+    expect(badgeColumn({ id: 'x', label: 'X', pluginId: 'p' }).sort).toBeNull()
   })
 
   it('orders visible columns as the user arranged them, not as declared', () => {

@@ -228,13 +228,18 @@ export interface BadgeDescriptor {
   description?: string
   needs: string[]
   width?: number
+  /** Orderable, which requires the plugin to return a `rank` with each value. */
+  sortable?: boolean
   pluginId: string
 }
 
 export interface BadgeValue {
   badge: string
   text: string
-  tone?: 'high' | 'mid' | 'low' | 'neutral'
+  /** Higher sorts first when descending; the plugin decides what higher means. */
+  rank?: number
+  /** A severity or a palette colour name, so each level can differ. */
+  tone?: string
   title?: string
   pluginId: string
 }

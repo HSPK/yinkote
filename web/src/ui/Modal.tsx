@@ -13,10 +13,14 @@ export interface ModalProps {
   onClose: () => void
   /** `wide` suits inventories and dashboards; `narrow` suits forms. */
   width?: 'narrow' | 'wide'
+  /** Set false when the content scrolls its own panes; the body then fills the
+   *  modal instead of scrolling as one document, which is what lets a side rail
+   *  stay put while the rest moves. */
+  scroll?: boolean
   children: ReactNode
 }
 
-export function Modal({ title, onClose, width = 'wide', children }: ModalProps) {
+export function Modal({ title, onClose, width = 'wide', scroll = true, children }: ModalProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -30,14 +34,21 @@ export function Modal({ title, onClose, width = 'wide', children }: ModalProps) 
 
   return (
     <div className="overlay" onMouseDown={onClose}>
-      <div className="modal" data-width={width} onMouseDown={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        data-width={width}
+        data-fill={!scroll || undefined}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <header className="modal-head">
           <span>{title}</span>
           <button className="modal-close" onClick={onClose} title="Esc">
             <Icon.Close size={13} />
           </button>
         </header>
-        <div className="modal-body">{children}</div>
+        <div className="modal-body" data-scroll={scroll}>
+          {children}
+        </div>
       </div>
     </div>
   )

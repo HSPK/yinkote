@@ -40,13 +40,16 @@ export function badgeColumn(badge: {
   label: string
   pluginId: string
   width?: number
+  sortable?: boolean
 }): ColumnDef {
   return {
     id: `badge:${badge.pluginId}:${badge.id}`,
     // Badge labels are plugin-authored, so they carry their own text; the
     // catalogue key is unused and the table reads `label` instead.
     labelKey: 'table.badge',
-    sort: null,
+    // The sort key is the column id: the server reads it back apart to know
+    // which plugin to ask, so the two cannot drift.
+    sort: badge.sortable ? `badge:${badge.pluginId}:${badge.id}` : null,
     width: badge.width ?? 72,
     min: 44,
     badge: badge.id,

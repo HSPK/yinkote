@@ -10,6 +10,10 @@ import { Icon, contextMenu, confirmAction, promptFor, withToast } from '../ui'
 import { collectionMenu, libraryMenu, newCollection, smartMenu, trashMenu } from './menus' 
 import { useT } from '../i18n'
 
+/** How many rows each sidebar group shows before offering the rest elsewhere. */
+const SIDEBAR_LIMIT = 12
+const TAG_LIMIT = 24
+
 export function Sidebar() {
   const t = useT()
   const view = useStore((s) => s.view)
@@ -29,6 +33,8 @@ export function Sidebar() {
   const tagItems = useStore((s) => s.tagItems)
   const trashItems = useStore((s) => s.trashItems)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [tagsExpanded, setTagsExpanded] = useState(false)
 
   /** A drop target, with the shared highlight and error reporting applied. */
   const zone = (
@@ -43,6 +49,7 @@ export function Sidebar() {
       accepts,
       onDrop: (payload) => withToast(() => onDrop(payload), { failure: t('toast.dropFailed') }),
     })
+  const setModal = useStore((s) => s.setModal)
   const conversations = useStore((s) => s.conversations)
   const conversation = useStore((s) => s.conversation)
   const openConversation = useStore((s) => s.openConversation)
@@ -51,6 +58,15 @@ export function Sidebar() {
   const removeConversation = useStore((s) => s.removeConversation)
 
   const tree = useMemo(() => buildTree(collections), [collections])
+
+  // The sidebar is a shortcut list, not an inventory. Past a point another row
+  // stops helping and starts hiding the rows below it, so the rest lives in a
+  // browser that can search and sort.
+  const shownSmart = expanded ? smartCollections : smartCollections.slice(0, SIDEBAR_LIMIT)
+  const shownTree = expanded ? tree : tree.slice(0, SIDEBAR_LIMIT)
+  const hiddenCollections =
+    smartCollections.length - shownSmart.length + (tree.length - shownTree.length)
+  const shownTags = tagsExpanded ? tags : tags.slice(0, TAG_LIMIT)
 
   return (
     <nav className="sidebar-nav">
@@ -102,7 +118,7 @@ export function Sidebar() {
           <div className="empty" style={{ padding: '8px 12px' }}>{t('sidebar.empty')}</div>
         )}
 
-        {smartCollections.map((sc) => {
+        {shownSmart.map((sc) => {
           const Glyph = collectionIcon(sc.icon, 'Smart')
           return (
             <button
@@ -121,7 +137,7 @@ export function Sidebar() {
           )
         })}
 
-        {tree.map((c) => (
+        {shownTree.map((c) => (
           <button
             key={c.key}
             className="nav-item"
@@ -153,6 +169,22 @@ export function Sidebar() {
             <span className="count">{c.itemCount || ''}</span>
           </button>
         ))}
+
+        {hiddenCollections > 0 && !expanded && (
+          <button className="nav-more" onClick={() => setExpanded(true)}>
+            {t('sidebar.more', { count: hiddenCollections })}
+          </button>
+        )}
+        {expanded && (
+          <button className="nav-more" onClick={() => setExpanded(false)}>
+            {t('sidebar.less')}
+          </button>
+        )}
+        {collections.length + smartCollections.length > SIDEBAR_LIMIT && (
+          <button className="nav-more" onClick={() => setModal('collections')}>
+            {t('sidebar.browseAll')}
+          </button>
+        )}
       </div>
 
       <div className="nav-group">
@@ -162,7 +194,7 @@ export function Sidebar() {
             : t('sidebar.tags')}
         </div>
         <div className="tag-cloud">
-          {tags.map((tag) => (
+          {shownTags.map((tag) => (
             <button
               key={tag.name}
               className="tag-chip"
@@ -183,6 +215,16 @@ export function Sidebar() {
           ))}
           {tags.length === 0 && (
             <span className="empty" style={{ padding: 0 }}>{t('sidebar.noTags')}</span>
+          )}
+          {tags.length > shownTags.length && (
+            <button className="tag-chip more" onClick={() => setTagsExpanded(true)}>
+              {t('sidebar.more', { count: tags.length - shownTags.length })}
+            </button>
+          )}
+          {tagsExpanded && tags.length > TAG_LIMIT && (
+            <button className="tag-chip more" onClick={() => setTagsExpanded(false)}>
+              {t('sidebar.less')}
+            </button>
           )}
         </div>
       </div>
