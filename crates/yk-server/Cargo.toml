@@ -30,3 +30,7 @@ rand.workspace = true
 sha2.workspace = true
 hex.workspace = true
 parking_lot.workspace = true
+
+[dev-dependencies]
+tower = { workspace = true, features = ["util"] }
+http-body-util = "0.1"

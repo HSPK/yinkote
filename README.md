@@ -42,7 +42,7 @@ cargo build --release -p yk-server
 cargo run -p yk-server -- --data-dir ./.dev-data       # 后端
 (cd web && npm run dev)                                # 前端 5273 端口，自动代理 /api
 
-cargo test --workspace                                 # 128 个测试
+cargo test --workspace                                 # 156 个测试
 cargo clippy --workspace --all-targets -- -D warnings
 bash scripts/smoke.sh http://127.0.0.1:23130           # 30 项 API 冒烟
 node scripts/bench.mjs http://127.0.0.1:23130 100000   # 10 万条目基准
@@ -69,10 +69,12 @@ node scripts/bench.mjs http://127.0.0.1:23130 100000   # 10 万条目基准
 | 列表首页 | 8.1 ms | 10.1 ms |
 | 按标题排序 | 8.1 ms | 8.7 ms |
 | 关键词搜索 | 11.5 ms | 12.3 ms |
-| 中文关键词 | 54.9 ms | 57.0 ms |
+| 中文关键词 | 33.7 ms | 36.1 ms |
 | 模糊搜索（含错拼） | 5.7 ms | 6.3 ms |
-| 语义搜索 | 6.3 ms | 9.8 ms |
-| 混合搜索 | 36.0 ms | 37.9 ms |
+| 语义搜索 | 6.4 ms | 9.1 ms |
+| 标签筛选 | 22.8 ms | 24.6 ms |
+| 标签分面（缓存命中） | 1.9 ms | 2.4 ms |
+| 混合搜索 | 35.8 ms | 37.5 ms |
 | 单条写入 | 3.0 ms | 19.7 ms |
 | 批量写入吞吐 | — | ~3000 条/秒 |
 

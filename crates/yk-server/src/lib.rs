@@ -30,14 +30,12 @@ use config::Config;
 use hostapi::HostBridge;
 use state::{App, AppState, Services};
 
-/// Build the whole application from configuration. Returns the state so tests
-/// and the binary share exactly one construction path.
+/// Build the whole application from configuration.
+///
+/// Tests use [`build_with_store`] directly so they can supply an in-memory
+/// database; both paths share the same wiring below.
 pub async fn build(config: Config) -> anyhow::Result<App> {
-    let store = if config.data_dir.is_some() || !cfg!(test) {
-        Store::open(Some(&config.database_path()))?
-    } else {
-        Store::in_memory()?
-    };
+    let store = Store::open(Some(&config.database_path()))?;
     build_with_store(config, store).await
 }
 
