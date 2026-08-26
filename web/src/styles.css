@@ -183,7 +183,7 @@ button { cursor: pointer; }
 
 .search input {
   flex: 1;
-  min-width: 0;
+  min-width: 60px;
   padding: 0 8px;
   font-family: var(--mono);
   font-size: 12px;
@@ -191,18 +191,63 @@ button { cursor: pointer; }
 
 .search input::placeholder { color: var(--fg-mute); }
 
-.modes { display: flex; border-left: 1px solid var(--line); }
+/* Understood operators become chips, so the query explains itself. */
+.chip-token {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  margin-left: 4px;
+  padding: 0 5px;
+  height: 16px;
+  font: 11px/1 var(--mono);
+  color: var(--fg);
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+}
 
-.modes button {
-  padding: 0 8px;
-  font: 10px/1 var(--mono);
+.chip-token:hover { border-color: var(--danger, #c0554b); color: var(--fg); }
+.chip-token[data-negated] { text-decoration: line-through; color: var(--fg-mute); }
+.chip-field { color: var(--accent); }
+
+.search-mode {
+  flex: none;
+  padding: 0 7px;
+  font: 10px/20px var(--mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--fg-mute);
+  border-left: 1px solid var(--line);
+  cursor: help;
 }
 
-.modes button[data-active='true'] { background: var(--accent-dim); color: #fff; }
-.modes button:hover:not([data-active='true']) { background: var(--bg-3); color: var(--fg); }
+.search { position: relative; }
+.search[data-open] { border-color: var(--accent-dim); }
+
+.search-suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  border-top: 0;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 35%);
+}
+
+.search-suggest button {
+  display: block;
+  width: 100%;
+  padding: 4px 9px;
+  text-align: left;
+  font: 12px/1.4 var(--mono);
+  color: var(--fg-dim);
+}
+
+.search-suggest button[data-active='true'] { background: var(--accent-dim); color: #fff; }
 
 /* ─── sidebar ────────────────────────────────────────────────────────────── */
 
@@ -1104,3 +1149,39 @@ select.ctl { padding: 4px 6px; }
 }
 
 .menu-item[data-checked] { color: var(--fg); }
+
+
+/* ─── rule editor ────────────────────────────────────────────────────────── */
+
+.nav-subtitle {
+  padding: 6px 8px 2px;
+  font: 10px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+}
+
+.rules { display: flex; flex-direction: column; gap: 6px; }
+
+.rule {
+  display: grid;
+  grid-template-columns: 88px 96px minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+/* A between-rule needs a second value, so the row splits its value track. */
+.rule:has(> :nth-child(5)) { grid-template-columns: 88px 96px 1fr 1fr auto; }
+
+.rule .icon-btn { width: 20px; height: 20px; }
+
+.compiled {
+  display: block;
+  padding: 6px 8px;
+  color: var(--accent);
+  word-break: break-all;
+}
+
+.rule-editor { padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+.rule-editor .dialog-foot { margin-top: 4px; }
+.ctl-static { font: 12px/22px var(--mono); color: var(--fg-dim); }

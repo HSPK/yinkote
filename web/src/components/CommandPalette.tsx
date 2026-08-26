@@ -107,13 +107,6 @@ export function CommandPalette() {
         })
       }
     }
-    for (const m of ['hybrid', 'keyword', 'fuzzy', 'semantic'] as const) {
-      list.push({
-        id: `mode-${m}`,
-        label: t('palette.mode', { mode: t(`search.mode.${m}`) }),
-        run: () => store.setMode(m),
-      })
-    }
     return list
   }, [store])
 

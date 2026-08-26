@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react'
 
 import { api } from '../api/client'
-import type { SearchMode, SourceInfo } from '../api/types'
+import type { SourceInfo } from '../api/types'
 import { LOCALES, useI18n, useT, type Locale } from '../i18n'
 import { THEMES, isHexColour } from '../lib/theme'
 import { useStore } from '../state/store'
 import { Badge, Button, Field, Section, Select, toast, withToast } from '../ui'
 
-const MODES: SearchMode[] = ['hybrid', 'keyword', 'fuzzy', 'semantic']
 const DENSITIES = ['compact', 'comfortable'] as const
 
 export function SettingsPage() {
@@ -20,7 +19,6 @@ export function SettingsPage() {
   const density = useStore((s) => s.density)
   const theme = useStore((s) => s.theme)
   const accent = useStore((s) => s.accent)
-  const setMode = useStore((s) => s.setMode)
   const setDensity = useStore((s) => s.setDensity)
   const setTheme = useStore((s) => s.setTheme)
   const setLocale = useStore((s) => s.setLocale)
@@ -98,12 +96,8 @@ export function SettingsPage() {
       </Section>
 
       <Section title={t('settings.search')}>
-        <Field label={t('settings.defaultMode')} hint={t('settings.defaultModeHint')}>
-          <Select
-            value={mode}
-            options={MODES.map((m) => ({ value: m, label: t(`search.mode.${m}`) }))}
-            onChange={(e) => setMode(e.target.value as SearchMode)}
-          />
+        <Field label={t('settings.currentMode')} hint={t('settings.currentModeHint')}>
+          <span className="ctl-static">{t(`search.mode.${mode}`)}</span>
         </Field>
         <Field label={t('settings.syntax')} hint={t('settings.syntaxHint')}>
           <div className="syntax">

@@ -118,8 +118,15 @@ fn lex(input: &str) -> Vec<Token> {
             continue;
         }
 
+        // A quote *inside* a token suspends splitting, so `tag:"machine
+        // learning"` stays one operator. Tag and author values routinely
+        // contain spaces, and the rule editor has no other way to express them.
         let start = i;
-        while i < chars.len() && !chars[i].is_whitespace() {
+        let mut quoted = false;
+        while i < chars.len() && (quoted || !chars[i].is_whitespace()) {
+            if chars[i] == '"' {
+                quoted = !quoted;
+            }
             i += 1;
         }
         let raw: String = chars[start..i].iter().collect();
@@ -146,6 +153,22 @@ fn classify(raw: &str) -> Token {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_field_value_may_contain_spaces_when_quoted() {
+        let q = ParsedQuery::parse(r#"tag:"machine learning" author:"Wei Zhang""#);
+        assert_eq!(q.tags, vec!["machine learning"]);
+        assert_eq!(q.creators, vec!["Wei Zhang"]);
+        assert_eq!(q.text, "", "a quoted operator value is not also free text");
+    }
+
+    #[test]
+    fn an_unterminated_quote_does_not_swallow_the_rest_silently() {
+        // Whatever we do here is a guess; consuming to the end at least keeps
+        // the user's characters in the query instead of dropping them.
+        let q = ParsedQuery::parse(r#"tag:"machine learning"#);
+        assert_eq!(q.tags, vec!["machine learning"]);
+    }
 
     #[test]
     fn plain_text_passes_through() {

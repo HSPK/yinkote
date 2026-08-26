@@ -7,7 +7,7 @@
 import type { Collection, Item, SmartCollection } from '../api/types'
 import { t } from '../i18n'
 import { useStore } from '../state/store'
-import { confirmAction, promptFor, toast, useOverlays, withToast, type MenuItem } from '../ui'
+import { confirmAction, promptFor, toast, withToast, type MenuItem } from '../ui'
 
 export function itemMenu(item: Item): MenuItem[] {
   const store = useStore.getState()
@@ -187,44 +187,8 @@ export function collectionMenu(collection: Collection): MenuItem[] {
   ]
 }
 
-/** Asks for a name and a query in one dialog, because a smart collection is
- *  meaningless without both. */
-async function askSmart(
-  title: string,
-  defaults: { name?: string; query?: string } = {},
-): Promise<{ name: string; query: string } | null> {
-  const values = await useOverlays.getState().ask({
-    title,
-    fields: [
-      {
-        name: 'name',
-        label: t('dialog.name'),
-        required: true,
-        autoFocus: true,
-        defaultValue: defaults.name,
-      },
-      {
-        name: 'query',
-        label: t('dialog.query'),
-        type: 'textarea',
-        defaultValue: defaults.query,
-        hint: t('dialog.smartHint'),
-      },
-    ],
-    confirmLabel: defaults.name ? t('dialog.save') : t('dialog.create'),
-  })
-  if (!values?.name?.trim()) return null
-  return { name: values.name.trim(), query: (values.query ?? '').trim() }
-}
-
-export async function newSmartCollection(): Promise<void> {
-  const store = useStore.getState()
-  const values = await askSmart(t('dialog.newSmart'))
-  if (!values) return
-  await withToast(() => store.createSmart(values.name, values.query), {
-    success: t('toast.created', { name: values.name }),
-    failure: t('toast.createFailed'),
-  })
+export function newSmartCollection(): void {
+  useStore.getState().openSmartEditor('new')
 }
 
 export function smartMenu(smart: SmartCollection): MenuItem[] {
@@ -232,20 +196,7 @@ export function smartMenu(smart: SmartCollection): MenuItem[] {
   return [
     { label: t('menu.open'), onSelect: () => store.openSmart(smart.key) },
     {},
-    {
-      label: t('menu.editSmart'),
-      onSelect: async () => {
-        const values = await askSmart(t('dialog.editSmart'), {
-          name: smart.name,
-          query: smart.query,
-        })
-        if (!values) return
-        await withToast(() => store.updateSmart(smart.key, values), {
-          success: t('toast.saved'),
-          failure: t('toast.renameFailed'),
-        })
-      },
-    },
+    { label: t('menu.editSmart'), onSelect: () => store.openSmartEditor(smart.key) },
     {},
     {
       label: t('menu.deleteSmart'),

@@ -1,10 +1,8 @@
-import type { SearchMode } from '../api/types'
 import { useT } from '../i18n'
 import { useStore } from '../state/store'
 import { Icon } from '../ui'
 import { QuickAdd } from './QuickAdd'
-
-const MODES: SearchMode[] = ['hybrid', 'keyword', 'fuzzy', 'semantic']
+import { SearchBar } from './SearchBar'
 
 /**
  * A thin strip, not a navigation bar.
@@ -14,10 +12,6 @@ const MODES: SearchMode[] = ['hybrid', 'keyword', 'fuzzy', 'semantic']
  */
 export function TopBar() {
   const t = useT()
-  const query = useStore((s) => s.query)
-  const mode = useStore((s) => s.mode)
-  const setQuery = useStore((s) => s.setQuery)
-  const setMode = useStore((s) => s.setMode)
   const setModal = useStore((s) => s.setModal)
 
   return (
@@ -27,35 +21,7 @@ export function TopBar() {
       </div>
 
       <div className="toolbar-centre">
-        <div className="search">
-          <Icon.Search size={12} className="search-icon" />
-          <input
-            id="search-input"
-            value={query}
-            spellCheck={false}
-            autoComplete="off"
-            placeholder={t('search.placeholder')}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                setQuery('')
-                e.currentTarget.blur()
-              }
-            }}
-          />
-          <div className="modes">
-            {MODES.map((m) => (
-              <button
-                key={m}
-                title={t(`search.mode.${m}.hint`)}
-                data-active={mode === m}
-                onClick={() => setMode(m)}
-              >
-                {t(`search.mode.${m}`)}
-              </button>
-            ))}
-          </div>
-        </div>
+        <SearchBar />
       </div>
 
       <div className="toolbar-right">

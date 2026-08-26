@@ -96,6 +96,10 @@ describe('locale hygiene', () => {
   })
 
   it('has no user-visible string hardcoded outside the catalogues', async () => {
+    // Some Chinese is syntax, not prose: the query language accepts `标签:` as
+    // an alias for `tag:` in either interface language. Such a line must say so
+    // and say why, so the exemption stays deliberate rather than habitual.
+    const EXEMPT = /i18n-exempt:\s*\S/
     const { readdirSync, readFileSync } = await import('node:fs')
     const { join } = await import('node:path')
 
@@ -112,7 +116,7 @@ describe('locale hygiene', () => {
         readFileSync(path, 'utf8')
           .split('\n')
           .map((line, i) => ({ where: `${path}:${i + 1}`, line }))
-          .filter(({ line }) => CJK.test(line)),
+          .filter(({ line }) => CJK.test(line) && !EXEMPT.test(line)),
       )
 
     expect(

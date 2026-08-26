@@ -9,6 +9,7 @@ import { create } from 'zustand'
 import { api, connectEvents } from '../api/client'
 import { detectLocale, schemaLabel, t, useI18n, type Locale } from '../i18n'
 import { DEFAULT_VISIBLE } from '../lib/columns'
+import { inferMode } from '../lib/query'
 import { applyTheme, DEFAULT_THEME } from '../lib/theme'
 import { useOverlays } from '../ui/overlays'
 import type {
@@ -47,6 +48,8 @@ interface State {
 
   /** Which secondary surface is open, if any. */
   modal: Modal
+  /** The smart collection being edited: a key, `'new'`, or closed. */
+  smartEditor: string | null
   /** Pane widths in pixels; dragged by the splitters, persisted server-side. */
   layout: { sidebar: number; detail: number }
   /** Item-table column widths in pixels, keyed by column id. */
@@ -100,7 +103,6 @@ interface State {
   refresh: () => Promise<void>
   reloadSidebar: () => Promise<void>
   setQuery: (q: string) => void
-  setMode: (m: SearchMode) => void
   setSort: (field: string) => void
   openLibrary: () => void
   openTrash: () => void
@@ -115,6 +117,7 @@ interface State {
   moveCursor: (delta: number) => void
   setPanel: (p: Panel) => void
   setModal: (m: Modal) => void
+  openSmartEditor: (key: string | null) => void
   setLayout: (patch: Partial<{ sidebar: number; detail: number }>, commit?: boolean) => void
   setColumnWidth: (id: string, width: number, commit?: boolean) => void
   setColumnOrder: (order: string[]) => void
@@ -171,6 +174,7 @@ export const useStore = create<State>((set, get) => ({
   server: null,
   plugins: [],
   modal: null,
+  smartEditor: null,
   layout: { sidebar: 232, detail: 380 },
   columnWidths: {},
   columnOrder: DEFAULT_VISIBLE,
@@ -193,7 +197,7 @@ export const useStore = create<State>((set, get) => ({
   typeFilter: [],
 
   query: '',
-  mode: 'hybrid',
+  mode: 'keyword',
   sort: 'dateModified',
   direction: 'desc',
 
@@ -228,7 +232,6 @@ export const useStore = create<State>((set, get) => ({
         typeof settings[key] === 'string' ? (settings[key] as T) : undefined
 
       if (saved('ui.density')) get().setDensity(saved('ui.density')!)
-      if (saved('ui.searchMode')) set({ mode: saved<SearchMode>('ui.searchMode')! })
 
       const parsed = <T,>(key: string, fallback: T): T => {
         const raw = saved(key)
@@ -333,16 +336,16 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
+  /** Setting a query also re-decides how to run it.
+   *
+   *  The mode is a consequence of what was typed, not a separate choice: a
+   *  quoted phrase wants exact matching, a bare filter wants a lookup, and
+   *  prose wants everything fused. Asking the user to pick was asking them to
+   *  know our retrieval pipeline. */
   setQuery(q) {
-    set({ query: q })
+    set({ query: q, mode: inferMode(q) })
     if (debounce) window.clearTimeout(debounce)
     debounce = window.setTimeout(() => void get().refresh(), DEBOUNCE_MS)
-  },
-
-  setMode(mode) {
-    set({ mode })
-    void api.settings.put({ searchMode: mode })
-    void get().refresh()
   },
 
   setSort(field) {
@@ -447,6 +450,10 @@ export const useStore = create<State>((set, get) => ({
 
   setModal(modal) {
     set({ modal })
+  },
+
+  openSmartEditor(smartEditor) {
+    set({ smartEditor })
   },
 
   setLayout(patch, commit) {

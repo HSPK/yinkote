@@ -98,33 +98,10 @@ export function Sidebar() {
 
       <div className="nav-group">
         <div className="nav-title">
-          {t('sidebar.smart')}
-          <button title={t('sidebar.newSmart')} onClick={() => void newSmartCollection()}>
-            <Icon.Plus size={11} />
-          </button>
-        </div>
-        {smartCollections.length === 0 && (
-          <div className="empty" style={{ padding: '8px 12px' }}>{t('sidebar.empty')}</div>
-        )}
-        {smartCollections.map((sc) => (
-          <button
-            key={sc.key}
-            className="nav-item"
-            data-active={view === 'smart' && collection === sc.key}
-            onClick={() => openSmart(sc.key)}
-            onContextMenu={contextMenu(() => smartMenu(sc))}
-            title={sc.query || sc.name}
-          >
-            <Icon.Smart className="glyph" />
-            <span className="label">{sc.name}</span>
-            <span className="count">{sc.itemCount ?? ''}</span>
-          </button>
-        ))}
-      </div>
-
-      <div className="nav-group">
-        <div className="nav-title">
           {t('sidebar.collections')}
+          <button title={t('sidebar.newSmart')} onClick={() => newSmartCollection()}>
+            <Icon.Smart size={11} />
+          </button>
           <button
             title={t('sidebar.newCollection')}
             onClick={async () => {
@@ -142,9 +119,28 @@ export function Sidebar() {
             <Icon.Plus size={11} />
           </button>
         </div>
-        {tree.length === 0 && (
+        {tree.length === 0 && smartCollections.length === 0 && (
           <div className="empty" style={{ padding: '8px 12px' }}>{t('sidebar.empty')}</div>
         )}
+
+        {smartCollections.length > 0 && (
+          <div className="nav-subtitle">{t('sidebar.smart')}</div>
+        )}
+        {smartCollections.map((sc) => (
+          <button
+            key={sc.key}
+            className="nav-item"
+            data-active={view === 'smart' && collection === sc.key}
+            onClick={() => openSmart(sc.key)}
+            onContextMenu={contextMenu(() => smartMenu(sc))}
+            title={sc.query || sc.name}
+          >
+            <Icon.Smart className="glyph" />
+            <span className="label">{sc.name}</span>
+            <span className="count">{sc.itemCount ?? ''}</span>
+          </button>
+        ))}
+
         {tree.map((c) => (
           <button
             key={c.key}

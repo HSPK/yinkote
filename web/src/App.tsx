@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 
 import { CommandPalette } from './components/CommandPalette'
+import { SmartEditorHost } from './components/SmartEditorHost'
 import { DetailPanel } from './components/DetailPanel'
 import { ItemTable } from './components/ItemTable'
 import { Sidebar } from './components/Sidebar'
@@ -165,6 +166,7 @@ export function App() {
 
       <StatusBar />
       <CommandPalette />
+      <SmartEditorHost />
       {open && (
         <Modal title={t(open.title)} width={open.width} onClose={() => setModal(null)}>
           <open.Body />
