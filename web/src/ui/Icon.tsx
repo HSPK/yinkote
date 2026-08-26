@@ -9,6 +9,10 @@ import type { SVGProps } from 'react'
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number }
 
+/** Inline SVGs sit on the text baseline, which leaves a descender's worth of
+ *  space beneath them and pushes them off centre inside a fixed-size button. */
+const BLOCK = { display: 'block', flex: 'none' } as const
+
 function Svg({ size = 14, children, ...props }: IconProps) {
   return (
     <svg
@@ -22,6 +26,7 @@ function Svg({ size = 14, children, ...props }: IconProps) {
       strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
+      style={BLOCK}
       {...props}
     >
       {children}
@@ -101,10 +106,11 @@ export const Icon = {
       <circle cx="8" cy="11.6" r="1.1" fill="currentColor" stroke="none" />
     </Svg>
   ),
+  /** A cogwheel: eight teeth on a 16-grid, which is as many as stay legible. */
   Settings: (p: IconProps) => (
     <Svg {...p}>
-      <circle cx="8" cy="8" r="2.2" />
-      <path d="M8 1.6v1.8M8 12.6v1.8M14.4 8h-1.8M3.4 8H1.6M12.5 3.5l-1.3 1.3M4.8 11.2l-1.3 1.3M12.5 12.5l-1.3-1.3M4.8 4.8 3.5 3.5" />
+      <circle cx="8" cy="8" r="2.1" />
+      <path d="M8 1.3a6.7 6.7 0 0 1 1.9.28l.26 1.6a4.9 4.9 0 0 1 1.1.64l1.5-.6a6.7 6.7 0 0 1 1.35 2.34l-1.24 1.05a4.9 4.9 0 0 1 0 1.28l1.24 1.05a6.7 6.7 0 0 1-1.35 2.34l-1.5-.6a4.9 4.9 0 0 1-1.1.64l-.26 1.6a6.7 6.7 0 0 1-3.8 0l-.26-1.6a4.9 4.9 0 0 1-1.1-.64l-1.5.6A6.7 6.7 0 0 1 1.89 9.64l1.24-1.05a4.9 4.9 0 0 1 0-1.28L1.89 6.26A6.7 6.7 0 0 1 3.24 3.92l1.5.6a4.9 4.9 0 0 1 1.1-.64l.26-1.6A6.7 6.7 0 0 1 8 1.3Z" />
     </Svg>
   ),
   Plus: (p: IconProps) => (

@@ -331,4 +331,5 @@ export const enUS: Record<MessageKey, string> = {
   'plugins.state.starting': 'Starting',
   'plugins.state.disabled': 'Disabled',
   'plugins.state.failed': 'Failed',
+  'search.toggleToken': 'Click to switch between include and exclude',
 }

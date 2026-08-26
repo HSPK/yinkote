@@ -144,8 +144,13 @@ button { cursor: pointer; }
 .icon-btn {
   display: grid;
   place-items: center;
+  flex: none;
+  /* The UA gives buttons padding; without clearing it the icon is centred in
+     a box inset from the one the hover state draws. */
+  padding: 0;
   width: 22px;
   height: 22px;
+  line-height: 0;
   color: var(--fg-mute);
   border: 1px solid transparent;
 }
@@ -192,13 +197,14 @@ button { cursor: pointer; }
 .search input::placeholder { color: var(--fg-mute); }
 
 /* Understood operators become chips, so the query explains itself. */
+/* The search bar stretches its children, so a chip with a fixed height has to
+   ask for the centre explicitly. */
 .chip-token {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  align-self: center;
+  align-items: stretch;
   flex: none;
   margin-left: 4px;
-  padding: 0 5px;
   height: 16px;
   font: 11px/1 var(--mono);
   color: var(--fg);
@@ -206,8 +212,30 @@ button { cursor: pointer; }
   border: 1px solid var(--line-2);
 }
 
-.chip-token:hover { border-color: var(--danger, #c0554b); color: var(--fg); }
-.chip-token[data-negated] { text-decoration: line-through; color: var(--fg-mute); }
+.chip-token:focus-within,
+.chip-token:hover { border-color: var(--accent-dim); }
+
+.chip-body {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 5px;
+  color: inherit;
+}
+
+.chip-remove {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  width: 14px;
+  line-height: 0;
+  color: var(--fg-mute);
+  border-left: 1px solid var(--line-2);
+}
+
+.chip-remove:hover { color: #fff; background: var(--err, #c0554b); }
+
+.chip-token[data-negated] .chip-body { text-decoration: line-through; color: var(--fg-mute); }
 .chip-field { color: var(--accent); }
 
 .search-mode {
@@ -303,9 +331,23 @@ button { cursor: pointer; }
   color: var(--fg-mute);
 }
 
+/* Decorative children must not take pointer events: during a drag they would
+   fire dragleave on every crossing and make the target flicker. */
+.nav-item > *,
+.tag-chip > .n {
+  pointer-events: none;
+}
+
 .nav-item .glyph { flex: none; width: 13px; color: var(--fg-mute); }
 .nav-item[data-active='true'] .glyph { color: var(--accent); }
-.nav-title button { display: grid; place-items: center; width: 16px; height: 16px; }
+.nav-title button {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  width: 16px;
+  height: 16px;
+  line-height: 0;
+}
 
 .tag-cloud { display: flex; flex-wrap: wrap; gap: 3px; padding: 4px 8px 8px; }
 
@@ -1096,8 +1138,10 @@ select.ctl { padding: 4px 6px; }
 .modal-close {
   display: grid;
   place-items: center;
+  padding: 0;
   width: 22px;
   height: 22px;
+  line-height: 0;
   color: var(--fg-mute);
 }
 

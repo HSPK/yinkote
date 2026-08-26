@@ -6,9 +6,12 @@ import {
   addToken,
   completeTag,
   modeReason,
+  negateToken,
   parseQuery,
   pendingTag,
-  removeToken,
+  splitCommitted,
+  tokenSource,
+  type Token,
 } from '../lib/query'
 import { useStore } from '../state/store'
 import { Icon } from '../ui'
@@ -19,9 +22,10 @@ const SUGGESTIONS = 8
 /**
  * The search box.
  *
- * Understood operators become chips as they are typed, so the query says what
- * it will do without a syntax reference beside the screen. The retrieval mode
- * is shown, not chosen — see `inferMode`.
+ * Finished operators become chips and leave the input, so the query is shown
+ * once rather than twice. Clicking a chip flips it between required and
+ * excluded — a useful thing to want and a safe thing to hit by accident;
+ * removal is the explicit × beside it. The retrieval mode is shown, not chosen.
  */
 export function SearchBar() {
   const t = useT()
@@ -34,11 +38,30 @@ export function SearchBar() {
   const [focused, setFocused] = useState(false)
   const [highlight, setHighlight] = useState(0)
 
-  const tokens = useMemo(() => parseQuery(query), [query])
-  const chips = tokens.filter((token) => token.field !== 'text')
+  /** Operator chips, and the free text still in the input, split from the store. */
+  const { chips, draft } = useMemo(() => {
+    const tokens = parseQuery(query)
+    return {
+      chips: tokens.filter((token) => token.field !== 'text'),
+      draft: tokens
+        .filter((token) => token.field === 'text')
+        .map((token) => token.source)
+        .join(' '),
+    }
+  }, [query])
 
-  /** The partial `tag:` the caret is sitting in, if any. */
-  const pending = useMemo(() => pendingTag(query), [query])
+  /** Rebuild the whole query from chips plus whatever is in the input. */
+  const compose = (nextChips: Token[], text: string) =>
+    [...nextChips.map(tokenSource), text].filter(Boolean).join(' ')
+
+  const onType = (value: string) => {
+    // Anything the user has finished typing moves out of the input and becomes
+    // a chip, so the two never show the same thing.
+    const { committed, rest } = splitCommitted(value)
+    setQuery(compose([...chips, ...committed], rest))
+  }
+
+  const pending = useMemo(() => pendingTag(draft), [draft])
 
   const suggestions = useMemo(() => {
     if (pending === null) return []
@@ -50,9 +73,17 @@ export function SearchBar() {
   useEffect(() => setHighlight(0), [pending])
 
   const complete = (tag: string) => {
-    setQuery(`${completeTag(query, tag)} `)
+    onType(`${completeTag(draft, tag)} `)
     inputRef.current?.focus()
   }
+
+  const replaceChip = (index: number, next: Token | null) =>
+    setQuery(
+      compose(
+        next ? chips.map((c, i) => (i === index ? next : c)) : chips.filter((_, i) => i !== index),
+        draft,
+      ),
+    )
 
   const showSuggestions = focused && suggestions.length > 0
 
@@ -60,33 +91,41 @@ export function SearchBar() {
     <div className="search" data-open={showSuggestions || undefined}>
       <Icon.Search size={12} className="search-icon" />
 
-      {chips.map((token) => {
-        const index = tokens.indexOf(token)
-        return (
+      {chips.map((token, i) => (
+        <span
+          key={`${token.source}-${i}`}
+          className="chip-token"
+          data-negated={token.negated || undefined}
+        >
           <button
-            key={`${token.source}-${index}`}
-            className="chip-token"
-            data-negated={token.negated || undefined}
-            title={t('search.removeToken')}
-            onClick={() => setQuery(removeToken(query, index))}
+            className="chip-body"
+            title={token.field === 'tag' ? t('search.toggleToken') : token.value}
+            onClick={() => token.field === 'tag' && replaceChip(i, negateToken(token))}
           >
             <span className="chip-field">{t(`search.field.${token.field}`)}</span>
             {token.value}
           </button>
-        )
-      })}
+          <button
+            className="chip-remove"
+            title={t('search.removeToken')}
+            onClick={() => replaceChip(i, null)}
+          >
+            <Icon.Close size={9} />
+          </button>
+        </span>
+      ))}
 
       <input
         id="search-input"
         ref={inputRef}
-        value={query}
+        value={draft}
         spellCheck={false}
         autoComplete="off"
-        placeholder={t('search.placeholder')}
+        placeholder={chips.length ? '' : t('search.placeholder')}
         onFocus={() => setFocused(true)}
         // A click on a suggestion must land before the list disappears.
         onBlur={() => window.setTimeout(() => setFocused(false), 120)}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => onType(e.target.value)}
         onKeyDown={(e) => {
           if (showSuggestions) {
             if (e.key === 'ArrowDown') {
@@ -106,11 +145,10 @@ export function SearchBar() {
             setQuery('')
             e.currentTarget.blur()
           }
-          // Backspace at the start of an empty box removes the last chip,
-          // which is how every tag input has worked for a decade.
-          const last = chips[chips.length - 1]
-          if (e.key === 'Backspace' && last && !e.currentTarget.value) {
-            setQuery(removeToken(query, tokens.indexOf(last)))
+          // Backspace in an empty box removes the last chip, which is how every
+          // tag input has worked for a decade.
+          if (e.key === 'Backspace' && !draft && chips.length) {
+            replaceChip(chips.length - 1, null)
           }
         }}
       />

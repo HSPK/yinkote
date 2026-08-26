@@ -327,6 +327,7 @@ export const zhCN = {
   'plugins.state.starting': '启动中',
   'plugins.state.disabled': '已停用',
   'plugins.state.failed': '失败',
+  'search.toggleToken': '点击切换 包含 / 排除',
 } as const
 
 export type MessageKey = keyof typeof zhCN

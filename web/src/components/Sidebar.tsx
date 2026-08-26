@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 
 import { compact } from '../lib/format'
-import { accepts, beginDrag, endDrag } from '../lib/dnd'
+import { beginDrag, dropZone, endDrag } from '../lib/dnd'
+import type { DragPayload } from '../lib/dnd'
 import { buildTree } from '../lib/tree'
 import { useStore } from '../state/store'
 import { Icon, contextMenu, confirmAction, promptFor, withToast } from '../ui'
@@ -29,23 +30,19 @@ export function Sidebar() {
   const trashItems = useStore((s) => s.trashItems)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
 
-  /** Shared drop plumbing: highlight while hovering, clear on the way out. */
-  const dropZone = (id: string, willAccept: () => boolean, onDrop: () => Promise<void>) => ({
-    'data-drop': dropTarget === id || undefined,
-    onDragOver: (e: React.DragEvent) => {
-      if (!willAccept()) return
-      e.preventDefault()
-      e.dataTransfer.dropEffect = 'move'
-      if (dropTarget !== id) setDropTarget(id)
-    },
-    onDragLeave: () => setDropTarget((current) => (current === id ? null : current)),
-    onDrop: (e: React.DragEvent) => {
-      e.preventDefault()
-      setDropTarget(null)
-      endDrag()
-      void withToast(onDrop, { failure: t('toast.dropFailed') })
-    },
-  })
+  /** A drop target, with the shared highlight and error reporting applied. */
+  const zone = (
+    id: string,
+    accepts: (payload: DragPayload) => boolean,
+    onDrop: (payload: DragPayload) => Promise<void>,
+  ) =>
+    dropZone({
+      id,
+      active: dropTarget,
+      setActive: setDropTarget,
+      accepts,
+      onDrop: (payload) => withToast(() => onDrop(payload), { failure: t('toast.dropFailed') }),
+    })
   const conversations = useStore((s) => s.conversations)
   const conversation = useStore((s) => s.conversation)
   const openConversation = useStore((s) => s.openConversation)
@@ -63,12 +60,11 @@ export function Sidebar() {
           data-active={view === 'library'}
           onClick={openLibrary}
           onContextMenu={contextMenu(libraryMenu)}
-          {...dropZone(
+          {...zone(
             'root',
-            () => !!accepts('collection'),
-            async () => {
-              const dragged = accepts('collection')
-              if (dragged) await moveCollection(dragged.key, null)
+            (p) => p.kind === 'collection',
+            async (p) => {
+              if (p.kind === 'collection') await moveCollection(p.key, null)
             },
           )}
         >
@@ -81,12 +77,11 @@ export function Sidebar() {
           data-active={view === 'trash'}
           onClick={openTrash}
           onContextMenu={contextMenu(trashMenu)}
-          {...dropZone(
+          {...zone(
             'trash',
-            () => !!accepts('items'),
-            async () => {
-              const dragged = accepts('items')
-              if (dragged) await trashItems(dragged.keys)
+            (p) => p.kind === 'items',
+            async (p) => {
+              if (p.kind === 'items') await trashItems(p.keys)
             },
           )}
         >
@@ -153,16 +148,14 @@ export function Sidebar() {
             draggable
             onDragStart={(e) => beginDrag(e, { kind: 'collection', key: c.key }, c.name)}
             onDragEnd={endDrag}
-            {...dropZone(
+            {...zone(
               `c:${c.key}`,
               // The server rejects cycles, but refusing the drop outright means
               // the user never sees an error for a gesture that was never valid.
-              () => !!accepts('items') || accepts('collection')?.key !== c.key,
-              async () => {
-                const items = accepts('items')
-                if (items) return addToCollection(c.key, items.keys)
-                const moved = accepts('collection')
-                if (moved) await moveCollection(moved.key, c.key)
+              (p) => p.kind === 'items' || p.key !== c.key,
+              async (p) => {
+                if (p.kind === 'items') return addToCollection(c.key, p.keys)
+                await moveCollection(p.key, c.key)
               },
             )}
           >
@@ -191,12 +184,11 @@ export function Sidebar() {
               data-active={activeTags.includes(tag.name)}
               onClick={() => toggleTag(tag.name)}
               title={`${tag.name} · ${tag.count}`}
-              {...dropZone(
+              {...zone(
                 `t:${tag.name}`,
-                () => !!accepts('items'),
-                async () => {
-                  const dragged = accepts('items')
-                  if (dragged) await tagItems(tag.name, dragged.keys)
+                (p) => p.kind === 'items',
+                async (p) => {
+                  if (p.kind === 'items') await tagItems(tag.name, p.keys)
                 },
               )}
             >

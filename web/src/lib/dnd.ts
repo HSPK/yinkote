@@ -50,3 +50,50 @@ export function readDrop(e: React.DragEvent): DragPayload | null {
     return active
   }
 }
+
+export interface DropZoneHandlers {
+  'data-drop': true | undefined
+  onDragOver: (e: React.DragEvent) => void
+  onDragLeave: () => void
+  onDrop: (e: React.DragEvent) => void
+}
+
+export interface DropZoneSpec {
+  id: string
+  /** Currently highlighted zone, so a zone knows whether it is the one. */
+  active: string | null
+  setActive: (id: string | null) => void
+  accepts: (payload: DragPayload) => boolean
+  onDrop: (payload: DragPayload) => void | Promise<void>
+}
+
+/**
+ * Handlers for something that accepts a drop.
+ *
+ * The payload is read from the event and handed to `onDrop`, rather than the
+ * handler reaching back for the module state: the drag is over by the time the
+ * drop is processed, so anything asking "what is being dragged?" at that point
+ * gets nothing. That mistake is invisible — the hover highlight still works and
+ * only the drop silently does nothing — so it is worth the explicit argument.
+ */
+export function dropZone(spec: DropZoneSpec): DropZoneHandlers {
+  return {
+    'data-drop': spec.active === spec.id || undefined,
+    onDragOver: (e) => {
+      const payload = dragging()
+      if (!payload || !spec.accepts(payload)) return
+      // Preventing the default is what marks this element as a valid target.
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      if (spec.active !== spec.id) spec.setActive(spec.id)
+    },
+    onDragLeave: () => spec.setActive(null),
+    onDrop: (e) => {
+      e.preventDefault()
+      const payload = readDrop(e)
+      spec.setActive(null)
+      endDrag()
+      if (payload && spec.accepts(payload)) void spec.onDrop(payload)
+    },
+  }
+}

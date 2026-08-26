@@ -267,3 +267,33 @@ export function queryFromRules(rules: Rule[]): string {
     .map(tokenSource)
     .join(' ')
 }
+
+/**
+ * Split a half-typed query into finished operators and what is still being typed.
+ *
+ * The search box shows finished operators as chips and keeps only the rest in
+ * the input, so the query is never displayed twice. The final token is left
+ * alone unless the user has typed a space after it: promoting `tag:sur` to a
+ * chip the moment it parses would make the tag impossible to finish typing.
+ */
+export function splitCommitted(draft: string): { committed: Token[]; rest: string } {
+  const tokens = parseQuery(draft)
+  const settled = /\s$/.test(draft) ? tokens.length : tokens.length - 1
+
+  const committed: Token[] = []
+  const rest: string[] = []
+  tokens.forEach((token, i) => {
+    if (i < settled && token.field !== 'text') committed.push(token)
+    else rest.push(token.source)
+  })
+
+  // A trailing space is meaningful to the caller: it is what let the last
+  // operator settle, and dropping it would re-open the one just committed.
+  const tail = /\s$/.test(draft) && rest.length ? ' ' : ''
+  return { committed, rest: rest.join(' ') + tail }
+}
+
+/** Flip a tag between "must have" and "must not have". */
+export function negateToken(token: Token): Token {
+  return { ...token, negated: !token.negated, source: '' }
+}

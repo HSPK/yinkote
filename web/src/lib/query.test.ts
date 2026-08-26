@@ -5,6 +5,7 @@ import {
   completeTag,
   inferMode,
   modeReason,
+  negateToken,
   OPERATORS,
   parseQuery,
   pendingTag,
@@ -12,6 +13,7 @@ import {
   rulesFromQuery,
   removeToken,
   serialiseQuery,
+  splitCommitted,
   tokenSource,
 } from './query'
 
@@ -187,5 +189,50 @@ describe('rules', () => {
   it('offers only operators that mean something for the field', () => {
     expect(OPERATORS.type).toEqual(['is'])
     expect(OPERATORS.tag).toContain('isNot')
+  })
+})
+
+describe('splitCommitted', () => {
+  it('leaves a half-typed operator in the input', () => {
+    // Promoting it to a chip the moment it parses would make the tag
+    // impossible to finish typing.
+    expect(splitCommitted('tag:sur')).toEqual({ committed: [], rest: 'tag:sur' })
+  })
+
+  it('commits an operator once a space follows it', () => {
+    const got = splitCommitted('tag:survey ')
+    expect(got.committed).toHaveLength(1)
+    expect(got.committed[0]).toMatchObject({ field: 'tag', value: 'survey' })
+    expect(got.rest).toBe('')
+  })
+
+  it('commits earlier operators while the last is still being typed', () => {
+    const got = splitCommitted('tag:survey type:bo')
+    expect(got.committed.map((c) => c.value)).toEqual(['survey'])
+    expect(got.rest).toBe('type:bo')
+  })
+
+  it('keeps free text in the input', () => {
+    const got = splitCommitted('tag:survey diffusion models')
+    expect(got.committed.map((c) => c.value)).toEqual(['survey'])
+    expect(got.rest).toBe('diffusion models')
+  })
+
+  it('keeps the trailing space that let an operator settle', () => {
+    // Without it the next keystroke would land against the previous token.
+    expect(splitCommitted('diffusion ').rest).toBe('diffusion ')
+  })
+
+  it('commits nothing from plain text', () => {
+    expect(splitCommitted('diffusion')).toEqual({ committed: [], rest: 'diffusion' })
+  })
+})
+
+describe('negateToken', () => {
+  it('flips a tag between required and excluded', () => {
+    const [tag] = parseQuery('tag:survey')
+    const negated = negateToken(tag!)
+    expect(tokenSource(negated)).toBe('-tag:survey')
+    expect(tokenSource(negateToken(negated))).toBe('tag:survey')
   })
 })
