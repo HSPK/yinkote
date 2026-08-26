@@ -408,3 +408,29 @@ async fn unknown_conversations_are_not_found() {
         c.send("GET", &format!("/libraries/{lib}/conversations/NOPE1234"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn collections_reparent_and_return_to_the_top_level() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let base = format!("/libraries/{lib}/collections");
+
+    let parent = c.post(&base, json!({ "name": "Parent" })).await;
+    let child = c.post(&base, json!({ "name": "Child" })).await;
+    let (pk, ck) = (parent["key"].as_str().unwrap(), child["key"].as_str().unwrap());
+
+    let nested = c.send("PATCH", &format!("{base}/{ck}"), Some(json!({ "parentKey": pk }))).await;
+    assert_eq!(nested.1["parentKey"], pk, "dropping onto a collection nests it");
+
+    // An explicit null is the "drop onto the library root" gesture.
+    let freed = c.send("PATCH", &format!("{base}/{ck}"), Some(json!({ "parentKey": null }))).await;
+    assert!(freed.1["parentKey"].is_null(), "null must clear the parent, not be ignored");
+
+    let renamed =
+        c.send("PATCH", &format!("{base}/{ck}"), Some(json!({ "name": "Renamed" }))).await;
+    assert!(renamed.1["parentKey"].is_null(), "an absent parentKey changes nothing");
+
+    let (status, _) =
+        c.send("PATCH", &format!("{base}/{pk}"), Some(json!({ "parentKey": pk }))).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "a collection cannot contain itself");
+}

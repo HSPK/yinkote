@@ -126,6 +126,10 @@ interface State {
   newItemDialog: () => Promise<{ itemType: string; title: string } | null>
   createCollection: (name: string, parentKey?: string) => Promise<void>
   renameCollection: (key: string, name: string) => Promise<void>
+  moveCollection: (key: string, parentKey: string | null) => Promise<void>
+  addToCollection: (collection: string, keys: string[]) => Promise<void>
+  tagItems: (tag: string, keys: string[]) => Promise<void>
+  trashItems: (keys: string[]) => Promise<void>
   removeCollection: (key: string) => Promise<void>
   addSelectedToCollection: (key: string) => Promise<void>
   tagSelected: (tag: string) => Promise<void>
@@ -606,6 +610,11 @@ export const useStore = create<State>((set, get) => ({
     await get().reloadSidebar()
   },
 
+  async moveCollection(key, parentKey) {
+    await api.collections.move(get().library, key, parentKey)
+    await get().reloadSidebar()
+  },
+
   async removeCollection(key) {
     const s = get()
     await api.collections.remove(s.library, key)
@@ -614,9 +623,33 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async addSelectedToCollection(key) {
+    await get().addToCollection(key, get().selected)
+  },
+
+  async addToCollection(collection, keys) {
+    if (!keys.length) return
+    await api.items.addToCollection(get().library, collection, keys)
+    await Promise.all([get().refresh(), get().reloadSidebar()])
+  },
+
+  /** Tags the given items, skipping any that already carry the tag so a
+   *  repeated drop is a no-op rather than an error. */
+  async tagItems(tag, keys) {
     const s = get()
-    if (!s.selected.length) return
-    await api.items.addToCollection(s.library, key, s.selected)
+    const name = tag.trim()
+    if (!name || !keys.length) return
+    for (const key of keys) {
+      const item = s.items.find((i) => i.key === key)
+      if (!item || item.tags.some((t) => t.tag === name)) continue
+      await api.items.update(s.library, key, { tags: [...item.tags, { tag: name, type: 0 }] })
+    }
+    await Promise.all([get().refresh(), get().reloadSidebar()])
+  },
+
+  async trashItems(keys) {
+    if (!keys.length) return
+    await api.items.trash(get().library, keys)
+    set({ selected: get().selected.filter((k) => !keys.includes(k)) })
     await Promise.all([get().refresh(), get().reloadSidebar()])
   },
 

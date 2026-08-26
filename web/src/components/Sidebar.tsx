@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { compact } from '../lib/format'
+import { accepts, beginDrag, endDrag } from '../lib/dnd'
 import { buildTree } from '../lib/tree'
 import { useStore } from '../state/store'
 import { Icon, contextMenu, confirmAction, promptFor, withToast } from '../ui'
@@ -22,6 +23,29 @@ export function Sidebar() {
   const openCollection = useStore((s) => s.openCollection)
   const toggleTag = useStore((s) => s.toggleTag)
   const createCollection = useStore((s) => s.createCollection)
+  const addToCollection = useStore((s) => s.addToCollection)
+  const moveCollection = useStore((s) => s.moveCollection)
+  const tagItems = useStore((s) => s.tagItems)
+  const trashItems = useStore((s) => s.trashItems)
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
+
+  /** Shared drop plumbing: highlight while hovering, clear on the way out. */
+  const dropZone = (id: string, willAccept: () => boolean, onDrop: () => Promise<void>) => ({
+    'data-drop': dropTarget === id || undefined,
+    onDragOver: (e: React.DragEvent) => {
+      if (!willAccept()) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      if (dropTarget !== id) setDropTarget(id)
+    },
+    onDragLeave: () => setDropTarget((current) => (current === id ? null : current)),
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      setDropTarget(null)
+      endDrag()
+      void withToast(onDrop, { failure: t('toast.dropFailed') })
+    },
+  })
   const conversations = useStore((s) => s.conversations)
   const conversation = useStore((s) => s.conversation)
   const openConversation = useStore((s) => s.openConversation)
@@ -39,6 +63,14 @@ export function Sidebar() {
           data-active={view === 'library'}
           onClick={openLibrary}
           onContextMenu={contextMenu(libraryMenu)}
+          {...dropZone(
+            'root',
+            () => !!accepts('collection'),
+            async () => {
+              const dragged = accepts('collection')
+              if (dragged) await moveCollection(dragged.key, null)
+            },
+          )}
         >
           <Icon.Library className="glyph" />
           <span className="label">{t('sidebar.library')}</span>
@@ -49,6 +81,14 @@ export function Sidebar() {
           data-active={view === 'trash'}
           onClick={openTrash}
           onContextMenu={contextMenu(trashMenu)}
+          {...dropZone(
+            'trash',
+            () => !!accepts('items'),
+            async () => {
+              const dragged = accepts('items')
+              if (dragged) await trashItems(dragged.keys)
+            },
+          )}
         >
           <Icon.Trash className="glyph" />
           <span className="label">{t('sidebar.trash')}</span>
@@ -114,6 +154,21 @@ export function Sidebar() {
             onClick={() => openCollection(c.key)}
             onContextMenu={contextMenu(() => collectionMenu(c))}
             title={c.name}
+            draggable
+            onDragStart={(e) => beginDrag(e, { kind: 'collection', key: c.key }, c.name)}
+            onDragEnd={endDrag}
+            {...dropZone(
+              `c:${c.key}`,
+              // The server rejects cycles, but refusing the drop outright means
+              // the user never sees an error for a gesture that was never valid.
+              () => !!accepts('items') || accepts('collection')?.key !== c.key,
+              async () => {
+                const items = accepts('items')
+                if (items) return addToCollection(c.key, items.keys)
+                const moved = accepts('collection')
+                if (moved) await moveCollection(moved.key, c.key)
+              },
+            )}
           >
             {c.children.length ? (
               <Icon.FolderOpen className="glyph" />
@@ -140,6 +195,14 @@ export function Sidebar() {
               data-active={activeTags.includes(tag.name)}
               onClick={() => toggleTag(tag.name)}
               title={`${tag.name} · ${tag.count}`}
+              {...dropZone(
+                `t:${tag.name}`,
+                () => !!accepts('items'),
+                async () => {
+                  const dragged = accepts('items')
+                  if (dragged) await tagItems(tag.name, dragged.keys)
+                },
+              )}
             >
               {tag.name}
               <span className="n">{tag.count}</span>

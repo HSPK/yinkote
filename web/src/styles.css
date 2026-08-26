@@ -1047,3 +1047,19 @@ select.ctl { padding: 4px 6px; }
 
 .modal-close:hover { color: var(--fg); background: var(--bg-3); }
 .modal-body { flex: 1; min-height: 0; overflow: auto; }
+
+
+/* ─── drag and drop ──────────────────────────────────────────────────────── */
+
+.nav-item[data-drop],
+.tag-chip[data-drop] {
+  background: var(--accent-dim);
+  color: #fff;
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.nav-item[data-drop] .glyph,
+.nav-item[data-drop] .count { color: #fff; }
+
+.row[draggable='true'] { cursor: default; }

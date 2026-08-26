@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import type { Item, MatchSource } from '../api/types'
 import { creatorSummary, shortDate, snippetParts, year } from '../lib/format'
 import { useStore } from '../state/store'
+import { beginDrag, endDrag } from '../lib/dnd'
 import { contextMenu } from '../ui'
 import { itemMenu } from './menus'
 import { useT } from '../i18n'
@@ -47,6 +48,7 @@ function Row({ item, selected, cursor, style, grid }: {
 }) {
   const t = useT()
   const select = useStore((s) => s.select)
+  const selection = useStore((s) => s.selected)
   const typeLabel = useStore((s) => s.schema?.itemTypes.find((t) => t.type === item.itemType)?.label)
   const snippet = item.match?.snippet
 
@@ -58,6 +60,15 @@ function Row({ item, selected, cursor, style, grid }: {
       data-cursor={cursor}
       onMouseDown={(e) => select(item.key, e.metaKey || e.ctrlKey)}
       onContextMenu={contextMenu(() => itemMenu(item))}
+      draggable
+      onDragStart={(e) => {
+        // Dragging an unselected row acts on that row alone, which is what
+        // every file manager does and what the hand expects.
+        const keys = selected ? selection : [item.key]
+        if (!selected) select(item.key, false)
+        beginDrag(e, { kind: 'items', keys }, `${keys.length} item(s)`)
+      }}
+      onDragEnd={endDrag}
     >
       <div className="cell" title={String(item.title ?? '')}>
         {item.match?.sources.map((s) => (

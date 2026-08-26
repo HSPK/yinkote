@@ -291,10 +291,24 @@ pub struct CollectionDraft {
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct CollectionPatch {
     pub name: Option<String>,
-    #[serde(rename = "parentKey")]
+    /// `None` leaves the parent alone; `Some(None)` moves to the top level.
+    #[serde(rename = "parentKey", default, deserialize_with = "explicit_null")]
     pub parent_key: Option<Option<Key>>,
     #[serde(rename = "sortIndex")]
     pub sort_index: Option<f64>,
+}
+
+/// Distinguishes an absent field from an explicit `null`.
+///
+/// Serde collapses both to `None` for a plain `Option<Option<T>>`, which would
+/// turn "move this to the top level" into "change nothing" — a silent no-op
+/// exactly where the user expects a visible move.
+fn explicit_null<'de, D, T>(d: D) -> std::result::Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(d).map(Some)
 }
 
 /// A saved query that behaves like a collection.
@@ -460,5 +474,24 @@ mod tests {
             Creator { last_name: Some("Parmar".into()), ..Default::default() },
         ];
         assert_eq!(i.creator_summary(), "Vaswani et al.");
+    }
+}
+
+#[cfg(test)]
+mod patch_tests {
+    use super::CollectionPatch;
+
+    #[test]
+    fn an_explicit_null_parent_means_move_to_the_top_level() {
+        // `Option<Option<_>>` collapses a JSON null to `None` by default, which
+        // would silently turn "unparent me" into "leave the parent alone".
+        let p: CollectionPatch = serde_json::from_str(r#"{"parentKey":null}"#).unwrap();
+        assert_eq!(p.parent_key, Some(None), "null must reach the store as a clear");
+    }
+
+    #[test]
+    fn an_absent_parent_leaves_the_parent_untouched() {
+        let p: CollectionPatch = serde_json::from_str(r#"{"name":"x"}"#).unwrap();
+        assert_eq!(p.parent_key, None);
     }
 }

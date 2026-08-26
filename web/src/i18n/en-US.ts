@@ -262,4 +262,5 @@ export const enUS: Record<MessageKey, string> = {
   'chat.role.tool': 'Tool',
   'chat.role.system': 'System',
   'menu.delete': 'Delete',
+  'toast.dropFailed': 'Drop failed',
 }

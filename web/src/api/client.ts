@@ -142,6 +142,12 @@ export const api = {
         method: 'PATCH',
         ...json({ name }),
       }),
+    /** `null` moves the collection to the top level. */
+    move: (lib: number, key: string, parentKey: string | null) =>
+      request<Collection>(`/libraries/${lib}/collections/${key}`, {
+        method: 'PATCH',
+        ...json({ parentKey }),
+      }),
     remove: (lib: number, key: string) =>
       request<{ deleted: number }>(`/libraries/${lib}/collections/${key}`, { method: 'DELETE' }),
   },

@@ -258,6 +258,7 @@ export const zhCN = {
   'chat.role.tool': '工具',
   'chat.role.system': '系统',
   'menu.delete': '删除',
+  'toast.dropFailed': '拖放失败',
 } as const
 
 export type MessageKey = keyof typeof zhCN
