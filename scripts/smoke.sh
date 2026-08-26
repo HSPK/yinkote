@@ -83,6 +83,14 @@ echo "▸ plugins"
 check "plugin list"      "$(j "$BASE/plugins" | jq -r 'type')"
 check "contributions"    "$(j "$BASE/plugins/contributions" | jq -r 'type')"
 
+echo "▸ badges"
+check "badge columns"    "$(j "$BASE/badges" | jq -r 'length')"
+BKEY=$(j -X POST "$BASE/libraries/$LIB/items" \
+         -d '[{"itemType":"journalArticle","title":"Badge smoke","ISSN":"0028-0836"}]' \
+       | jq -r '.created[0].key')
+check "badge resolve"    "$(j -X POST "$BASE/libraries/$LIB/badges" -d "{\"keys\":[\"$BKEY\"]}" \
+                            | jq -r ".\"$BKEY\" | length")"
+
 echo "▸ conversations"
 CONV=$(j -X POST "$BASE/libraries/$LIB/conversations" -d '{"title":"smoke"}' | jq -r .key)
 check "conversation"     "$CONV"

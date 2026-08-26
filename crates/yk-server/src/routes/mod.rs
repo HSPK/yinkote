@@ -1,5 +1,6 @@
 //! HTTP surface. One module per resource; `router` wires them together.
 
+mod badges;
 mod collections;
 mod conversations;
 mod items;
@@ -24,6 +25,7 @@ pub fn router() -> Router<App> {
     Router::new()
         .merge(system::router())
         .merge(items::router())
+        .merge(badges::router())
         .merge(collections::router())
         .merge(conversations::router())
         .merge(search::router())

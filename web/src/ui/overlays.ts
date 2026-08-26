@@ -50,6 +50,8 @@ export interface MenuItem {
   hint?: string
   danger?: boolean
   disabled?: boolean
+  /** Renders a tick and keeps the menu open, for toggles like column visibility. */
+  checked?: boolean
   onSelect?: () => void | Promise<void>
   /** Nested submenu, one level deep. */
   items?: MenuItem[]

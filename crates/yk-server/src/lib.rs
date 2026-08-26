@@ -4,8 +4,9 @@
 //! store → search → host bridge → plugins → app state → router.
 //! Each layer only knows about the abstractions below it.
 
+pub mod badges;
 pub mod config;
-pub mod error;
+mod error;
 pub mod hostapi;
 pub mod routes;
 pub mod security;
@@ -69,7 +70,8 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
     }
     let plugins: Arc<dyn PluginHost> = builder.build(HostBridge::new(services.clone())).await?;
 
-    Ok(Arc::new(AppState { services, plugins, config, started: Instant::now() }))
+    let badges = badges::BadgeService::new(plugins.clone());
+    Ok(Arc::new(AppState { services, plugins, badges, config, started: Instant::now() }))
 }
 
 fn make_embedder(config: &Config) -> Arc<dyn yk_core::ports::EmbeddingProvider> {

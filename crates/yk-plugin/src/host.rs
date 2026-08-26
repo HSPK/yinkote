@@ -296,6 +296,9 @@ fn parse_contributions(plugin_id: &str, value: Value) -> Contributions {
     for a in &mut c.item_actions {
         a.plugin_id = plugin_id.to_string();
     }
+    for b in &mut c.badges {
+        b.plugin_id = plugin_id.to_string();
+    }
     c
 }
 

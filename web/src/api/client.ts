@@ -4,6 +4,8 @@
  *  never touch `fetch` directly.
  */
 import type {
+  BadgeDescriptor,
+  BadgeValue,
   Collection,
   Conversation,
   Item,
@@ -150,6 +152,15 @@ export const api = {
       }),
     remove: (lib: number, key: string) =>
       request<{ deleted: number }>(`/libraries/${lib}/collections/${key}`, { method: 'DELETE' }),
+  },
+
+  badges: {
+    descriptors: () => request<BadgeDescriptor[]>('/badges'),
+    resolve: (lib: number, keys: string[]) =>
+      request<Record<string, BadgeValue[]>>(`/libraries/${lib}/badges`, {
+        method: 'POST',
+        ...json({ keys }),
+      }),
   },
 
   conversations: {

@@ -322,7 +322,18 @@ button { cursor: pointer; }
 
 .col-grip:hover { background: var(--accent-dim); }
 
-.table-head button:hover { color: var(--fg); background: var(--bg-3); }
+.table-head button:hover:not(:disabled) { color: var(--fg); background: var(--bg-3); }
+
+.head-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sort-arrow { flex: none; margin-left: 3px; color: var(--accent); }
+
+.table-foot {
+  position: static;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+
+.table-foot .icon-btn { width: 20px; height: 20px; }
 .table-head .sorted { color: var(--accent); }
 
 .table-body { position: relative; flex: 1; overflow: auto; }
@@ -1063,3 +1074,33 @@ select.ctl { padding: 4px 6px; }
 .nav-item[data-drop] .count { color: #fff; }
 
 .row[draggable='true'] { cursor: default; }
+
+
+/* ─── badges ─────────────────────────────────────────────────────────────── */
+
+.badge-cell { justify-content: center; }
+
+.badge-pill {
+  padding: 0 5px;
+  min-width: 26px;
+  text-align: center;
+  font: 10px/16px var(--mono);
+  letter-spacing: 0.02em;
+  border: 1px solid var(--line-2);
+  color: var(--fg-dim);
+  background: var(--bg-2);
+}
+
+/* Tone is a ranking, so the scale reads top to bottom at a glance. */
+.badge-pill[data-tone='high'] { color: #fff; background: var(--accent); border-color: var(--accent); }
+.badge-pill[data-tone='mid'] { color: var(--fg); border-color: var(--accent-dim); }
+.badge-pill[data-tone='low'] { color: var(--fg-mute); }
+
+.menu-check {
+  display: inline-block;
+  width: 12px;
+  margin-right: 2px;
+  color: var(--accent);
+}
+
+.menu-item[data-checked] { color: var(--fg); }

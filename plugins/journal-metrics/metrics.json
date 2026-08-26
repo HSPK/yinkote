@@ -1,0 +1,20 @@
+{
+  "0028-0836": { "if": 50.5, "jcr": "Q1", "cas": 1 },
+  "nature": { "if": 50.5, "jcr": "Q1", "cas": 1 },
+  "0036-8075": { "if": 44.7, "jcr": "Q1", "cas": 1 },
+  "science": { "if": 44.7, "jcr": "Q1", "cas": 1 },
+  "1476-4687": { "if": 50.5, "jcr": "Q1", "cas": 1 },
+  "1533-7928": { "if": 6.0, "jcr": "Q1", "cas": 3 },
+  "journalofmachinelearningresearch": { "if": 6.0, "jcr": "Q1", "cas": 3 },
+  "0162-8828": { "if": 20.8, "jcr": "Q1", "cas": 1 },
+  "ieeetransactionsonpatternanalysisandmachineintelligence": { "if": 20.8, "jcr": "Q1", "cas": 1 },
+  "1546-1696": { "if": 33.1, "jcr": "Q1", "cas": 1 },
+  "naturebiotechnology": { "if": 33.1, "jcr": "Q1", "cas": 1 },
+  "0092-8674": { "if": 45.5, "jcr": "Q1", "cas": 1 },
+  "cell": { "if": 45.5, "jcr": "Q1", "cas": 1 },
+  "1367-4803": { "if": 4.4, "jcr": "Q2", "cas": 2 },
+  "bioinformatics": { "if": 4.4, "jcr": "Q2", "cas": 2 },
+  "0031-3203": { "if": 7.5, "jcr": "Q1", "cas": 2 },
+  "patternrecognition": { "if": 7.5, "jcr": "Q1", "cas": 2 },
+  "1063-6919": { "if": 2.1, "jcr": "Q3", "cas": 4 }
+}

@@ -214,3 +214,20 @@ export interface Message {
   meta?: Record<string, unknown>
   createdAt: number
 }
+
+export interface BadgeDescriptor {
+  id: string
+  label: string
+  description?: string
+  needs: string[]
+  width?: number
+  pluginId: string
+}
+
+export interface BadgeValue {
+  badge: string
+  text: string
+  tone?: 'high' | 'mid' | 'low' | 'neutral'
+  title?: string
+  pluginId: string
+}

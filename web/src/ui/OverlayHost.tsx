@@ -144,16 +144,21 @@ function MenuRow({ item, onDone }: { item: MenuItem; onDone: () => void }) {
     )
   }
 
+  const checkable = item.checked !== undefined
   return (
     <button
       className="menu-item"
       data-danger={item.danger || undefined}
+      data-checked={item.checked || undefined}
       disabled={item.disabled}
       onClick={() => {
-        onDone()
+        // Toggles stay open: choosing columns is nearly always several choices,
+        // and reopening the menu between each is needless work.
+        if (!checkable) onDone()
         void item.onSelect?.()
       }}
     >
+      {checkable && <span className="menu-check">{item.checked ? '✓' : ''}</span>}
       <span>{item.label}</span>
       {item.hint && <span className="menu-hint">{item.hint}</span>}
     </button>

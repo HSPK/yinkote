@@ -1,0 +1,17 @@
+{
+  "id": "journal-metrics",
+  "name": "Journal Metrics",
+  "version": "1.0.0",
+  "description": "Adds impact factor, JCR quartile and CAS tier columns, looked up by ISSN or journal name.",
+  "author": "Yinkote",
+  "apiVersion": 1,
+  "runtime": {
+    "type": "process",
+    "command": "node",
+    "args": ["main.mjs"]
+  },
+  "capabilities": ["badge"],
+  "permissions": [],
+  "hooks": [],
+  "timeoutMs": 5000
+}

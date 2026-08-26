@@ -14,6 +14,7 @@ use yk_core::ports::{PluginHost, SearchIndex};
 use yk_scrape::ScrapeEngine;
 use yk_store::Store;
 
+use crate::badges::BadgeService;
 use crate::config::Config;
 
 pub struct Services {
@@ -28,6 +29,9 @@ pub struct Services {
 pub struct AppState {
     pub services: Arc<Services>,
     pub plugins: Arc<dyn PluginHost>,
+    /// Sits beside the registry rather than inside it: badges are a *use* of
+    /// plugins, not part of running them.
+    pub badges: BadgeService,
     pub config: Config,
     pub started: Instant,
 }

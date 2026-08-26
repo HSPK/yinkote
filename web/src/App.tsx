@@ -79,6 +79,10 @@ function useGlobalKeys() {
           e.preventDefault()
           store.togglePalette(true)
           break
+        case 'i':
+          e.preventDefault()
+          store.toggleDetail()
+          break
         default:
           break
       }
@@ -101,6 +105,7 @@ export function App() {
   const view = useStore((s) => s.view)
   const modal = useStore((s) => s.modal)
   const layout = useStore((s) => s.layout)
+  const detailOpen = useStore((s) => s.detailOpen)
   const setModal = useStore((s) => s.setModal)
   const setLayout = useStore((s) => s.setLayout)
   const bootstrap = useStore((s) => s.bootstrap)
@@ -141,7 +146,7 @@ export function App() {
 
         {view === 'chat' ? <ChatView /> : <ItemTable />}
 
-        {view !== 'chat' && (
+        {view !== 'chat' && detailOpen && (
           <>
             <Splitter
               size={layout.detail}

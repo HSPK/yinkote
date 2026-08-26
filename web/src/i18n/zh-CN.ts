@@ -262,6 +262,16 @@ export const zhCN = {
   'dialog.itemTitle': '文献标题',
   'toast.dismiss': '关闭',
   'chat.untitled': '未命名对话',
+  'table.publication': '出版物',
+  'table.added': '添加',
+  'table.badge': '徽章',
+  'table.columns': '列',
+  'table.columnsHint': '选择显示的列',
+  'table.resetColumns': '恢复默认列',
+  'table.moveLeft': '左移',
+  'table.moveRight': '右移',
+  'detail.hide': '隐藏详情',
+  'detail.show': '显示详情',
 } as const
 
 export type MessageKey = keyof typeof zhCN

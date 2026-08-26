@@ -30,6 +30,18 @@ function Svg({ size = 14, children, ...props }: IconProps) {
 }
 
 export const Icon = {
+  /** Three vertical bands: the column picker. */
+  Columns: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M2 3h3.2v10H2zM6.4 3h3.2v10H6.4zM10.8 3H14v10h-3.2z" />
+    </Svg>
+  ),
+  /** A frame with a docked side panel. */
+  Panel: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M2 3h12v10H2zm1.4 1.4v7.2h5.4V4.4z" />
+    </Svg>
+  ),
   /** Stack of shelved volumes. */
   Library: (p: IconProps) => (
     <Svg {...p}>

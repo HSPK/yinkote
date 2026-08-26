@@ -74,6 +74,8 @@ pub enum CapabilityKind {
     ItemAction,
     /// Reacts to lifecycle hooks.
     Hook,
+    /// Annotates items with a small value shown as a table column.
+    Badge,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -146,6 +148,8 @@ pub struct Contributions {
     pub exporters: Vec<FormatDescriptor>,
     #[serde(default, rename = "itemActions")]
     pub item_actions: Vec<ActionDescriptor>,
+    #[serde(default)]
+    pub badges: Vec<BadgeDescriptor>,
 }
 
 impl Contributions {
@@ -154,6 +158,7 @@ impl Contributions {
         self.importers.extend(other.importers);
         self.exporters.extend(other.exporters);
         self.item_actions.extend(other.item_actions);
+        self.badges.extend(other.badges);
     }
 }
 
@@ -188,6 +193,45 @@ pub struct ActionDescriptor {
     pub label: String,
     #[serde(rename = "itemTypes", default)]
     pub item_types: Vec<String>,
+    #[serde(rename = "pluginId", skip_deserializing, default)]
+    pub plugin_id: String,
+}
+
+/// A small per-item annotation shown as a table column.
+///
+/// Journal metrics (impact factor, JCR quartile, CAS tier) are the motivating
+/// case: they are per-item, they come from datasets the host has no business
+/// bundling, and they change independently of the library. Declaring them makes
+/// the column exist; resolving them fills it in.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BadgeDescriptor {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Item fields the plugin needs in order to resolve, e.g. `["ISSN"]`.
+    /// The host sends only these, so a badge plugin never sees the whole item.
+    #[serde(default)]
+    pub needs: Vec<String>,
+    /// Preferred column width in pixels.
+    #[serde(default)]
+    pub width: Option<u32>,
+    #[serde(rename = "pluginId", skip_deserializing, default)]
+    pub plugin_id: String,
+}
+
+/// One resolved badge for one item.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BadgeValue {
+    /// Matches `BadgeDescriptor::id`.
+    pub badge: String,
+    pub text: String,
+    /// Optional severity, used for colour: `high`, `mid`, `low`, `neutral`.
+    #[serde(default)]
+    pub tone: Option<String>,
+    /// Longer text for a tooltip.
+    #[serde(default)]
+    pub title: Option<String>,
     #[serde(rename = "pluginId", skip_deserializing, default)]
     pub plugin_id: String,
 }

@@ -8,9 +8,12 @@ import { create } from 'zustand'
 
 import { api, connectEvents } from '../api/client'
 import { detectLocale, schemaLabel, t, useI18n, type Locale } from '../i18n'
+import { DEFAULT_VISIBLE } from '../lib/columns'
 import { applyTheme, DEFAULT_THEME } from '../lib/theme'
 import { useOverlays } from '../ui/overlays'
 import type {
+  BadgeDescriptor,
+  BadgeValue,
   Collection,
   Conversation,
   Item,
@@ -47,7 +50,15 @@ interface State {
   /** Pane widths in pixels; dragged by the splitters, persisted server-side. */
   layout: { sidebar: number; detail: number }
   /** Item-table column widths in pixels, keyed by column id. */
-  columns: Record<string, number>
+  columnWidths: Record<string, number>
+  /** Visible columns, in display order. */
+  columnOrder: string[]
+  /** Badge columns offered by plugins. */
+  badgeDefs: BadgeDescriptor[]
+  /** Resolved badges for the rows currently loaded, keyed by item key. */
+  badges: Record<string, BadgeValue[]>
+  /** Whether the right-hand detail pane is showing. */
+  detailOpen: boolean
 
   conversations: Conversation[]
   conversation: string | null
@@ -105,7 +116,11 @@ interface State {
   setPanel: (p: Panel) => void
   setModal: (m: Modal) => void
   setLayout: (patch: Partial<{ sidebar: number; detail: number }>, commit?: boolean) => void
-  setColumn: (id: string, width: number, commit?: boolean) => void
+  setColumnWidth: (id: string, width: number, commit?: boolean) => void
+  setColumnOrder: (order: string[]) => void
+  resetColumns: () => void
+  loadBadges: (keys: string[]) => Promise<void>
+  toggleDetail: (open?: boolean) => void
   openConversation: (key: string) => Promise<void>
   newConversation: () => Promise<void>
   renameConversation: (key: string, title: string) => Promise<void>
@@ -157,7 +172,11 @@ export const useStore = create<State>((set, get) => ({
   plugins: [],
   modal: null,
   layout: { sidebar: 232, detail: 380 },
-  columns: {},
+  columnWidths: {},
+  columnOrder: DEFAULT_VISIBLE,
+  badgeDefs: [],
+  badges: {},
+  detailOpen: true,
   conversations: [],
   conversation: null,
   messages: [],
@@ -222,7 +241,9 @@ export const useStore = create<State>((set, get) => ({
       }
       set({
         layout: parsed('ui.layout', get().layout),
-        columns: parsed('ui.columns', {}),
+        columnWidths: parsed('ui.columnWidths', {}),
+        columnOrder: parsed('ui.columnOrder', DEFAULT_VISIBLE),
+        detailOpen: saved('ui.detailOpen') !== 'false',
       })
 
       const theme = saved('ui.theme') ?? DEFAULT_THEME
@@ -243,7 +264,10 @@ export const useStore = create<State>((set, get) => ({
           void get().refresh()
           void get().reloadSidebar()
         } else if (type === 'pluginsChanged') {
-          void api.plugins.list().then((plugins) => set({ plugins }))
+          // Badge columns come and go with their plugin, and any answers the
+          // old one gave are no longer trustworthy.
+          set({ badges: {} })
+          void get().reloadSidebar()
         }
       })
     } catch (e) {
@@ -279,6 +303,7 @@ export const useStore = create<State>((set, get) => ({
         cursor: Math.min(get().cursor, Math.max(0, page.items.length - 1)),
         error: null,
       })
+      void get().loadBadges(page.items.map((i) => i.key))
     } catch (e) {
       if (seq !== requestSeq) return
       set({ loading: false, error: e instanceof Error ? e.message : String(e) })
@@ -288,20 +313,21 @@ export const useStore = create<State>((set, get) => ({
   async reloadSidebar() {
     const s = get()
     try {
-      const [collections, smartCollections, conversations, tags, stats, plugins] =
+      const [collections, smartCollections, conversations, tags, stats, plugins, badgeDefs] =
         await Promise.all([
-        api.collections.list(s.library),
-        api.smart.list(s.library, true),
-        api.conversations.list(s.library),
-        api.tags.facets(s.library, {
-          collection: s.view === 'collection' ? s.collection ?? undefined : undefined,
-          trash: s.view === 'trash' ? 'only' : 'exclude',
-          limit: 80,
-        }),
-        api.stats(),
-        api.plugins.list(),
-      ])
-      set({ collections, smartCollections, conversations, tags, stats, plugins })
+          api.collections.list(s.library),
+          api.smart.list(s.library, true),
+          api.conversations.list(s.library),
+          api.tags.facets(s.library, {
+            collection: s.view === 'collection' ? s.collection ?? undefined : undefined,
+            trash: s.view === 'trash' ? 'only' : 'exclude',
+            limit: 80,
+          }),
+          api.stats(),
+          api.plugins.list(),
+          api.badges.descriptors(),
+        ])
+      set({ collections, smartCollections, conversations, tags, stats, plugins, badgeDefs })
     } catch {
       /* sidebar is decoration; never block the main view on it */
     }
@@ -430,10 +456,46 @@ export const useStore = create<State>((set, get) => ({
     if (commit) void api.settings.put({ layout: JSON.stringify(layout) })
   },
 
-  setColumn(id, width, commit) {
-    const columns = { ...get().columns, [id]: width }
-    set({ columns })
-    if (commit) void api.settings.put({ columns: JSON.stringify(columns) })
+  setColumnWidth(id, width, commit) {
+    const columnWidths = { ...get().columnWidths, [id]: width }
+    set({ columnWidths })
+    if (commit) void api.settings.put({ columnWidths: JSON.stringify(columnWidths) })
+  },
+
+  setColumnOrder(columnOrder) {
+    set({ columnOrder })
+    void api.settings.put({ columnOrder: JSON.stringify(columnOrder) })
+  },
+
+  resetColumns() {
+    set({ columnOrder: DEFAULT_VISIBLE, columnWidths: {} })
+    void api.settings.put({ columnOrder: '', columnWidths: '' })
+  },
+
+  /** Fill in plugin badges for rows that do not have them yet.
+   *
+   *  Deliberately fire-and-forget: the table is already on screen, and a slow
+   *  or broken badge plugin must never be able to hold a listing back. */
+  async loadBadges(keys) {
+    const s = get()
+    if (!s.badgeDefs.length) return
+    const wanted = keys.filter((k) => !(k in s.badges))
+    if (!wanted.length) return
+    try {
+      const resolved = await api.badges.resolve(s.library, wanted)
+      // Remember misses too, so a blank cell is asked about once, not forever.
+      const merged = { ...get().badges }
+      for (const k of wanted) merged[k] = resolved[k] ?? []
+      set({ badges: merged })
+    } catch {
+      // A badge is an extra, never a reason to surface an error.
+    }
+  },
+
+  toggleDetail(open) {
+    const detailOpen = open ?? !get().detailOpen
+    set({ detailOpen })
+    void api.settings.put({ detailOpen: String(detailOpen) })
   },
 
   async openConversation(key) {

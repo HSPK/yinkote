@@ -1,35 +1,24 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useMemo, useRef } from 'react'
 
-import type { Item, MatchSource } from '../api/types'
+import type { BadgeValue, Item, MatchSource } from '../api/types'
+import { useSchemaLabel, useT } from '../i18n'
+import {
+  allColumns,
+  badgeColumn,
+  gridTemplate,
+  moveColumn,
+  toggleColumn,
+  visibleColumns,
+  type ColumnDef,
+} from '../lib/columns'
+import { beginDrag, endDrag } from '../lib/dnd'
 import { creatorSummary, shortDate, snippetParts, year } from '../lib/format'
 import { useStore } from '../state/store'
-import { beginDrag, endDrag } from '../lib/dnd'
-import { contextMenu } from '../ui'
+import { Icon, contextMenu, type MenuItem } from '../ui'
 import { itemMenu } from './menus'
-import { useSchemaLabel, useT } from '../i18n'
-
-/** Column definitions. `id` keys the persisted widths, so renaming a label or
- *  switching language never disturbs a user's layout. */
-const COLUMNS = [
-  { id: 'title', field: 'title', key: 'table.title', width: 0, min: 160 },
-  { id: 'author', field: 'creator', key: 'table.author', width: 150, min: 80 },
-  { id: 'year', field: 'year', key: 'table.year', width: 48, min: 40 },
-  { id: 'type', field: 'itemType', key: 'table.type', width: 108, min: 64 },
-  { id: 'tags', field: '', key: 'table.tags', width: 132, min: 64 },
-  { id: 'modified', field: 'dateModified', key: 'table.modified', width: 108, min: 72 },
-] as const
 
 const MAX_WIDTH = 640
-
-/** A width of 0 means "take what is left", which keeps the table filling the
- *  pane at any window size until the user pins that column explicitly. */
-function template(widths: Record<string, number>): string {
-  return COLUMNS.map((c) => {
-    const w = widths[c.id] ?? c.width
-    return w > 0 ? `${w}px` : `minmax(${c.min}px, 1fr)`
-  }).join(' ')
-}
 
 const SOURCE_GLYPH: Record<MatchSource, string> = {
   keyword: 'K',
@@ -39,19 +28,115 @@ const SOURCE_GLYPH: Record<MatchSource, string> = {
   field: 'D',
 }
 
-function Row({ item, selected, cursor, style, grid }: {
+/** Everything a cell may need, gathered once per row. */
+interface CellContext {
   item: Item
+  typeLabel: string
+  badges: BadgeValue[]
+  untitled: string
+}
+
+function TitleCell({ item, untitled }: CellContext) {
+  const snippet = item.match?.snippet
+  return (
+    <>
+      {item.match?.sources.map((s) => (
+        <span key={s} className="src" data-s={s} title={s}>
+          {SOURCE_GLYPH[s]}
+        </span>
+      ))}
+      {String(item.title ?? untitled)}
+      {snippet && (
+        <span className="snippet">
+          {snippetParts(snippet).map((p, i) =>
+            p.mark ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>,
+          )}
+        </span>
+      )}
+    </>
+  )
+}
+
+/** How each builtin column turns an item into cell content.
+ *
+ *  A lookup table rather than a switch so that adding a column is one entry
+ *  here and one in the catalogue, with nothing else to remember. */
+const CELLS: Record<
+  string,
+  {
+    className?: string
+    render: (ctx: CellContext) => React.ReactNode
+    title?: (item: Item) => string
+  }
+> = {
+  title: { render: TitleCell, title: (i) => String(i.title ?? '') },
+  author: { className: 'dim', render: ({ item }) => creatorSummary(item) },
+  year: { className: 'num', render: ({ item }) => year(item) },
+  type: { className: 'dim', render: ({ typeLabel }) => typeLabel },
+  tags: {
+    className: 'dim',
+    render: ({ item }) => item.tags.map((t) => t.tag).join(' · '),
+    title: (i) => i.tags.map((t) => t.tag).join(', '),
+  },
+  publication: {
+    className: 'dim',
+    render: ({ item }) => String(item.publicationTitle ?? ''),
+  },
+  modified: { className: 'num', render: ({ item }) => shortDate(item.dateModified) },
+  added: { className: 'num', render: ({ item }) => shortDate(item.dateAdded) },
+}
+
+function Cell({ column, ctx }: { column: ColumnDef; ctx: CellContext }) {
+  if (column.badge) {
+    const value = ctx.badges.find((b) => b.badge === column.badge && b.pluginId === column.pluginId)
+    return (
+      <div className="cell badge-cell">
+        {value && (
+          <span className="badge-pill" data-tone={value.tone ?? 'neutral'} title={value.title}>
+            {value.text}
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  const spec = CELLS[column.id]
+  if (!spec) return <div className="cell" />
+  return (
+    <div className={spec.className ? `cell ${spec.className}` : 'cell'} title={spec.title?.(ctx.item)}>
+      {spec.render(ctx)}
+    </div>
+  )
+}
+
+function Row({
+  item,
+  columns,
+  selected,
+  cursor,
+  style,
+  grid,
+}: {
+  item: Item
+  columns: ColumnDef[]
   selected: boolean
   cursor: boolean
   style: React.CSSProperties
   grid: string
 }) {
   const t = useT()
+  const label = useSchemaLabel()
   const select = useStore((s) => s.select)
   const selection = useStore((s) => s.selected)
-  const label = useSchemaLabel()
   const typeDef = useStore((s) => s.schema?.itemTypes.find((d) => d.type === item.itemType))
-  const snippet = item.match?.snippet
+  const badges = useStore((s) => s.badges[item.key])
+
+  const ctx: CellContext = {
+    item,
+    typeLabel: label(typeDef, item.itemType),
+    badges: badges ?? [],
+    untitled: t('detail.untitled'),
+  }
 
   return (
     <div
@@ -71,26 +156,9 @@ function Row({ item, selected, cursor, style, grid }: {
       }}
       onDragEnd={endDrag}
     >
-      <div className="cell" title={String(item.title ?? '')}>
-        {item.match?.sources.map((s) => (
-          <span key={s} className="src" data-s={s} title={s}>
-            {SOURCE_GLYPH[s]}
-          </span>
-        ))}
-        {String(item.title ?? t('detail.untitled'))}
-        {snippet && (
-          <span className="snippet">
-            {snippetParts(snippet).map((p, i) => (p.mark ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>))}
-          </span>
-        )}
-      </div>
-      <div className="cell dim">{creatorSummary(item)}</div>
-      <div className="cell num">{year(item)}</div>
-      <div className="cell dim">{label(typeDef, item.itemType)}</div>
-      <div className="cell dim" title={item.tags.map((t) => t.tag).join(', ')}>
-        {item.tags.map((t) => t.tag).join(' · ')}
-      </div>
-      <div className="cell num">{shortDate(item.dateModified)}</div>
+      {columns.map((c) => (
+        <Cell key={c.id} column={c} ctx={ctx} />
+      ))}
     </div>
   )
 }
@@ -107,28 +175,61 @@ export function ItemTable() {
   const loading = useStore((s) => s.loading)
   const query = useStore((s) => s.query)
 
-  const columns = useStore((s) => s.columns)
-  const setColumn = useStore((s) => s.setColumn)
-  const grid = useMemo(() => template(columns), [columns])
+  const badgeDefs = useStore((s) => s.badgeDefs)
+  const order = useStore((s) => s.columnOrder)
+  const widths = useStore((s) => s.columnWidths)
+  const setColumnWidth = useStore((s) => s.setColumnWidth)
+  const setColumnOrder = useStore((s) => s.setColumnOrder)
+  const resetColumns = useStore((s) => s.resetColumns)
+  const detailOpen = useStore((s) => s.detailOpen)
+  const toggleDetail = useStore((s) => s.toggleDetail)
+
+  const available = useMemo(() => allColumns(badgeDefs.map((b) => badgeColumn(b))), [badgeDefs])
+  const columns = useMemo(() => visibleColumns(order, available), [order, available])
+  const grid = useMemo(() => gridTemplate(columns, widths), [columns, widths])
+
+  /** Labels differ in origin: builtin columns translate, badges carry plugin text. */
+  const headerLabel = (c: ColumnDef) =>
+    c.badge
+      ? (badgeDefs.find((b) => `badge:${b.pluginId}:${b.id}` === c.id)?.label ?? c.badge)
+      : t(c.labelKey)
+
+  const columnMenu = (): MenuItem[] => [
+    { label: t('table.columnsHint'), disabled: true },
+    ...available.map((c) => ({
+      label: headerLabel(c),
+      checked: order.includes(c.id),
+      onSelect: () => setColumnOrder(toggleColumn(order, c.id, available)),
+    })),
+    {},
+    { label: t('table.resetColumns'), onSelect: resetColumns },
+  ]
+
+  const headerMenu = (c: ColumnDef): MenuItem[] => [
+    { label: t('table.moveLeft'), onSelect: () => setColumnOrder(moveColumn(order, c.id, -1)) },
+    { label: t('table.moveRight'), onSelect: () => setColumnOrder(moveColumn(order, c.id, 1)) },
+    {},
+    ...columnMenu(),
+  ]
 
   // Resizing tracks the pointer on the window so the drag survives leaving the
-  // 4px grip, which is otherwise almost impossible to stay inside.
-  const startResize = (id: string, min: number) => (e: React.PointerEvent) => {
+  // 5px grip, which is otherwise almost impossible to stay inside.
+  const startResize = (c: ColumnDef) => (e: React.PointerEvent) => {
     e.preventDefault()
     e.stopPropagation()
     const cell = (e.currentTarget as HTMLElement).parentElement
     const from = e.clientX
-    const base = cell?.getBoundingClientRect().width ?? min
+    const base = cell?.getBoundingClientRect().width ?? c.min
     let last = base
     const move = (ev: PointerEvent) => {
-      last = Math.max(min, Math.min(MAX_WIDTH, base + ev.clientX - from))
-      setColumn(id, last)
+      last = Math.max(c.min, Math.min(MAX_WIDTH, base + ev.clientX - from))
+      setColumnWidth(c.id, last)
     }
     const up = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
       document.body.style.cursor = ''
-      setColumn(id, last, true)
+      setColumnWidth(c.id, last, true)
     }
     document.body.style.cursor = 'col-resize'
     window.addEventListener('pointermove', move)
@@ -150,21 +251,28 @@ export function ItemTable() {
 
   return (
     <section className="pane main table-pane">
-      <div className="table-head" style={{ gridTemplateColumns: grid }}>
-        {COLUMNS.map((c) => (
-          <div key={c.id} className="head-cell">
+      <div
+        className="table-head"
+        style={{ gridTemplateColumns: grid }}
+        onContextMenu={contextMenu(columnMenu)}
+      >
+        {columns.map((c) => (
+          <div key={c.id} className="head-cell" onContextMenu={contextMenu(() => headerMenu(c))}>
             <button
-              className={sort === c.field ? 'sorted' : undefined}
-              disabled={!c.field}
-              onClick={() => c.field && setSort(c.field)}
+              className={sort === c.sort ? 'sorted' : undefined}
+              disabled={!c.sort}
+              title={headerLabel(c)}
+              onClick={() => c.sort && setSort(c.sort)}
             >
-              {t(c.key)}
-              {sort === c.field ? (direction === 'asc' ? ' ↑' : ' ↓') : ''}
+              <span className="head-label">{headerLabel(c)}</span>
+              {sort === c.sort && (
+                <span className="sort-arrow">{direction === 'asc' ? '↑' : '↓'}</span>
+              )}
             </button>
             <span
               className="col-grip"
-              onPointerDown={startResize(c.id, c.min)}
-              onDoubleClick={() => setColumn(c.id, c.width, true)}
+              onPointerDown={startResize(c)}
+              onDoubleClick={() => setColumnWidth(c.id, c.width, true)}
             />
           </div>
         ))}
@@ -184,6 +292,7 @@ export function ItemTable() {
               <Row
                 key={item.key}
                 item={item}
+                columns={columns}
                 selected={selected.includes(item.key)}
                 cursor={v.index === cursor}
                 style={{ transform: `translateY(${v.start}px)`, height: v.size }}
@@ -194,10 +303,21 @@ export function ItemTable() {
         </div>
       </div>
 
-      <div className="pane-header" style={{ borderTop: '1px solid var(--line)', borderBottom: 0 }}>
+      <div className="pane-header table-foot">
         {t('table.count', { shown: items.length, total })}
         <span className="spacer" />
         {loading ? t('table.loading') : ''}
+        <button className="icon-btn" title={t('table.columns')} onClick={contextMenu(columnMenu)}>
+          <Icon.Columns />
+        </button>
+        <button
+          className="icon-btn"
+          data-active={detailOpen}
+          title={detailOpen ? t('detail.hide') : t('detail.show')}
+          onClick={() => toggleDetail()}
+        >
+          <Icon.Panel />
+        </button>
       </div>
     </section>
   )

@@ -41,6 +41,9 @@ async fn set_enabled(
     Json(body): Json<EnabledBody>,
 ) -> ApiResult<Json<PluginStatus>> {
     let status = app.plugins.set_enabled(&id, body.enabled).await?;
+    // A disabled plugin's badges must stop appearing, and an enabled one's must
+    // start; either way the cached answers no longer describe reality.
+    app.badges.clear().await;
     persist_disabled(&app).await;
     app.events().publish(DomainEvent::PluginsChanged);
     Ok(Json(status))
@@ -48,6 +51,7 @@ async fn set_enabled(
 
 async fn reload(State(app): State<App>) -> ApiResult<Json<Vec<PluginStatus>>> {
     app.plugins.reload().await?;
+    app.badges.clear().await;
     app.events().publish(DomainEvent::PluginsChanged);
     Ok(Json(app.plugins.list().await))
 }
