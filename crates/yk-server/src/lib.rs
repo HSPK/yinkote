@@ -124,7 +124,10 @@ pub fn router(app: App) -> Router {
     let api = routes::router()
         .layer(axum::middleware::from_fn_with_state(app.clone(), security::guard));
 
-    let mut router = Router::new().nest("/api/v1", api);
+    // The connector sits outside the API guard and outside `/api/v1`: the
+    // browser extension can hold no key and knows only Zotero's paths. It is
+    // reachable only on loopback, and accepts only the shapes it defines.
+    let mut router = Router::new().nest("/api/v1", api).merge(routes::connector::router());
 
     if let Some(dir) = &app.config.web_dir {
         let index = dir.join("index.html");
@@ -157,6 +160,7 @@ pub async fn serve(app: App) -> anyhow::Result<()> {
     tracing::info!(%local, "yinkote listening — open http://{local}");
 
     workers::spawn(app.clone());
+    serve_connector(&app).await;
 
     let plugins = app.plugins.clone();
     axum::serve(listener, router(app))
@@ -166,6 +170,37 @@ pub async fn serve(app: App) -> anyhow::Result<()> {
     tracing::info!("shutting down plugins");
     plugins.shutdown().await;
     Ok(())
+}
+
+/// Listen on the port the browser extension knows, if asked to.
+///
+/// Never by default. That port is Zotero's, and taking it from a running Zotero
+/// would break the very thing a user is in the middle of migrating away from —
+/// the one failure they would least forgive. Asking for it is a statement that
+/// they are not running both.
+///
+/// A refusal to bind is reported and survived: the workbench is the product,
+/// and it must not fail to start because a port is busy.
+async fn serve_connector(app: &App) {
+    let Some(port) = app.config.connector_port else { return };
+    let addr = format!("127.0.0.1:{port}");
+
+    match tokio::net::TcpListener::bind(&addr).await {
+        Ok(listener) => {
+            tracing::info!(%addr, "browser connector listening");
+            let router = router(app.clone());
+            tokio::spawn(async move {
+                if let Err(e) = axum::serve(listener, router).await {
+                    tracing::warn!(error = %e, "browser connector stopped");
+                }
+            });
+        }
+        Err(e) => tracing::warn!(
+            %addr,
+            error = %e,
+            "could not listen for the browser connector; is Zotero running?"
+        ),
+    }
 }
 
 async fn shutdown_signal() {

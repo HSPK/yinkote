@@ -32,6 +32,10 @@ pub struct Config {
     pub web_dir: Option<PathBuf>,
     /// Extra plugin directories, in addition to `<data_dir>/plugins`.
     pub plugin_dirs: Vec<PathBuf>,
+    /// Port for the Zotero browser connector, conventionally 23119.
+    ///
+    /// `None` — the default — means no second listener. See `serve_connector`.
+    pub connector_port: Option<u16>,
     /// Optional bearer token. When set, every `/api` call must present it.
     pub api_key: Option<String>,
     pub embeddings: Embeddings,
@@ -102,6 +106,7 @@ impl Default for Config {
             data_dir: None,
             web_dir: None,
             plugin_dirs: Vec::new(),
+            connector_port: None,
             api_key: None,
             embeddings: Embeddings::default(),
             agent: AgentConfig { timeout_secs: default_agent_timeout(), ..Default::default() },

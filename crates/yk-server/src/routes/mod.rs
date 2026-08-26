@@ -2,6 +2,7 @@
 
 mod badges;
 mod citations;
+pub(crate) mod connector;
 mod graph;
 mod collections;
 pub(crate) mod files;

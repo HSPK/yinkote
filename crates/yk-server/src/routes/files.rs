@@ -97,18 +97,40 @@ async fn fetch(
         })?,
     };
 
-    let (bytes, content_type) = download_file(&url).await?;
-    let filename = filename_from_url(&url, content_type.as_deref());
+    let attachment = attach_url(&app, lib, &parent, &url, item.title()).await?;
+
+    announce(&app, lib, |version| DomainEvent::ItemsChanged {
+        library_id: lib,
+        keys: vec![parent.clone(), attachment.key.clone()],
+        version,
+    })
+    .await?;
+    Ok(Json(json!({ "attachment": attachment, "url": url })))
+}
+
+/// Download a file and hang it off an item.
+///
+/// Shared with the browser connector, which saves a page's PDF the same way a
+/// user does from the workbench — the only difference being who asked.
+pub(crate) async fn attach_url(
+    app: &App,
+    lib: i64,
+    parent: &Key,
+    url: &str,
+    title: &str,
+) -> Result<yk_core::model::Item> {
+    let (bytes, content_type) = download_file(url).await?;
+    let filename = filename_from_url(url, content_type.as_deref());
 
     // One attachment per source URL: fetching twice must not litter the item
     // with duplicates, which is easy to do by double-clicking.
     let existing = app
         .store()
         .items
-        .children(lib, &parent)
+        .children(lib, parent)
         .await?
         .into_iter()
-        .find(|c| c.item_type == "attachment" && c.field("url") == Some(url.as_str()));
+        .find(|c| c.item_type == "attachment" && c.field("url") == Some(url));
 
     let attachment = match existing {
         Some(found) => {
@@ -117,29 +139,18 @@ async fn fetch(
         }
         None => {
             let mut draft = ItemDraft::new("attachment")
-                .with_field("title", item.title())
+                .with_field("title", title)
                 .with_field("filename", filename.as_str())
                 .with_field("contentType", content_type.as_deref().unwrap_or("application/pdf"))
                 .with_field("linkMode", "imported_url")
-                .with_field("url", url.as_str());
+                .with_field("url", url);
             draft.parent_key = Some(parent.clone());
             let created = app.store().items.create(lib, draft).await?;
             app.storage().put(&created.key, &filename, &bytes).await?;
             created
         }
     };
-
-    announce(&app, lib, |version| DomainEvent::ItemsChanged {
-        library_id: lib,
-        keys: vec![parent.clone(), attachment.key.clone()],
-        version,
-    })
-    .await?;
-    Ok(Json(json!({
-        "attachment": attachment,
-        "bytes": bytes.len(),
-        "url": url,
-    })))
+    Ok(attachment)
 }
 
 /// Where an item's PDF probably lives.

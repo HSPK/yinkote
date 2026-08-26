@@ -27,6 +27,9 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let mut config = Config::load(args.data_dir);
+    if let Some(p) = args.connector_port {
+        config.connector_port = Some(p);
+    }
     if let Some(p) = args.port {
         config.port = p;
     }
@@ -67,6 +70,11 @@ OPTIONS:
         --data-dir <DIR>     Data directory (default: platform data dir)
         --web-dir <DIR>      Directory containing the built workbench
         --plugin-dir <DIR>   Extra plugin directory (repeatable)
+        --connector-port <PORT>
+                             Also listen for the Zotero browser extension,
+                             conventionally 23119. Off unless asked for: that
+                             port belongs to Zotero, and taking it would break
+                             a running copy.
     -h, --help               Print this help
     -V, --version            Print version
 
@@ -79,6 +87,7 @@ ENVIRONMENT:
 #[derive(Default)]
 struct Args {
     port: Option<u16>,
+    connector_port: Option<u16>,
     host: Option<String>,
     data_dir: Option<PathBuf>,
     web_dir: Option<PathBuf>,
@@ -100,6 +109,9 @@ impl Args {
                 "--data-dir" => args.data_dir = it.next().map(PathBuf::from),
                 "--web-dir" => args.web_dir = it.next().map(PathBuf::from),
                 "--plugin-dir" => args.plugin_dirs.extend(it.next().map(PathBuf::from)),
+                "--connector-port" => {
+                    args.connector_port = it.next().and_then(|v| v.parse().ok())
+                }
                 other => eprintln!("warning: ignoring unknown argument '{other}'"),
             }
         }

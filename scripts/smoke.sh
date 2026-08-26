@@ -156,6 +156,27 @@ check "import notes"      "$(j "$BASE/libraries/$LIB/items/SMOKEZ01/children" \
                              | jq -r '.[] | select(.itemType == "note") | .note')"
 rm -rf "$(dirname "$ZDB")"
 
+echo "▸ browser connector"
+# The extension knows only Zotero's paths and holds no key, so these live
+# outside /api and outside the guard. They are checked on the main port; the
+# second listener is opt-in and this test does not assume it.
+CONN="${1:-http://127.0.0.1:23130}"
+check "connector ping"    "$(j -X POST "$CONN/connector/ping" -d '{}' | jq -r '.prefs.downloadAssociatedFiles')"
+check "connector library" "$(j -X POST "$CONN/connector/getSelectedCollection" -d '{}' | jq -r '.libraryEditable')"
+# The connector treats anything but 201 as a save worth retrying.
+check "connector saves"   "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$CONN/connector/saveItems" \
+                             -H 'Content-Type: application/json' \
+                             -d '{"sessionID":"smoke","items":[{"itemType":"journalArticle","title":"Connector smoke","tags":[{"tag":"smoke-connector"}]}]}' \
+                             | grep -x 201)"
+# What it saved must be a real item, findable the ordinary way.
+check "connector stored"  "$(j "$BASE/libraries/$LIB/items?q=Connector%20smoke&limit=1" \
+                             | jq -r '.items[0].title // empty')"
+# A translator's tags are automatic, not the user's own.
+check "connector tags"    "$(j "$BASE/libraries/$LIB/items?q=Connector%20smoke&limit=1" \
+                             | jq -r '.items[0].tags[0] | select(.type == 1) | .tag')"
+check "connector session" "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$CONN/connector/updateSession" \
+                             -H 'Content-Type: application/json' -d '{"sessionID":"smoke"}' | grep -x 200)"
+
 echo "▸ graph"
 GA=$(j -X POST "$BASE/libraries/$LIB/items" \
        -d '[{"itemType":"journalArticle","title":"Graph focus","tags":[{"tag":"graph-smoke"}]}]' \
