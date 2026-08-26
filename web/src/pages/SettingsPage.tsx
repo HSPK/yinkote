@@ -20,6 +20,9 @@ export function SettingsPage() {
   const stats = useStore((s) => s.stats)
   const mode = useStore((s) => s.mode)
   const density = useStore((s) => s.density)
+  const citationStyle = useStore((s) => s.citationStyle)
+  const citationStyles = useStore((s) => s.citationStyles)
+  const setCitationStyle = useStore((s) => s.setCitationStyle)
   const theme = useStore((s) => s.theme)
   const accent = useStore((s) => s.accent)
   const setDensity = useStore((s) => s.setDensity)
@@ -92,6 +95,19 @@ export function SettingsPage() {
             keywords: t('settings.keywords.accent'),
             render: () => (
               <AccentPicker value={accent} onChange={(next) => setTheme(theme, next)} />
+            ),
+          },
+          {
+            id: 'citationStyle',
+            label: t('settings.citationStyle'),
+            hint: t('settings.citationStyleHint'),
+            keywords: t('settings.keywords.citationStyle'),
+            render: () => (
+              <Select
+                value={citationStyle}
+                options={citationStyles.map((s) => ({ value: s.id, label: s.name }))}
+                onChange={(e) => setCitationStyle(e.target.value)}
+              />
             ),
           },
           {
@@ -266,7 +282,23 @@ export function SettingsPage() {
         ],
       },
     ],
-    [t, locale, theme, accent, density, mode, sources, server, stats, setLocale, setTheme, setDensity],
+    [
+      t,
+      locale,
+      theme,
+      accent,
+      density,
+      citationStyle,
+      citationStyles,
+      mode,
+      sources,
+      server,
+      stats,
+      setLocale,
+      setTheme,
+      setDensity,
+      setCitationStyle,
+    ],
   )
 
   const visible = useMemo(() => filterSettings(sections, filter), [sections, filter])

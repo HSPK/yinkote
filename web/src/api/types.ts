@@ -273,3 +273,19 @@ export interface ImportResult {
   failed: number
   total: number
 }
+
+/** A citation style the server can render. */
+export interface CitationStyle {
+  id: string
+  name: string
+  /** Numeric styles cite `[1]`; the rest cite `(Author, year)`. */
+  numeric: boolean
+}
+
+export interface CitationRender {
+  style: string
+  /** The marker for running text, one per key, in the order asked for. */
+  citations: string[]
+  /** The bibliography entry, one per key, in the order asked for. */
+  bibliography: string[]
+}

@@ -1,6 +1,7 @@
 //! HTTP surface. One module per resource; `router` wires them together.
 
 mod badges;
+mod citations;
 mod collections;
 pub(crate) mod files;
 mod import;
@@ -29,6 +30,7 @@ pub fn router() -> Router<App> {
         .merge(system::router())
         .merge(items::router())
         .merge(badges::router())
+        .merge(citations::router())
         .merge(files::router())
         .merge(import::router())
         .merge(collections::router())

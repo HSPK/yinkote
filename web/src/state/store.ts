@@ -35,6 +35,7 @@ import { useOverlays } from '../ui/overlays'
 import type {
   BadgeDescriptor,
   BadgeValue,
+  CitationStyle,
   ListQuery,
   PluginStatus,
   Schema,
@@ -121,7 +122,10 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   /** Ask for a type and title. Resolves to `null` when cancelled. */
   newItemDialog: () => Promise<{ itemType: string; title: string } | null>
   trashItems: (keys: string[]) => Promise<void>
-  copySelected: (kind: 'title' | 'doi' | 'url' | 'citation') => Promise<number>
+  /** Copy the selection. A citation is rendered in `style`, or the remembered one. */
+  copySelected: (kind: 'title' | 'doi' | 'url' | 'citation', style?: string) => Promise<number>
+  /** The styles the server can render, fetched once at startup. */
+  citationStyles: CitationStyle[]
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
   reloadPlugins: () => Promise<void>
   reindex: () => Promise<void>
@@ -149,6 +153,7 @@ export const useStore = create<State>((set, get, store) => ({
 
   ready: false,
   connected: false,
+  citationStyles: [],
   error: null,
   library: 1,
   schema: null,
@@ -175,16 +180,19 @@ export const useStore = create<State>((set, get, store) => ({
   async bootstrap() {
     try {
       const server = await api.ping()
-      const [schema, collections, settings] = await Promise.all([
+      const [schema, collections, settings, citationStyles] = await Promise.all([
         api.schema(),
         api.collections.list(server.defaultLibrary),
         api.settings.get().catch(() => ({}) as Record<string, unknown>),
+        // Menus are built synchronously, so the styles must already be here.
+        api.citations.styles().catch(() => []),
       ])
       set({
         library: server.defaultLibrary,
         server,
         schema,
         collections,
+        citationStyles,
         ready: true,
         error: null,
       })
@@ -601,9 +609,26 @@ export const useStore = create<State>((set, get, store) => ({
 
   /** Copy something about the selection to the clipboard. Returns how many
    *  items contributed, so the caller can report accurately. */
-  async copySelected(kind) {
+  async copySelected(kind, style) {
     const s = get()
     const chosen = s.items.filter((i) => s.selected.includes(i.key))
+
+    // A reference is rendered by the server, which owns the styles. The client
+    // used to assemble one itself, in one shape, badly — and it disagreed with
+    // every real style, which is the failure mode nobody proofreads for.
+    if (kind === 'citation') {
+      if (!chosen.length) return 0
+      const chosenStyle = style ?? s.citationStyle
+      const rendered = await api.citations.render(
+        s.library,
+        chosen.map((i) => i.key),
+        chosenStyle,
+      )
+      if (style && style !== s.citationStyle) get().setCitationStyle(style)
+      await navigator.clipboard.writeText(rendered.bibliography.join('\n'))
+      return rendered.bibliography.length
+    }
+
     const lines = chosen
       .map((item) => {
         switch (kind) {
@@ -613,15 +638,9 @@ export const useStore = create<State>((set, get, store) => ({
             return String(item.DOI ?? '')
           case 'url':
             return String(item.url ?? item.DOI ? `https://doi.org/${String(item.DOI)}` : '')
-          case 'citation': {
-            const authors = item.creators.map((c) => c.lastName || c.name || '').join(', ')
-            const y = /\d{4}/.exec(String(item.date ?? ''))?.[0] ?? 'n.d.'
-            const venue = String(item.publicationTitle ?? item.bookTitle ?? '')
-            return [authors, `(${y})`, String(item.title ?? ''), venue].filter(Boolean).join('. ')
-          }
         }
       })
-      .filter((l) => l.trim().length > 0)
+      .filter((l) => l && l.trim().length > 0) as string[]
 
     if (lines.length) await navigator.clipboard.writeText(lines.join('\n'))
     return lines.length

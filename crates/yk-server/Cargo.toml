@@ -17,6 +17,7 @@ yk-store.workspace = true
 yk-search.workspace = true
 yk-plugin.workspace = true
 yk-scrape.workspace = true
+yk-cite.workspace = true
 axum.workspace = true
 tower.workspace = true
 tower-http.workspace = true

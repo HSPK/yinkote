@@ -156,6 +156,34 @@ check "import notes"      "$(j "$BASE/libraries/$LIB/items/SMOKEZ01/children" \
                              | jq -r '.[] | select(.itemType == "note") | .note')"
 rm -rf "$(dirname "$ZDB")"
 
+echo "▸ citations"
+CK=$(j -X POST "$BASE/libraries/$LIB/items" \
+       -d '[{"itemType":"journalArticle","title":"Citation smoke","publicationTitle":"Journal of Smoke","volume":"30","issue":"1","pages":"1-9","date":"2017-06-12","DOI":"10.1000/smoke","creators":[{"creatorType":"author","firstName":"Ashish","lastName":"Vaswani"}]}]' \
+       | jq -r '.created[0].key')
+check "citation styles"   "$(j "$BASE/citation-styles" | jq -r '.[] | select(.id == "gb7714") | .name')"
+# Phrased so a wrong style is empty: APA is the only style here that writes the
+# year in brackets straight after an inverted name.
+check "renders apa"       "$(j -X POST "$BASE/libraries/$LIB/citations" \
+                             -d "{\"keys\":[\"$CK\"],\"style\":\"apa\"}" \
+                             | jq -r '.bibliography[0] | select(startswith("Vaswani, A. (2017)."))')"
+# A numeric style numbers by position, and must not glue a stop to the DOI.
+check "renders ieee"      "$(j -X POST "$BASE/libraries/$LIB/citations" \
+                             -d "{\"keys\":[\"$CK\"],\"style\":\"ieee\"}" \
+                             | jq -r '.bibliography[0] | select(startswith("[1] A. Vaswani"))
+                                                       | select(endswith("10.1000/smoke"))')"
+check "renders gb7714"    "$(j -X POST "$BASE/libraries/$LIB/citations" \
+                             -d "{\"keys\":[\"$CK\"],\"style\":\"gb7714\"}" \
+                             | jq -r '.bibliography[0] | select(contains("VASWANI A. Citation smoke[J]"))')"
+check "in-text citation"  "$(j -X POST "$BASE/libraries/$LIB/citations" \
+                             -d "{\"keys\":[\"$CK\"],\"style\":\"apa\"}" \
+                             | jq -r '.citations[0] | select(. == "(Vaswani, 2017)")')"
+check "html italics"      "$(j -X POST "$BASE/libraries/$LIB/citations" \
+                             -d "{\"keys\":[\"$CK\"],\"style\":\"apa\",\"format\":\"html\"}" \
+                             | jq -r '.bibliography[0] | select(contains("<i>Journal of Smoke</i>"))')"
+check "unknown style"     "$(j -X POST "$BASE/libraries/$LIB/citations" \
+                             -d "{\"keys\":[\"$CK\"],\"style\":\"nonesuch\"}" \
+                             | jq -r '.title // empty | select(contains("nonesuch"))')"
+
 echo "▸ agent"
 check "agent status"     "$(j "$BASE/agent" | jq -r 'has("configured")')"
 

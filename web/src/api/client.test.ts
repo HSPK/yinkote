@@ -96,3 +96,30 @@ describe('request handling', () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/v1/libraries/3/collections')
   })
 })
+
+describe('citations', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('asks the server to render, sending keys rather than items', async () => {
+    const fetchMock = vi.fn(
+      async (_url: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify({ style: 'apa', citations: [], bibliography: ['x'] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await api.citations.render(1, ['AAAA1111', 'BBBB2222'], 'gb7714', 'html')
+
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(String(url)).toContain('/libraries/1/citations')
+    // The server already has the items; sending them back would let the client
+    // decide what a reference says, which is exactly what it must not do.
+    expect(JSON.parse(String(init?.body))).toEqual({
+      keys: ['AAAA1111', 'BBBB2222'],
+      style: 'gb7714',
+      format: 'html',
+    })
+  })
+})

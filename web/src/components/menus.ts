@@ -26,14 +26,29 @@ export function itemMenu(item: Item): MenuItem[] {
   // Right-clicking an unselected row should act on that row.
   if (!store.selected.includes(item.key)) store.select(item.key)
 
-  const copy = (kind: 'title' | 'doi' | 'url' | 'citation', key: 'menu.copyTitle' | 'menu.copyCitation' | 'menu.copyDoi') => ({
+  const copied = (n: number) => {
+    if (n === 0) toast.info(t('toast.nothingToCopy'))
+    else toast.success(t('toast.copied', { count: n }))
+  }
+
+  const copy = (kind: 'title' | 'doi' | 'url', key: 'menu.copyTitle' | 'menu.copyDoi') => ({
     label: t(key),
-    onSelect: async () => {
-      const n = await store.copySelected(kind)
-      if (n === 0) toast.info(t('toast.nothingToCopy'))
-      else toast.success(t('toast.copied', { count: n }))
-    },
+    onSelect: async () => copied(await store.copySelected(kind)),
   })
+
+  // Every style, rather than one buried in settings: which style is wanted
+  // depends on where the reference is going, and that changes per paste.
+  const copyCitation = {
+    label: `${t('menu.copyCitation')}${suffix}`,
+    items: store.citationStyles.map((style) => ({
+      label: style.id === store.citationStyle ? `${style.name} \u2713` : style.name,
+      onSelect: async () =>
+        withToast(async () => copied(await store.copySelected('citation', style.id)), {
+          failure: t('toast.citationFailed'),
+        }),
+    })),
+    disabled: store.citationStyles.length === 0,
+  }
 
   const inTrash = store.view === 'trash'
 
@@ -83,7 +98,7 @@ export function itemMenu(item: Item): MenuItem[] {
       : []),
     {},
     copy('title', 'menu.copyTitle'),
-    copy('citation', 'menu.copyCitation'),
+    copyCitation,
     copy('doi', 'menu.copyDoi'),
     {},
     {

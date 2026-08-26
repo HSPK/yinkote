@@ -27,6 +27,8 @@ export interface PrefsSlice {
   theme: string
   /** Hex accent override, or empty to use the theme's own. */
   accent: string
+  /** The style "copy citation" uses, remembered from the last one chosen. */
+  citationStyle: string
 
   setLayout: (patch: Partial<{ sidebar: number; detail: number }>, commit?: boolean) => void
   setColumnWidth: (id: string, width: number, commit?: boolean) => void
@@ -35,6 +37,7 @@ export interface PrefsSlice {
   toggleDetail: (open?: boolean) => void
   setDensity: (d: string) => void
   setTheme: (id: string, accent?: string) => void
+  setCitationStyle: (id: string) => void
   setLocale: (locale: Locale) => void
   /** Apply what was saved server-side. Called once, during bootstrap. */
   restorePrefs: (settings: Record<string, unknown>) => void
@@ -48,6 +51,7 @@ export const createPrefsSlice: StateCreator<State, [], [], PrefsSlice> = (set, g
   density: 'compact',
   theme: DEFAULT_THEME,
   accent: '',
+  citationStyle: 'apa',
 
   setLayout(patch, commit) {
     const layout = { ...get().layout, ...patch }
@@ -121,6 +125,7 @@ export const createPrefsSlice: StateCreator<State, [], [], PrefsSlice> = (set, g
       columnWidths: parsed('ui.columnWidths', {}),
       columnOrder: parsed('ui.columnOrder', DEFAULT_VISIBLE),
       detailOpen: text('ui.detailOpen') !== 'false',
+      citationStyle: text('ui.citationStyle') ?? 'apa',
     })
 
     const theme = text('ui.theme') ?? DEFAULT_THEME
@@ -129,6 +134,11 @@ export const createPrefsSlice: StateCreator<State, [], [], PrefsSlice> = (set, g
     applyTheme(theme, accent)
 
     useI18n.getState().setLocale(text<Locale>('ui.locale') ?? detectLocale())
+  },
+
+  setCitationStyle(citationStyle) {
+    set({ citationStyle })
+    void api.settings.put({ citationStyle })
   },
 
   setLocale(locale) {

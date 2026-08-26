@@ -9,6 +9,8 @@ import type {
   ImportResult,
   BadgeDescriptor,
   BadgeValue,
+  CitationRender,
+  CitationStyle,
   Collection,
   Conversation,
   Item,
@@ -168,6 +170,15 @@ export const api = {
       request<Record<string, BadgeValue[]>>(`/libraries/${lib}/badges`, {
         method: 'POST',
         ...json({ keys }),
+      }),
+  },
+
+  citations: {
+    styles: () => request<CitationStyle[]>('/citation-styles'),
+    render: (lib: number, keys: string[], style: string, format: 'text' | 'html' = 'text') =>
+      request<CitationRender>(`/libraries/${lib}/citations`, {
+        method: 'POST',
+        ...json({ keys, style, format }),
       }),
   },
 

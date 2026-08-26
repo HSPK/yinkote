@@ -2217,6 +2217,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "yk-cite"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "yk-core",
+]
+
+[[package]]
 name = "yk-core"
 version = "0.1.0"
 dependencies = [
@@ -2313,6 +2322,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "yk-agent",
+ "yk-cite",
  "yk-core",
  "yk-import",
  "yk-plugin",
