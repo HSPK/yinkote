@@ -14,6 +14,7 @@ yk-core = { path = "crates/yk-core" }
 yk-store = { path = "crates/yk-store" }
 yk-search = { path = "crates/yk-search" }
 yk-plugin = { path = "crates/yk-plugin" }
+yk-scrape = { path = "crates/yk-scrape" }
 
 anyhow = "1"
 thiserror = "2"

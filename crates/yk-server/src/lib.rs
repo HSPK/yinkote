@@ -48,6 +48,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         default_library: store.default_library,
         store,
         search,
+        scrape: Arc::new(yk_scrape::ScrapeEngine::with_defaults()),
         events: EventBus::default(),
     });
 

@@ -187,22 +187,25 @@ impl Item {
 }
 
 /// Payload for creating an item. Server assigns key/version/timestamps.
-#[derive(Clone, Debug, Default, Deserialize)]
+///
+/// Serialisable as well as deserialisable so metadata resolvers can hand a
+/// preview back to the client before anything is written.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ItemDraft {
     #[serde(rename = "itemType")]
     pub item_type: String,
-    #[serde(rename = "parentKey", default)]
+    #[serde(rename = "parentKey", default, skip_serializing_if = "Option::is_none")]
     pub parent_key: Option<Key>,
     #[serde(flatten, default)]
     pub fields: Fields,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub creators: Vec<Creator>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<ItemTag>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub collections: Vec<Key>,
     /// Optional explicit key, used by importers to preserve upstream ids.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<Key>,
 }
 

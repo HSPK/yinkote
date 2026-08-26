@@ -141,6 +141,15 @@ impl HostApi for HostBridge {
                 }))
             }
 
+            // Plugins get the same identifier engine the UI uses, so a plugin
+            // never has to reimplement DOI/arXiv parsing.
+            "host.resolve" => {
+                Self::require(granted, Permission::Network)?;
+                let text = params.get("text").and_then(Value::as_str).unwrap_or_default();
+                let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(3) as usize;
+                Ok(json!(s.scrape.resolve_text(text, limit.min(10)).await))
+            }
+
             "host.collections.list" => {
                 Self::require(granted, Permission::CollectionsRead)?;
                 Ok(serde_json::to_value(s.store.collections.list(self.library(&params)).await?)?)
@@ -191,6 +200,7 @@ mod tests {
             default_library: store.default_library,
             store,
             search,
+            scrape: Arc::new(yk_scrape::ScrapeEngine::with_defaults()),
             events: yk_core::event::EventBus::default(),
         })
     }

@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use yk_core::event::EventBus;
 use yk_core::ports::{PluginHost, SearchIndex};
+use yk_scrape::ScrapeEngine;
 use yk_store::Store;
 
 use crate::config::Config;
@@ -18,6 +19,8 @@ use crate::config::Config;
 pub struct Services {
     pub store: Store,
     pub search: Arc<dyn SearchIndex>,
+    /// Identifier detection and metadata lookup for quick-add.
+    pub scrape: Arc<ScrapeEngine>,
     pub events: EventBus,
     pub default_library: i64,
 }
@@ -38,6 +41,9 @@ impl AppState {
     }
     pub fn events(&self) -> &EventBus {
         &self.services.events
+    }
+    pub fn scrape(&self) -> &Arc<ScrapeEngine> {
+        &self.services.scrape
     }
     pub fn uptime_secs(&self) -> u64 {
         self.started.elapsed().as_secs()

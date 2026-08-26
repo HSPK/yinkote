@@ -2196,6 +2196,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "yk-scrape"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "yk-core",
+]
+
+[[package]]
 name = "yk-search"
 version = "0.1.0"
 dependencies = [
@@ -2237,6 +2250,7 @@ dependencies = [
  "tracing-subscriber",
  "yk-core",
  "yk-plugin",
+ "yk-scrape",
  "yk-search",
  "yk-store",
 ]

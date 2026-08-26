@@ -3,6 +3,7 @@
 mod collections;
 mod items;
 mod plugins;
+mod scrape;
 mod search;
 mod system;
 
@@ -23,6 +24,7 @@ pub fn router() -> Router<App> {
         .merge(items::router())
         .merge(collections::router())
         .merge(search::router())
+        .merge(scrape::router())
         .merge(plugins::router())
 }
 
