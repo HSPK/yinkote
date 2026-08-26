@@ -71,7 +71,15 @@ impl Db {
                  PRAGMA foreign_keys = ON;
                  PRAGMA cache_size = -65536;   -- 64 MiB page cache
                  PRAGMA mmap_size = 268435456; -- 256 MiB
-                 PRAGMA temp_store = MEMORY;",
+                 PRAGMA temp_store = MEMORY;
+                 -- Checkpointing belongs to the background worker, not to
+                 -- whichever write happens to cross the threshold. SQLite's
+                 -- default makes one unlucky writer in a few dozen copy the
+                 -- whole log into the database mid-transaction: 273 ms of
+                 -- commit behind 142 microseconds of actual work, a p95 a
+                 -- hundred times the p50. See `checkpoint`, and the worker
+                 -- that calls it.
+                 PRAGMA wal_autocheckpoint = 0;",
             )
         });
 
@@ -167,6 +175,12 @@ impl Db {
     /// `TRUNCATE` waits for readers and then resets the file. That pause is
     /// real and much cheaper than an unbounded log, which costs disk and slows
     /// every read, since each one searches the log's index first.
+    /// Fold the write-ahead log back into the database.
+    ///
+    /// **Somebody must call this.** Automatic checkpointing is switched off in
+    /// every connection (see the pragmas above), so a `Store` with nobody
+    /// running this will grow its log without bound. The server has a worker;
+    /// anything else embedding the store owes it the same.
     pub async fn checkpoint(&self, truncate_above_bytes: u64) -> Result<u64> {
         let wal = self.wal_path();
         self.call(move |c| {
@@ -259,6 +273,22 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn no_connection_checkpoints_in_the_foreground() {
+        // SQLite's default makes one unlucky writer in a few dozen copy the
+        // whole log into the database mid-commit: 273 ms behind 142 µs of real
+        // work, a p95 a hundred times the p50. The background worker exists to
+        // do that instead, and this pragma is the only thing that stops both
+        // happening. It is one line, it is invisible, and it will be tidied
+        // away by somebody who does not know what it costs.
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(Some(&dir.path().join("test.db"))).unwrap();
+        let conn = db.conn().unwrap();
+
+        let pages: i64 = conn.query_row("PRAGMA wal_autocheckpoint", [], |r| r.get(0)).unwrap();
+        assert_eq!(pages, 0, "checkpointing belongs to the worker, not to a write");
     }
 
     #[test]
