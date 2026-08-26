@@ -105,8 +105,24 @@ impl Drop for TestPlugin {
     }
 }
 
+/// A plugin root directory that removes itself when the test ends.
+struct Root(PathBuf);
+
+impl std::ops::Deref for Root {
+    type Target = PathBuf;
+    fn deref(&self) -> &PathBuf {
+        &self.0
+    }
+}
+
+impl Drop for Root {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}
+
 /// Isolate each test in its own plugin root directory.
-fn root_with(plugins: &[&TestPlugin]) -> PathBuf {
+fn root_with(plugins: &[&TestPlugin]) -> Root {
     let root = unique_dir("yk-plugroot");
     std::fs::create_dir_all(&root).unwrap();
     for p in plugins {
@@ -114,21 +130,22 @@ fn root_with(plugins: &[&TestPlugin]) -> PathBuf {
         std::fs::create_dir_all(&dest).unwrap();
         std::fs::copy(p.dir.join("plugin.json"), dest.join("plugin.json")).unwrap();
     }
-    root
+    Root(root)
 }
 
 async fn registry_with(
     plugins: &[&TestPlugin],
     host: Arc<RecordingHost>,
-) -> Arc<PluginRegistry> {
+) -> (Arc<PluginRegistry>, Root) {
     let root = root_with(plugins);
-    PluginHostBuilder::new().dir(root).build(host).await.unwrap()
+    let registry = PluginHostBuilder::new().dir(root.to_path_buf()).build(host).await.unwrap();
+    (registry, root)
 }
 
 #[tokio::test]
 async fn starts_plugin_and_collects_contributions() {
     let p = TestPlugin::create("alpha", vec![], vec![]);
-    let reg = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
+    let (reg, _root) = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
 
     let list = reg.list().await;
     assert_eq!(list.len(), 1);
@@ -144,7 +161,7 @@ async fn starts_plugin_and_collects_contributions() {
 #[tokio::test]
 async fn calls_round_trip() {
     let p = TestPlugin::create("beta", vec![], vec![]);
-    let reg = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
+    let (reg, _root) = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
 
     let out = reg.call("beta", "echo", json!({"n": 42})).await.unwrap();
     assert_eq!(out["n"], 42);
@@ -157,7 +174,7 @@ async fn calls_round_trip() {
 #[tokio::test]
 async fn plugin_errors_surface_without_killing_the_host() {
     let p = TestPlugin::create("gamma", vec![], vec![]);
-    let reg = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
+    let (reg, _root) = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
 
     let err = reg.call("gamma", "boom", Value::Null).await.unwrap_err();
     assert!(err.to_string().contains("intentional failure"), "{err}");
@@ -170,7 +187,7 @@ async fn plugin_errors_surface_without_killing_the_host() {
 #[tokio::test]
 async fn unknown_method_is_reported() {
     let p = TestPlugin::create("delta", vec![], vec![]);
-    let reg = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
+    let (reg, _root) = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
     let err = reg.call("delta", "nope", Value::Null).await.unwrap_err();
     assert!(err.to_string().contains("unknown method"), "{err}");
     reg.shutdown().await;
@@ -179,7 +196,7 @@ async fn unknown_method_is_reported() {
 #[tokio::test]
 async fn slow_plugin_is_timed_out() {
     let p = TestPlugin::create("slowpoke", vec![], vec![]);
-    let reg = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
+    let (reg, _root) = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
     let started = std::time::Instant::now();
     let err = reg.call("slowpoke", "slow", Value::Null).await.unwrap_err();
     assert!(err.to_string().contains("timed out"), "{err}");
@@ -190,7 +207,7 @@ async fn slow_plugin_is_timed_out() {
 #[tokio::test]
 async fn crashed_plugin_is_restarted_on_next_call() {
     let p = TestPlugin::create("crashy", vec![], vec![]);
-    let reg = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
+    let (reg, _root) = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
 
     assert!(reg.call("crashy", "crash", Value::Null).await.is_err());
     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
@@ -205,7 +222,7 @@ async fn hooks_reach_only_subscribers() {
     let subscriber =
         TestPlugin::create("subscriber", vec![], vec![hooks::ITEM_CREATED.to_string()]);
     let bystander = TestPlugin::create("bystander", vec![], vec![]);
-    let reg = registry_with(&[&subscriber, &bystander], Arc::new(RecordingHost::default())).await;
+    let (reg, _root) = registry_with(&[&subscriber, &bystander], Arc::new(RecordingHost::default())).await;
 
     let outcomes = reg
         .dispatch(HookEvent::new(hooks::ITEM_CREATED, json!({"key": "ABCD1234"})))
@@ -222,7 +239,7 @@ async fn hooks_reach_only_subscribers() {
 async fn host_callbacks_are_permission_checked() {
     let host = Arc::new(RecordingHost::default());
     let allowed = TestPlugin::create("allowed", vec![Permission::ItemsRead], vec![]);
-    let reg = registry_with(&[&allowed], host.clone()).await;
+    let (reg, _root) = registry_with(&[&allowed], host.clone()).await;
 
     let ok = reg
         .call("allowed", "callhost", json!({"method": "host.items.get", "params": {"key":"X"}}))
@@ -246,7 +263,7 @@ fn codes_permission_denied() -> i64 {
 #[tokio::test]
 async fn disable_and_enable_controls_the_process() {
     let p = TestPlugin::create("toggle", vec![], vec![]);
-    let reg = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
+    let (reg, _root) = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
 
     let off = reg.set_enabled("toggle", false).await.unwrap();
     assert_eq!(off.state, PluginState::Disabled);
@@ -265,7 +282,7 @@ async fn reload_picks_up_new_plugins() {
     let a = TestPlugin::create("one", vec![], vec![]);
     let root = root_with(&[&a]);
     let reg = PluginHostBuilder::new()
-        .dir(root.clone())
+        .dir(root.to_path_buf())
         .build(Arc::new(RecordingHost::default()))
         .await
         .unwrap();
@@ -286,7 +303,7 @@ async fn reload_picks_up_new_plugins() {
 #[tokio::test]
 async fn disabled_state_survives_reload() {
     let p = TestPlugin::create("sticky", vec![], vec![]);
-    let reg = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
+    let (reg, _root) = registry_with(&[&p], Arc::new(RecordingHost::default())).await;
     reg.set_enabled("sticky", false).await.unwrap();
     reg.reload().await.unwrap();
     assert_eq!(reg.get("sticky").await.unwrap().state, PluginState::Disabled);
@@ -302,7 +319,7 @@ async fn broken_manifest_is_reported_not_fatal() {
     std::fs::write(broken.join("plugin.json"), "{{{ not json").unwrap();
 
     let reg = PluginHostBuilder::new()
-        .dir(root)
+        .dir(root.to_path_buf())
         .build(Arc::new(RecordingHost::default()))
         .await
         .unwrap();
@@ -313,7 +330,7 @@ async fn broken_manifest_is_reported_not_fatal() {
 
 #[tokio::test]
 async fn missing_binary_marks_plugin_failed() {
-    let root = unique_dir("yk-plugbad");
+    let root = Root(unique_dir("yk-plugbad"));
     let dir = root.join("ghost");
     std::fs::create_dir_all(&dir).unwrap();
     let manifest = json!({
@@ -323,13 +340,12 @@ async fn missing_binary_marks_plugin_failed() {
     std::fs::write(dir.join("plugin.json"), manifest.to_string()).unwrap();
 
     let reg = PluginHostBuilder::new()
-        .dir(root.clone())
+        .dir(root.to_path_buf())
         .build(Arc::new(RecordingHost::default()))
         .await
         .unwrap();
     let s = reg.get("ghost").await.unwrap();
     assert!(matches!(s.state, PluginState::Failed { .. }), "{:?}", s.state);
-    std::fs::remove_dir_all(&root).ok();
 }
 
 struct Counter;
