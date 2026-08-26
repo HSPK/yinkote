@@ -94,6 +94,27 @@ check "colour cleared"   "$(j -X PATCH "$BASE/libraries/$LIB/collections/$APPK" 
 echo "▸ agent"
 check "agent status"     "$(j "$BASE/agent" | jq -r 'has("configured")')"
 
+# The agent needs a model, which most environments will not have. Skipping is
+# honest; pretending the path is covered when it never ran would not be.
+if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
+  AK=$(j -X POST "$BASE/libraries/$LIB/items" \
+         -d '[{"itemType":"journalArticle","title":"Agent smoke","abstractNote":"A study of nothing in particular, conducted carefully."}]' \
+       | jq -r '.created[0].key')
+  check "summarise"      "$(j -X POST "$BASE/libraries/$LIB/items/$AK/summarise" -d '{}' | jq -r '.note.itemType')"
+  check "summary is a child" "$(j "$BASE/libraries/$LIB/items/$AK/children" | jq -r 'length')"
+  # Re-running must replace the note, not add a second one.
+  j -X POST "$BASE/libraries/$LIB/items/$AK/summarise" -d '{}' > /dev/null
+  check "summary replaced" "$(j "$BASE/libraries/$LIB/items/$AK/children" | jq -r 'if length == 1 then "one" else "duplicated" end')"
+
+  ACONV=$(j -X POST "$BASE/libraries/$LIB/conversations" -d '{"title":"smoke"}' | jq -r .key)
+  check "agent answers"  "$(j -X POST "$BASE/libraries/$LIB/conversations/$ACONV/ask" \
+                              -d '{"content":"How many items are in the library? Use your tools."}' \
+                            | jq -r '.message.content | length > 0')"
+  j -X DELETE "$BASE/libraries/$LIB/conversations/$ACONV" > /dev/null
+else
+  printf '  \033[33mskip\033[0m %-44s %s\n' "agent round trip" "no model configured"
+fi
+
 echo "▸ badges"
 check "badge columns"    "$(j "$BASE/badges" | jq -r 'length')"
 BKEY=$(j -X POST "$BASE/libraries/$LIB/items" \

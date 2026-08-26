@@ -568,3 +568,68 @@ async fn creating_many_items_dispatches_one_hook_for_the_batch() {
     assert_eq!(body["created"].as_array().unwrap().len(), 50);
     assert!(body["failed"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn destroying_an_item_reclaims_its_files() {
+    // The disk is the one place nothing reminds you of a leak: the rows are
+    // gone, so afterwards nothing even says which directories were theirs.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let paper = c.post(&format!("/libraries/{lib}/items"), json!([article("With a file")])).await
+        ["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let attachment = c
+        .post(
+            &format!("/libraries/{lib}/items"),
+            json!([{ "itemType": "attachment", "parentKey": paper, "filename": "p.pdf" }]),
+        )
+        .await["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let key: yk_core::Key = attachment.parse().unwrap();
+    app.storage().put(&key, "p.pdf", b"%PDF-1.7").await.unwrap();
+    assert!(app.storage().size(&key, "p.pdf").await.is_some());
+
+    c.post(&format!("/libraries/{lib}/items/delete"), json!({ "keys": [paper] })).await;
+
+    assert!(
+        app.storage().size(&key, "p.pdf").await.is_none(),
+        "the bytes went with the item that owned them"
+    );
+}
+
+#[tokio::test]
+async fn trashing_an_item_keeps_its_files() {
+    // Trash is reversible, so anything it threw away would be a data loss bug.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let paper = c.post(&format!("/libraries/{lib}/items"), json!([article("Recoverable")])).await
+        ["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let attachment = c
+        .post(
+            &format!("/libraries/{lib}/items"),
+            json!([{ "itemType": "attachment", "parentKey": paper, "filename": "p.pdf" }]),
+        )
+        .await["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let key: yk_core::Key = attachment.parse().unwrap();
+    app.storage().put(&key, "p.pdf", b"%PDF-1.7").await.unwrap();
+
+    c.send("DELETE", &format!("/libraries/{lib}/items"), Some(json!({ "keys": [paper] }))).await;
+    assert!(app.storage().size(&key, "p.pdf").await.is_some(), "trash must not delete bytes");
+
+    c.post(&format!("/libraries/{lib}/items/restore"), json!({ "keys": [paper] })).await;
+    assert!(app.storage().size(&key, "p.pdf").await.is_some());
+}
