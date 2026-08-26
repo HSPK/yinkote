@@ -45,8 +45,8 @@ export function ZoteroImport() {
         ? t('import.doneWithFailures', { items: done.items, failed: done.failed })
         : t('import.done', {
             items: done.items + done.updated,
-            collections: done.collections,
             files: done.files,
+            notes: done.notes,
           })
       toast.success(message)
       setFound(null)
@@ -81,7 +81,8 @@ export function ZoteroImport() {
             {t('import.found', {
               items: found.items,
               collections: found.collections,
-              tags: found.tags,
+              attachments: found.attachments,
+              notes: found.notes,
             })}
           </span>
           <Button tone="primary" disabled={busy} onClick={() => void run()}>

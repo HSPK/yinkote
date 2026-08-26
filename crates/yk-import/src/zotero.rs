@@ -34,6 +34,8 @@ pub struct Preview {
     pub tags: i64,
     /// Attachments whose files live in Zotero's storage directory.
     pub attachments: i64,
+    /// Notes written against an item.
+    pub notes: i64,
 }
 
 /// A collection, with its parent's key when it has one.
@@ -58,6 +60,15 @@ pub struct ImportedAttachment {
     pub source: Option<std::path::PathBuf>,
 }
 
+/// A note a user wrote against an item.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportedNote {
+    pub key: Key,
+    pub parent: Key,
+    /// Zotero stores notes as HTML, and so does this project.
+    pub html: String,
+}
+
 /// Everything read out of a Zotero library.
 pub struct Imported {
     pub items: Vec<ItemDraft>,
@@ -65,6 +76,7 @@ pub struct Imported {
     /// Item key to the collection keys holding it.
     pub membership: HashMap<String, Vec<Key>>,
     pub attachments: Vec<ImportedAttachment>,
+    pub notes: Vec<ImportedNote>,
 }
 
 /// Zotero field names this project does not have, and what they become here.
@@ -121,6 +133,7 @@ pub fn preview(path: &Path) -> Result<Preview> {
         collections: count("SELECT count(*) FROM collections"),
         tags: count("SELECT count(*) FROM tags"),
         attachments: count("SELECT count(*) FROM itemAttachments WHERE path IS NOT NULL"),
+        notes: count("SELECT count(*) FROM itemNotes WHERE parentItemID IS NOT NULL"),
     })
 }
 
@@ -131,6 +144,7 @@ pub fn read(path: &Path) -> Result<Imported> {
 
     let collections = read_collections(&db)?;
     let attachments = read_attachments(&db, path)?;
+    let notes = read_notes(&db)?;
     let fields = read_fields(&db)?;
     let creators = read_creators(&db)?;
     let tags = read_tags(&db)?;
@@ -174,7 +188,7 @@ pub fn read(path: &Path) -> Result<Imported> {
         items.push(draft);
     }
 
-    Ok(Imported { items, collections, membership, attachments })
+    Ok(Imported { items, collections, membership, attachments, notes })
 }
 
 fn map_field(name: &str) -> Option<&str> {
@@ -391,6 +405,48 @@ fn read_membership(db: &Connection) -> Result<HashMap<String, Vec<Key>>> {
         if let Ok(key) = Key::parse(&collection) {
             out.entry(item).or_default().push(key);
         }
+    }
+    Ok(out)
+}
+
+/// Notes a user wrote against an item.
+///
+/// These are somebody's own words about a paper, often the most valuable thing
+/// in a library and the one part of it that exists nowhere else. Dropping them
+/// silently, as this did until now, would make the import quietly lossy in
+/// exactly the way that matters most.
+///
+/// A standalone note — one with no parent — is skipped for now: it belongs at
+/// the top level, and this project has no place for it yet. Better to leave it
+/// in Zotero than to file it somewhere it will not be looked for.
+fn read_notes(db: &Connection) -> Result<Vec<ImportedNote>> {
+    if !has_column(db, "itemNotes", "note") {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = db
+        .prepare(
+            "SELECT n.key, p.key, itemNotes.note
+             FROM itemNotes
+             JOIN items n ON n.itemID = itemNotes.itemID
+             JOIN items p ON p.itemID = itemNotes.parentItemID
+             WHERE itemNotes.parentItemID IS NOT NULL
+               AND itemNotes.note IS NOT NULL AND itemNotes.note != ''
+               AND itemNotes.itemID NOT IN (SELECT itemID FROM deletedItems)",
+        )
+        .map_err(sql_err)?;
+
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+        })
+        .map_err(sql_err)?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        let (key, parent, html) = row.map_err(sql_err)?;
+        let (Ok(key), Ok(parent)) = (Key::parse(&key), Key::parse(&parent)) else { continue };
+        out.push(ImportedNote { key, parent, html });
     }
     Ok(out)
 }

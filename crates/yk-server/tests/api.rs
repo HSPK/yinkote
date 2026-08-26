@@ -783,3 +783,34 @@ async fn importing_brings_the_pdfs_across() {
         "the file came across intact"
     );
 }
+
+#[tokio::test]
+async fn importing_brings_the_users_notes_across_and_keeps_them_searchable() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let dir = tempfile::tempdir().unwrap();
+    let path = zotero_fixture(dir.path());
+
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE itemNotes (itemID INTEGER PRIMARY KEY, parentItemID INTEGER,
+                                 note TEXT, title TEXT);
+         INSERT INTO itemTypes VALUES (3, 'note');
+         INSERT INTO items VALUES (40, 3, 'ZNOTE001', '2020-01-01', '2020-01-02');
+         INSERT INTO itemNotes VALUES (40, 10, '<p>Worth rereading the ablations.</p>', 'Note');",
+    )
+    .unwrap();
+    drop(db);
+
+    let done = c
+        .post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path.to_string_lossy() }))
+        .await;
+    assert_eq!(done["notes"], 1);
+
+    let children = c.get(&format!("/libraries/{lib}/items/ZOTE1111/children")).await;
+    assert!(children.as_array().unwrap().iter().any(|c| c["itemType"] == "note"));
+
+    // A note nobody can find again is barely imported at all.
+    let hits = c.get(&format!("/libraries/{lib}/search?q=ablations&mode=keyword")).await;
+    assert!(!hits["hits"].as_array().unwrap().is_empty(), "the note is searchable");
+}

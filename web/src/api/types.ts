@@ -255,6 +255,7 @@ export interface ImportPreview {
   collections: number
   tags: number
   attachments: number
+  notes: number
 }
 
 export interface ImportResult {
@@ -264,6 +265,8 @@ export interface ImportResult {
   collections: number
   /** Attachment files copied out of Zotero's storage. */
   files: number
+  /** The user's own notes, brought across. */
+  notes: number
   failed: number
   total: number
 }

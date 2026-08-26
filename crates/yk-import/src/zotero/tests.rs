@@ -32,6 +32,8 @@ fn zotero_library() -> (tempfile::TempDir, std::path::PathBuf) {
          CREATE TABLE collectionItems (collectionID INTEGER, itemID INTEGER);
          CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INTEGER,
                                        path TEXT, contentType TEXT);
+         CREATE TABLE itemNotes (itemID INTEGER PRIMARY KEY, parentItemID INTEGER,
+                                 note TEXT, title TEXT);
 
          INSERT INTO itemTypes VALUES (1, 'journalArticle'), (2, 'attachment'), (3, 'note');
          INSERT INTO fields VALUES (1, 'title'), (2, 'DOI'), (3, 'abstractNote');
@@ -45,6 +47,10 @@ fn zotero_library() -> (tempfile::TempDir, std::path::PathBuf) {
          INSERT INTO itemAttachments VALUES (20, 10, 'storage:paper.pdf', 'application/pdf');
          INSERT INTO items VALUES (21, 2, 'GGGG7777', '2020-01-01', '2020-01-02');
          INSERT INTO itemAttachments VALUES (21, 10, '/elsewhere/linked.pdf', 'application/pdf');
+         INSERT INTO items VALUES (22, 3, 'HHHH8888', '2020-01-01', '2020-01-02'),
+                                  (23, 3, 'IIII9999', '2020-01-01', '2020-01-02');
+         INSERT INTO itemNotes VALUES (22, 10, '<p>The key idea is attention.</p>', 'Note'),
+                                      (23, NULL, '<p>A standalone thought.</p>', 'Loose');
 
          INSERT INTO itemDataValues VALUES (1, 'Attention Is All You Need'),
                                            (2, '10.1000/xyz'), (3, 'We propose the Transformer.'),
@@ -71,7 +77,7 @@ fn previews_a_library_without_reading_all_of_it() {
     let (_dir, path) = zotero_library();
     let seen = preview(&path).unwrap();
     // The attachment is not an item; the trashed one still counts as present.
-    assert_eq!(seen, Preview { items: 3, collections: 2, tags: 2, attachments: 2 });
+    assert_eq!(seen, Preview { items: 3, collections: 2, tags: 2, attachments: 2, notes: 1 });
 }
 
 #[test]
@@ -249,4 +255,61 @@ fn reads_a_library_that_predates_the_content_type_column() {
     let library = read(&path).unwrap();
     assert_eq!(library.attachments.len(), 1);
     assert_eq!(library.attachments[0].content_type, "application/pdf", "a sensible default");
+}
+
+#[test]
+fn brings_the_users_own_notes_across() {
+    // Somebody's notes about a paper exist nowhere else. Dropping them would
+    // make the import lossy in exactly the way that matters most.
+    let (_dir, path) = zotero_library();
+    let library = read(&path).unwrap();
+
+    assert_eq!(library.notes.len(), 1);
+    assert_eq!(library.notes[0].parent.as_str(), "AAAA1111");
+    assert!(library.notes[0].html.contains("attention"));
+}
+
+#[test]
+fn leaves_a_note_with_no_item_where_it_is() {
+    // A standalone note belongs at the top level, and there is nowhere for it
+    // here yet. Leaving it in Zotero beats filing it where nobody will look.
+    let (_dir, path) = zotero_library();
+    let library = read(&path).unwrap();
+    assert!(!library.notes.iter().any(|n| n.html.contains("standalone")));
+}
+
+#[test]
+fn reads_a_library_with_no_notes_table_at_all() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("zotero.sqlite");
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE itemTypes (itemTypeID INTEGER PRIMARY KEY, typeName TEXT);
+         CREATE TABLE items (itemID INTEGER PRIMARY KEY, itemTypeID INTEGER, key TEXT,
+                             dateAdded TEXT, dateModified TEXT);
+         CREATE TABLE deletedItems (itemID INTEGER PRIMARY KEY);
+         CREATE TABLE fields (fieldID INTEGER PRIMARY KEY, fieldName TEXT);
+         CREATE TABLE itemDataValues (valueID INTEGER PRIMARY KEY, value TEXT);
+         CREATE TABLE itemData (itemID INTEGER, fieldID INTEGER, valueID INTEGER);
+         CREATE TABLE creators (creatorID INTEGER PRIMARY KEY, firstName TEXT, lastName TEXT,
+                                fieldMode INTEGER);
+         CREATE TABLE creatorTypes (creatorTypeID INTEGER PRIMARY KEY, creatorType TEXT);
+         CREATE TABLE itemCreators (itemID INTEGER, creatorID INTEGER, creatorTypeID INTEGER,
+                                    orderIndex INTEGER);
+         CREATE TABLE tags (tagID INTEGER PRIMARY KEY, name TEXT);
+         CREATE TABLE itemTags (itemID INTEGER, tagID INTEGER, type INTEGER);
+         CREATE TABLE collections (collectionID INTEGER PRIMARY KEY, collectionName TEXT,
+                                   key TEXT, parentCollectionID INTEGER);
+         CREATE TABLE collectionItems (collectionID INTEGER, itemID INTEGER);
+         CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INTEGER, path TEXT);
+         INSERT INTO itemTypes VALUES (1, 'journalArticle');
+         INSERT INTO fields VALUES (1, 'title');
+         INSERT INTO items VALUES (1, 1, 'BARE1111', '', '');",
+    )
+    .unwrap();
+    drop(db);
+
+    let library = read(&path).unwrap();
+    assert_eq!(library.items.len(), 1, "the items still arrive");
+    assert!(library.notes.is_empty());
 }

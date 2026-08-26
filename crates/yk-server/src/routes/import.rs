@@ -109,6 +109,7 @@ async fn run(
     }
 
     let files = import_attachments(&app, lib, &library.attachments).await;
+    let notes = import_notes(&app, lib, &library.notes).await;
 
     let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
         library_id: lib,
@@ -124,6 +125,7 @@ async fn run(
         "updated": updated,
         "collections": collections,
         "files": files,
+        "notes": notes,
         // Reported rather than hidden: an import that quietly dropped a tenth
         // of a library would be found out much later, by its absence.
         "failed": failed,
@@ -167,6 +169,35 @@ async fn import_attachments(
         }
     }
     copied
+}
+
+/// Bring the user's own notes across.
+///
+/// Kept as HTML, which is how both Zotero and this project store them, so a
+/// note arrives looking the way its author left it rather than flattened.
+async fn import_notes(app: &App, lib: i64, notes: &[yk_import::zotero::ImportedNote]) -> u64 {
+    let mut imported = 0;
+    for note in notes {
+        let mut draft =
+            yk_core::model::ItemDraft::new("note").with_field("note", note.html.as_str());
+        draft.key = Some(note.key.clone());
+        draft.parent_key = Some(note.parent.clone());
+
+        match app.store().items.create(lib, draft).await {
+            Ok(_) => imported += 1,
+            // Already here from an earlier import: update it, since the user
+            // may well have kept writing in Zotero since.
+            Err(_) => {
+                let patch = serde_json::from_value(json!({ "fields": { "note": note.html } }));
+                if let Ok(patch) = patch {
+                    if app.store().items.update(lib, &note.key, patch, None).await.is_ok() {
+                        imported += 1;
+                    }
+                }
+            }
+        }
+    }
+    imported
 }
 
 /// Bring an already-imported item up to date with its Zotero original.
