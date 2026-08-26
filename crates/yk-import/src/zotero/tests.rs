@@ -34,8 +34,12 @@ fn zotero_library() -> (tempfile::TempDir, std::path::PathBuf) {
                                        path TEXT, contentType TEXT);
          CREATE TABLE itemNotes (itemID INTEGER PRIMARY KEY, parentItemID INTEGER,
                                  note TEXT, title TEXT);
+         CREATE TABLE itemAnnotations (itemID INTEGER PRIMARY KEY, parentItemID INTEGER,
+                                       type INTEGER, authorName TEXT, text TEXT, comment TEXT,
+                                       color TEXT, pageLabel TEXT, sortIndex TEXT, position TEXT);
 
-         INSERT INTO itemTypes VALUES (1, 'journalArticle'), (2, 'attachment'), (3, 'note');
+         INSERT INTO itemTypes VALUES (1, 'journalArticle'), (2, 'attachment'), (3, 'note'),
+                                      (4, 'annotation');
          INSERT INTO fields VALUES (1, 'title'), (2, 'DOI'), (3, 'abstractNote');
          INSERT INTO creatorTypes VALUES (1, 'author');
 
@@ -51,6 +55,14 @@ fn zotero_library() -> (tempfile::TempDir, std::path::PathBuf) {
                                   (23, 3, 'IIII9999', '2020-01-01', '2020-01-02');
          INSERT INTO itemNotes VALUES (22, 10, '<p>The key idea is attention.</p>', 'Note'),
                                       (23, NULL, '<p>A standalone thought.</p>', 'Loose');
+
+         INSERT INTO items VALUES (30, 4, 'JJJJ1010', '2020-01-01', '2020-01-02'),
+                                  (31, 4, 'KKKK1111', '2020-01-01', '2020-01-02');
+         INSERT INTO itemAnnotations VALUES
+             (30, 20, 1, 'Reader', 'attention is all you need', 'the whole argument',
+              '#5fb236', '7', '00001', '{\"pageIndex\":6,\"rects\":[[72,700,300,712]]}'),
+             (31, 20, 2, 'Reader', '', 'a margin note', '#ffd400', '8', '00002',
+              '{\"pageIndex\":7,\"rects\":[[72,600,300,612]]}');
 
          INSERT INTO itemDataValues VALUES (1, 'Attention Is All You Need'),
                                            (2, '10.1000/xyz'), (3, 'We propose the Transformer.'),
@@ -77,7 +89,10 @@ fn previews_a_library_without_reading_all_of_it() {
     let (_dir, path) = zotero_library();
     let seen = preview(&path).unwrap();
     // The attachment is not an item; the trashed one still counts as present.
-    assert_eq!(seen, Preview { items: 3, collections: 2, tags: 2, attachments: 2, notes: 1 });
+    assert_eq!(
+        seen,
+        Preview { items: 3, collections: 2, tags: 2, attachments: 2, notes: 1, annotations: 2 }
+    );
 }
 
 #[test]
@@ -312,4 +327,74 @@ fn reads_a_library_with_no_notes_table_at_all() {
     let library = read(&path).unwrap();
     assert_eq!(library.items.len(), 1, "the items still arrive");
     assert!(library.notes.is_empty());
+    // Annotations arrived in Zotero 6; a library predating them is not broken.
+    assert!(library.annotations.is_empty());
+}
+
+#[test]
+fn reads_highlights_made_inside_a_pdf() {
+    let (_dir, path) = zotero_library();
+    let library = read(&path).unwrap();
+
+    let highlight = library
+        .annotations
+        .iter()
+        .find(|a| a.key.as_str() == "JJJJ1010")
+        .expect("the highlight is imported");
+
+    // It hangs off the attachment it was drawn on, not off the paper: a paper
+    // may have several files and a highlight belongs to exactly one of them.
+    assert_eq!(highlight.parent.as_str(), "DDDD4444");
+    assert_eq!(highlight.kind, "highlight");
+    assert_eq!(highlight.text, "attention is all you need");
+    assert_eq!(highlight.comment, "the whole argument");
+    assert_eq!(highlight.page, "7", "the page as printed, not the index");
+}
+
+#[test]
+fn keeps_zoteros_geometry_untouched_for_the_viewer_to_convert() {
+    let (_dir, path) = zotero_library();
+    let library = read(&path).unwrap();
+    let highlight =
+        library.annotations.iter().find(|a| a.key.as_str() == "JJJJ1010").unwrap();
+
+    // Converting PDF points to fractions of a page needs the page's size, which
+    // is inside the PDF. Guessing it here would misplace every highlight from
+    // every paper that is not the size we guessed, so it is not guessed.
+    assert!(highlight.position.contains("\"pageIndex\":6"));
+    assert!(highlight.position.contains("72"));
+}
+
+#[test]
+fn translates_zoteros_colours_into_palette_names() {
+    let (_dir, path) = zotero_library();
+    let library = read(&path).unwrap();
+
+    // A palette name follows the user's theme; a hex from another program's
+    // light mode would not.
+    let by_key = |k: &str| {
+        library.annotations.iter().find(|a| a.key.as_str() == k).unwrap().colour.clone()
+    };
+    assert_eq!(by_key("JJJJ1010"), "green");
+    assert_eq!(by_key("KKKK1111"), "amber");
+}
+
+#[test]
+fn maps_an_unfamiliar_colour_to_the_nearest_one() {
+    // Matching by hue rather than by Zotero's exact strings means a colour they
+    // add later still lands somewhere sensible.
+    assert_eq!(palette_name("#0000ff"), "blue");
+    assert_eq!(palette_name("#cc0000"), "red");
+    assert_eq!(palette_name(""), "amber");
+}
+
+#[test]
+fn a_margin_note_is_an_annotation_too() {
+    let (_dir, path) = zotero_library();
+    let library = read(&path).unwrap();
+    let note = library.annotations.iter().find(|a| a.key.as_str() == "KKKK1111").unwrap();
+
+    assert_eq!(note.kind, "note");
+    assert_eq!(note.comment, "a margin note");
+    assert!(note.text.is_empty(), "a margin note highlights nothing");
 }

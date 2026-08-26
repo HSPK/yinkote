@@ -417,9 +417,10 @@ export const enUS: Record<MessageKey, string> = {
   'import.preview': 'Look inside',
   'import.confirm': 'Import',
   'import.working': 'Importing…',
-  'import.found': '{items} items · {collections} collections · {attachments} files · {notes} notes',
-  'import.done': 'Imported {items} items, {files} files and {notes} notes',
+  'import.found':
+    '{items} items · {collections} collections · {attachments} files · {notes} notes · {annotations} highlights',
+  'import.done': 'Imported {items} items, {files} files, {notes} notes and {annotations} highlights',
   'import.doneWithFailures': 'Imported {items} items; {failed} could not be read',
   'import.failed': 'Import failed',
-  'import.note': 'Items keep their Zotero keys, so importing the same library again updates rather than duplicates. Files Zotero stores are copied across; files it only links to are recorded but left where they are.',
+  'import.note': 'Items keep their Zotero keys, so importing the same library again updates rather than duplicates. Files Zotero stores are copied across; files it only links to are recorded but left where they are. Highlights made in a PDF come across with it.',
 }

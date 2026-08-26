@@ -256,6 +256,7 @@ export interface ImportPreview {
   tags: number
   attachments: number
   notes: number
+  annotations: number
 }
 
 export interface ImportResult {
@@ -267,6 +268,8 @@ export interface ImportResult {
   files: number
   /** The user's own notes, brought across. */
   notes: number
+  /** Highlights and margin notes made inside PDFs. */
+  annotations: number
   failed: number
   total: number
 }

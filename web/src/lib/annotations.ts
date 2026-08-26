@@ -27,30 +27,97 @@ export interface Rect {
   h: number
 }
 
+/**
+ * Which coordinate system a position is written in.
+ *
+ * `fraction` is this project's own: fractions of the page from the top-left,
+ * which survive zooming, resizing and a different screen.
+ *
+ * `pdf` is what an imported Zotero highlight carries: points from the
+ * bottom-left, exactly as the other program wrote them. It is kept unconverted
+ * until the page is open, because converting needs the page's size in points
+ * and that is inside the PDF. Guessing it would misplace every highlight in
+ * every paper that is not the size guessed — silently, and only for people who
+ * imported a library.
+ */
+export type Space = 'fraction' | 'pdf'
+
 export interface Position {
   page: number
   rects: Rect[]
+  space: Space
 }
 
 export interface Annotation {
   key: string
   page: number
   rects: Rect[]
+  space: Space
   text: string
   comment: string
   colour: HighlightColour
 }
 
-/** Parse the stored JSON, tolerating anything malformed. */
+/**
+ * Parse the stored JSON, tolerating anything malformed.
+ *
+ * Two shapes are accepted, told apart by their rectangles rather than by a
+ * flag: ours are objects, Zotero's are four-number arrays. A shape that cannot
+ * be recognised is no position at all, and an annotation without one is not
+ * drawn rather than drawn in the corner.
+ */
 export function parsePosition(raw: unknown): Position | null {
   if (typeof raw !== 'string' || !raw) return null
   try {
-    const value = JSON.parse(raw) as Position
-    if (!Array.isArray(value?.rects) || !value.rects.length) return null
-    return { page: Number(value.page) || 1, rects: value.rects }
+    const value = JSON.parse(raw) as {
+      page?: number
+      pageIndex?: number
+      rects?: unknown[]
+    }
+    const rects = value?.rects
+    if (!Array.isArray(rects) || !rects.length) return null
+
+    if (Array.isArray(rects[0])) {
+      const quads = (rects as number[][]).filter((r) => r.length === 4 && r.every(isFinite))
+      if (!quads.length) return null
+      return {
+        // Zotero counts pages from zero; every page number a reader sees here
+        // counts from one.
+        page: Number(value.pageIndex ?? 0) + 1,
+        rects: quads.map(([x1 = 0, y1 = 0, x2 = 0, y2 = 0]) => ({
+          x: Math.min(x1, x2),
+          y: Math.min(y1, y2),
+          w: Math.abs(x2 - x1),
+          h: Math.abs(y2 - y1),
+        })),
+        space: 'pdf',
+      }
+    }
+
+    return { page: Number(value.page) || 1, rects: rects as Rect[], space: 'fraction' }
   } catch {
     return null
   }
+}
+
+/**
+ * The rectangles to draw, as fractions of the page.
+ *
+ * PDF space has its origin at the bottom-left and grows upwards, so the top of
+ * a rectangle is measured down from the top of the page — getting this backwards
+ * puts a highlight the same distance from the wrong edge, which looks plausible
+ * on a centred paragraph and wrong everywhere else.
+ */
+export function drawableRects(annotation: Annotation, page: { width: number; height: number }) {
+  if (annotation.space === 'fraction') return annotation.rects
+  if (!page.width || !page.height) return []
+
+  return annotation.rects.map((r) => ({
+    x: r.x / page.width,
+    y: (page.height - r.y - r.h) / page.height,
+    w: r.w / page.width,
+    h: r.h / page.height,
+  }))
 }
 
 /** Read an annotation item into something the viewer can draw. */
@@ -62,6 +129,7 @@ export function toAnnotation(item: Item): Annotation | null {
     key: item.key,
     page: position.page,
     rects: position.rects,
+    space: position.space,
     text: String(item.annotationText ?? ''),
     comment: String(item.annotationComment ?? ''),
     colour: (HIGHLIGHT_COLOURS as readonly string[]).includes(colour)
@@ -73,7 +141,7 @@ export function toAnnotation(item: Item): Annotation | null {
 /** The fields to store, given a selection. */
 export function toDraft(
   attachmentKey: string,
-  position: Position,
+  position: Omit<Position, 'space'>,
   text: string,
   colour: HighlightColour,
 ) {
@@ -137,7 +205,11 @@ function merge(rects: Rect[]): Rect[] {
 
 /** Reading order: down the page, then across. */
 export function inReadingOrder(annotations: Annotation[]): Annotation[] {
-  return [...annotations].sort(
-    (a, b) => a.page - b.page || (a.rects[0]?.y ?? 0) - (b.rects[0]?.y ?? 0),
-  )
+  // Down the page, whichever way the page counts. PDF space measures upwards,
+  // so sorting its numbers ascending would list a paper backwards.
+  const down = (a: Annotation) => {
+    const y = a.rects[0]?.y ?? 0
+    return a.space === 'pdf' ? -y : y
+  }
+  return [...annotations].sort((a, b) => a.page - b.page || down(a) - down(b))
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Item } from '../api/types'
 import {
+  drawableRects,
   inReadingOrder,
   parsePosition,
   rectsFromSelection,
@@ -27,7 +28,7 @@ const item = (fields: Partial<Item>) => ({ key: 'A', ...fields }) as Item
 describe('parsePosition', () => {
   it('reads a stored position', () => {
     const got = parsePosition('{"page":3,"rects":[{"x":0,"y":0,"w":1,"h":1}]}')
-    expect(got).toEqual({ page: 3, rects: [{ x: 0, y: 0, w: 1, h: 1 }] })
+    expect(got).toEqual({ page: 3, rects: [{ x: 0, y: 0, w: 1, h: 1 }], space: 'fraction' })
   })
 
   it('refuses anything malformed rather than drawing nonsense', () => {
@@ -140,5 +141,53 @@ describe('inReadingOrder', () => {
       ({ key: `${page}-${y}`, page, rects: [{ x: 0, y, w: 1, h: 1 }] }) as Annotation
     const sorted = inReadingOrder([at(2, 0.1), at(1, 0.9), at(1, 0.2)])
     expect(sorted.map((a) => a.key)).toEqual(['1-0.2', '1-0.9', '2-0.1'])
+  })
+})
+
+describe('imported Zotero geometry', () => {
+  const zotero = '{"pageIndex":6,"rects":[[72,700,300,712]]}'
+
+  it('recognises a Zotero position by the shape of its rectangles', () => {
+    const got = parsePosition(zotero)
+    expect(got?.space).toBe('pdf')
+    // Zotero counts pages from zero; a reader counts from one.
+    expect(got?.page).toBe(7)
+    expect(got?.rects[0]).toEqual({ x: 72, y: 700, w: 228, h: 12 })
+  })
+
+  it('places a highlight by measuring down from the top of the page', () => {
+    const annotation = {
+      key: 'A',
+      page: 7,
+      space: 'pdf',
+      rects: [{ x: 72, y: 700, w: 228, h: 12 }],
+      text: '',
+      comment: '',
+      colour: 'amber',
+    } as Annotation
+
+    // A4 in points. PDF space grows upwards, so a rectangle whose top is at
+    // 712 sits (842 - 712) from the top — not 700 from it.
+    const [rect] = drawableRects(annotation, { width: 595, height: 842 })
+    expect(rect?.y).toBeCloseTo((842 - 712) / 842, 5)
+    expect(rect?.x).toBeCloseTo(72 / 595, 5)
+    expect(rect?.w).toBeCloseTo(228 / 595, 5)
+  })
+
+  it('draws nothing until the page size is known', () => {
+    const annotation = { space: 'pdf', rects: [{ x: 1, y: 1, w: 1, h: 1 }] } as Annotation
+    // Better an invisible highlight for one frame than every highlight in the
+    // corner of the page.
+    expect(drawableRects(annotation, { width: 0, height: 0 })).toEqual([])
+  })
+
+  it('lists imported highlights down the page, not up it', () => {
+    const at = (y: number, key: string) =>
+      ({ key, page: 1, space: 'pdf', rects: [{ x: 0, y, w: 1, h: 1 }] }) as Annotation
+
+    expect(inReadingOrder([at(100, 'bottom'), at(700, 'top')]).map((a) => a.key)).toEqual([
+      'top',
+      'bottom',
+    ])
   })
 })

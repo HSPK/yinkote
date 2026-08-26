@@ -110,6 +110,7 @@ async fn run(
 
     let files = import_attachments(&app, lib, &library.attachments).await;
     let notes = import_notes(&app, lib, &library.notes).await;
+    let annotations = import_annotations(&app, lib, &library).await;
 
     let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
         library_id: lib,
@@ -126,6 +127,7 @@ async fn run(
         "collections": collections,
         "files": files,
         "notes": notes,
+        "annotations": annotations,
         // Reported rather than hidden: an import that quietly dropped a tenth
         // of a library would be found out much later, by its absence.
         "failed": failed,
@@ -191,6 +193,62 @@ async fn import_notes(app: &App, lib: i64, notes: &[yk_import::zotero::ImportedN
                 let patch = serde_json::from_value(json!({ "fields": { "note": note.html } }));
                 if let Ok(patch) = patch {
                     if app.store().items.update(lib, &note.key, patch, None).await.is_ok() {
+                        imported += 1;
+                    }
+                }
+            }
+        }
+    }
+    imported
+}
+
+/// Bring across the highlights somebody made while reading.
+///
+/// An annotation hangs off the attachment it was drawn on, so one whose
+/// attachment did not come across has nothing to hang on and is skipped rather
+/// than filed against the paper — a highlight with no page is not a highlight.
+///
+/// The geometry is stored exactly as Zotero wrote it: PDF points, bottom-left
+/// origin. The viewer converts it when it opens the page, because that is the
+/// only place the page's size in points is known. See `yk_import::zotero`.
+async fn import_annotations(
+    app: &App,
+    lib: i64,
+    library: &yk_import::zotero::Imported,
+) -> u64 {
+    let files: std::collections::HashSet<&str> =
+        library.attachments.iter().map(|a| a.key.as_str()).collect();
+
+    let mut imported = 0;
+    for a in &library.annotations {
+        if !files.contains(a.parent.as_str()) {
+            continue;
+        }
+
+        let fields = json!({
+            "annotationType": a.kind,
+            "annotationText": a.text,
+            "annotationComment": a.comment,
+            "annotationColor": a.colour,
+            "annotationPage": a.page,
+            "annotationPosition": a.position,
+        });
+
+        let mut draft = yk_core::model::ItemDraft::new("annotation");
+        draft.key = Some(a.key.clone());
+        draft.parent_key = Some(a.parent.clone());
+        if let Some(map) = fields.as_object() {
+            draft.fields = map.clone().into_iter().collect();
+        }
+
+        match app.store().items.create(lib, draft).await {
+            Ok(_) => imported += 1,
+            // Already here from an earlier import. The comment is the part a
+            // user keeps editing, so a repeat run should carry it over.
+            Err(_) => {
+                let patch = serde_json::from_value(json!({ "fields": fields }));
+                if let Ok(patch) = patch {
+                    if app.store().items.update(lib, &a.key, patch, None).await.is_ok() {
                         imported += 1;
                     }
                 }

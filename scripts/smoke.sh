@@ -111,13 +111,25 @@ CREATE TABLE itemTags (itemID INTEGER, tagID INTEGER, type INTEGER);
 CREATE TABLE collections (collectionID INTEGER PRIMARY KEY, collectionName TEXT, key TEXT, parentCollectionID INTEGER);
 CREATE TABLE collectionItems (collectionID INTEGER, itemID INTEGER);
 CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INTEGER, path TEXT);
-INSERT INTO itemTypes VALUES (1,'journalArticle');
+CREATE TABLE itemNotes (itemID INTEGER PRIMARY KEY, parentItemID INTEGER, note TEXT, title TEXT);
+CREATE TABLE itemAnnotations (itemID INTEGER PRIMARY KEY, parentItemID INTEGER, type INTEGER,
+                              authorName TEXT, text TEXT, comment TEXT, color TEXT,
+                              pageLabel TEXT, sortIndex TEXT, position TEXT);
+INSERT INTO itemTypes VALUES (1,'journalArticle'),(2,'attachment'),(3,'note'),(4,'annotation');
 INSERT INTO fields VALUES (1,'title');
 INSERT INTO items VALUES (1,1,'SMOKEZ01','2020-01-01','2020-01-02');
 INSERT INTO itemDataValues VALUES (1,'Smoke import');
 INSERT INTO itemData VALUES (1,1,1);
 INSERT INTO collections VALUES (1,'Smoke collection','SMOKEC01',NULL);
 INSERT INTO collectionItems VALUES (1,1);
+INSERT INTO items VALUES (2,2,'SMOKEF01','2020-01-01','2020-01-02');
+INSERT INTO itemAttachments VALUES (2,1,'storage:smoke.pdf');
+INSERT INTO items VALUES (3,3,'SMOKEN01','2020-01-01','2020-01-02');
+INSERT INTO itemNotes VALUES (3,1,'<p>A smoky thought.</p>','Note');
+INSERT INTO items VALUES (4,4,'SMOKEA01','2020-01-01','2020-01-02');
+INSERT INTO itemAnnotations VALUES (4,2,1,'Reader','a highlighted passage','worth rereading',
+                                    '#5fb236','7','00001',
+                                    '{"pageIndex":6,"rects":[[72,700,300,712]]}');
 ''')
 db.commit()
 PYEOF
@@ -133,6 +145,15 @@ check "import commits"    "$(j -X POST "$BASE/libraries/$LIB/import/zotero" -d "
 check "import repeatable" "$(j -X POST "$BASE/libraries/$LIB/import/zotero" -d "{\"path\":\"$ZDB\"}" \
                              | jq -r 'select(.failed == 0 and .updated > 0) | "updated \(.updated)"')"
 check "import untouched"  "$(test -f "${ZDB}-wal" && echo "journal left" || echo untouched)"
+# A highlight belongs to the file it was drawn on, so it must arrive as a child
+# of the attachment — and with a palette name, not Zotero's hex, or it would not
+# follow the user's theme.
+check "import highlights" "$(j "$BASE/libraries/$LIB/items/SMOKEF01/children" \
+                             | jq -r '.[] | select(.itemType == "annotation")
+                                          | select(.annotationColor == "green")
+                                          | .annotationText')"
+check "import notes"      "$(j "$BASE/libraries/$LIB/items/SMOKEZ01/children" \
+                             | jq -r '.[] | select(.itemType == "note") | .note')"
 rm -rf "$(dirname "$ZDB")"
 
 echo "▸ agent"

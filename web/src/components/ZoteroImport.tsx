@@ -47,6 +47,7 @@ export function ZoteroImport() {
             items: done.items + done.updated,
             files: done.files,
             notes: done.notes,
+            annotations: done.annotations,
           })
       toast.success(message)
       setFound(null)
@@ -83,6 +84,7 @@ export function ZoteroImport() {
               collections: found.collections,
               attachments: found.attachments,
               notes: found.notes,
+              annotations: found.annotations,
             })}
           </span>
           <Button tone="primary" disabled={busy} onClick={() => void run()}>

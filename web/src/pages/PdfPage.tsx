@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 
-import type { Annotation } from '../lib/annotations'
+import { drawableRects, type Annotation } from '../lib/annotations'
 
 export interface PdfPageProps {
   doc: PDFDocumentProxy
@@ -32,6 +32,9 @@ export function PdfPage({
   const textRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
+  // The page's own size in points, which is the only thing that can place an
+  // imported highlight: it was recorded in points and means nothing without it.
+  const [points, setPoints] = useState({ width: 0, height: 0 })
 
   useEffect(() => {
     let live = true
@@ -52,6 +55,8 @@ export function PdfPage({
       canvas.width = Math.floor(viewport.width * ratio)
       canvas.height = Math.floor(viewport.height * ratio)
       setSize({ width: viewport.width, height: viewport.height })
+      const unscaled = page.getViewport({ scale: 1 })
+      setPoints({ width: unscaled.width, height: unscaled.height })
 
       const render = page.render({
         canvas,
@@ -94,7 +99,7 @@ export function PdfPage({
 
       <div className="pdf-highlights">
         {annotations.flatMap((a) =>
-          a.rects.map((r, i) => (
+          drawableRects(a, points).map((r, i) => (
             <span
               key={`${a.key}-${i}`}
               className="pdf-highlight"

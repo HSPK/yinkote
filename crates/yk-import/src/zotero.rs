@@ -36,6 +36,8 @@ pub struct Preview {
     pub attachments: i64,
     /// Notes written against an item.
     pub notes: i64,
+    /// Highlights and margin notes inside PDFs.
+    pub annotations: i64,
 }
 
 /// A collection, with its parent's key when it has one.
@@ -69,6 +71,27 @@ pub struct ImportedNote {
     pub html: String,
 }
 
+/// A highlight or margin note somebody made inside a PDF.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportedAnnotation {
+    pub key: Key,
+    /// The attachment it was drawn on, not the paper: an annotation belongs to
+    /// a particular file, and a paper may have several.
+    pub parent: Key,
+    /// `highlight`, `underline`, `note`, `image` or `ink`.
+    pub kind: String,
+    /// The passage the user selected, as Zotero extracted it.
+    pub text: String,
+    /// Whatever they wrote about it.
+    pub comment: String,
+    /// One of this project's five palette names, from Zotero's hex.
+    pub colour: String,
+    /// The page as printed, which is what a reader wants to be told.
+    pub page: String,
+    /// Zotero's geometry, verbatim. See `read_annotations`.
+    pub position: String,
+}
+
 /// Everything read out of a Zotero library.
 pub struct Imported {
     pub items: Vec<ItemDraft>,
@@ -77,6 +100,7 @@ pub struct Imported {
     pub membership: HashMap<String, Vec<Key>>,
     pub attachments: Vec<ImportedAttachment>,
     pub notes: Vec<ImportedNote>,
+    pub annotations: Vec<ImportedAnnotation>,
 }
 
 /// Zotero field names this project does not have, and what they become here.
@@ -134,6 +158,7 @@ pub fn preview(path: &Path) -> Result<Preview> {
         tags: count("SELECT count(*) FROM tags"),
         attachments: count("SELECT count(*) FROM itemAttachments WHERE path IS NOT NULL"),
         notes: count("SELECT count(*) FROM itemNotes WHERE parentItemID IS NOT NULL"),
+        annotations: count("SELECT count(*) FROM itemAnnotations"),
     })
 }
 
@@ -145,6 +170,7 @@ pub fn read(path: &Path) -> Result<Imported> {
     let collections = read_collections(&db)?;
     let attachments = read_attachments(&db, path)?;
     let notes = read_notes(&db)?;
+    let annotations = read_annotations(&db)?;
     let fields = read_fields(&db)?;
     let creators = read_creators(&db)?;
     let tags = read_tags(&db)?;
@@ -188,7 +214,7 @@ pub fn read(path: &Path) -> Result<Imported> {
         items.push(draft);
     }
 
-    Ok(Imported { items, collections, membership, attachments, notes })
+    Ok(Imported { items, collections, membership, attachments, notes, annotations })
 }
 
 fn map_field(name: &str) -> Option<&str> {
@@ -449,6 +475,114 @@ fn read_notes(db: &Connection) -> Result<Vec<ImportedNote>> {
         out.push(ImportedNote { key, parent, html });
     }
     Ok(out)
+}
+
+/// Highlights and margin notes made inside a PDF.
+///
+/// The geometry is **kept exactly as Zotero wrote it** and converted later, in
+/// the viewer. Zotero records rectangles in PDF points with the origin at the
+/// bottom-left; this project records fractions of the page with the origin at
+/// the top-left, because a fraction survives zooming and a point does not.
+/// Converting between them needs the page's size in points, which is inside the
+/// PDF — so the only place that can do it correctly is the one place that has
+/// the page open. Guessing a page size here would put every highlight from
+/// every non-A4 paper in the wrong place, silently.
+///
+/// Annotations whose parent attachment was not imported are still read; the
+/// caller drops them, because it is the caller that knows what it created.
+fn read_annotations(db: &Connection) -> Result<Vec<ImportedAnnotation>> {
+    // Annotations arrived in Zotero 6. An older library simply has none, which
+    // is not an error and must not fail the import.
+    if !has_column(db, "itemAnnotations", "position") {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = db
+        .prepare(
+            "SELECT a.key, p.key, an.type, an.text, an.comment, an.color, \
+                    an.pageLabel, an.position \
+             FROM itemAnnotations an \
+             JOIN items a ON a.itemID = an.itemID \
+             JOIN items p ON p.itemID = an.parentItemID \
+             WHERE an.position IS NOT NULL \
+               AND an.itemID NOT IN (SELECT itemID FROM deletedItems)",
+        )
+        .map_err(sql_err)?;
+
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, Option<String>>(6)?,
+                r.get::<_, String>(7)?,
+            ))
+        })
+        .map_err(sql_err)?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        let (key, parent, kind, text, comment, colour, page, position) = row.map_err(sql_err)?;
+        let (Ok(key), Ok(parent)) = (Key::parse(&key), Key::parse(&parent)) else { continue };
+
+        out.push(ImportedAnnotation {
+            key,
+            parent,
+            kind: annotation_kind(kind).to_string(),
+            text: text.unwrap_or_default(),
+            comment: comment.unwrap_or_default(),
+            colour: palette_name(colour.as_deref().unwrap_or_default()).to_string(),
+            page: page.unwrap_or_default(),
+            position,
+        });
+    }
+    Ok(out)
+}
+
+/// Zotero numbers its annotation kinds; this project names them.
+fn annotation_kind(kind: i64) -> &'static str {
+    match kind {
+        1 => "highlight",
+        2 => "note",
+        3 => "image",
+        4 => "ink",
+        5 => "underline",
+        _ => "highlight",
+    }
+}
+
+/// Zotero stores a hex colour; this project stores a palette name, so that a
+/// highlight follows the user's theme instead of being frozen at whatever the
+/// other program's light mode happened to be.
+///
+/// The mapping is by hue rather than by exact string, so a colour Zotero adds
+/// later still lands somewhere sensible instead of silently becoming amber.
+fn palette_name(hex: &str) -> &'static str {
+    let hex = hex.trim_start_matches('#');
+    let channel = |i: usize| u8::from_str_radix(hex.get(i..i + 2).unwrap_or("0"), 16).unwrap_or(0);
+    if hex.len() < 6 {
+        return "amber";
+    }
+    let (r, g, b) = (channel(0) as i32, channel(2) as i32, channel(4) as i32);
+
+    // Nearest of the five, by plain distance. Good enough for five well-spread
+    // colours, and far more predictable than a table of Zotero's exact hexes.
+    const PALETTE: &[(&str, (i32, i32, i32))] = &[
+        ("amber", (255, 212, 0)),
+        ("green", (95, 178, 54)),
+        ("blue", (46, 168, 229)),
+        ("violet", (162, 138, 229)),
+        ("red", (255, 102, 102)),
+    ];
+    PALETTE
+        .iter()
+        .min_by_key(|(_, (pr, pg, pb))| (r - pr).pow(2) + (g - pg).pow(2) + (b - pb).pow(2))
+        .map(|(name, _)| *name)
+        .unwrap_or("amber")
 }
 
 /// Whether a table has a column, so an optional one can be asked for by name

@@ -413,11 +413,12 @@ export const zhCN = {
   'import.preview': '查看内容',
   'import.confirm': '导入',
   'import.working': '导入中…',
-  'import.found': '条目 {items} · 收藏夹 {collections} · 附件 {attachments} · 笔记 {notes}',
-  'import.done': '已导入 {items} 条、{files} 个文件、{notes} 条笔记',
+  'import.found':
+    '条目 {items} · 收藏夹 {collections} · 附件 {attachments} · 笔记 {notes} · 标注 {annotations}',
+  'import.done': '已导入 {items} 条、{files} 个文件、{notes} 条笔记、{annotations} 条标注',
   'import.doneWithFailures': '已导入 {items} 条，{failed} 条失败',
   'import.failed': '导入失败',
-  'import.note': '条目保留 Zotero 的 key，因此重复导入是更新而非复制。Zotero 存储的附件会一并拷贝；仅链接的文件只记录不搬运。',
+  'import.note': '条目保留 Zotero 的 key，因此重复导入是更新而非复制。Zotero 存储的附件会一并拷贝；仅链接的文件只记录不搬运。PDF 中的高亮与批注也会随附件一起导入。',
 } as const
 
 export type MessageKey = keyof typeof zhCN
