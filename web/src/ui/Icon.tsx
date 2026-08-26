@@ -94,6 +94,15 @@ export const Icon = {
       <path d="m10.3 10.3 3.2 3.2" />
     </Svg>
   ),
+  Graph: (p: IconProps) => (
+    <Svg {...p}>
+      <circle cx="8" cy="8" r="2" />
+      <circle cx="3" cy="3.4" r="1.6" />
+      <circle cx="13" cy="4" r="1.6" />
+      <circle cx="4" cy="13" r="1.6" />
+      <path d="M6.6 6.6 4.2 4.6M9.5 6.9l2-1.6M7.2 9.7l-2 2" />
+    </Svg>
+  ),
   Plugin: (p: IconProps) => (
     <Svg {...p}>
       <path d="M6 2.4v2.2H3.4a1 1 0 0 0-1 1v2.2h1.4a1.6 1.6 0 1 1 0 3.2H2.4v2.2a1 1 0 0 0 1 1h2.2v-1.4a1.6 1.6 0 1 1 3.2 0v1.4h2.2a1 1 0 0 0 1-1v-2.6h1.4a1.6 1.6 0 1 0 0-3.2h-1.4V5.6a1 1 0 0 0-1-1H9.2V2.4" />

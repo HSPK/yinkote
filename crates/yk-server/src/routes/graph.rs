@@ -1,0 +1,142 @@
+//! The relationship graph around one item.
+//!
+//! Always a neighbourhood, never the whole library. A hundred thousand nodes is
+//! not a picture — it is a grey disc — and the question a graph actually
+//! answers is "what is this next to", which is local.
+//!
+//! Structural edges come from the store, which can find them with an indexed
+//! query. Similarity edges come from the search engine, which is the only thing
+//! holding the vectors. They are merged here rather than in either, because
+//! neither should have to know about the other to answer its own question.
+
+use std::collections::HashMap;
+
+use axum::extract::{Path, Query, State};
+use axum::routing::get;
+use axum::{Json, Router};
+use serde::Deserialize;
+use serde_json::json;
+use yk_core::Key;
+
+use super::key;
+use crate::error::ApiResult;
+use crate::state::App;
+
+pub fn router() -> Router<App> {
+    Router::new().route("/libraries/:lib/graph/:key", get(neighbourhood))
+}
+
+#[derive(Deserialize)]
+struct Params {
+    /// How many neighbours of each kind. Kept modest on purpose: a readable
+    /// graph is a small one.
+    #[serde(default = "default_limit")]
+    limit: u32,
+}
+
+fn default_limit() -> u32 {
+    8
+}
+
+/// The most a caller may ask for.
+///
+/// Not because the query is slow, but because past a few dozen nodes nobody can
+/// read the result and the only honest thing to do is refuse.
+const MAX_LIMIT: u32 = 30;
+
+async fn neighbourhood(
+    State(app): State<App>,
+    Path((lib, k)): Path<(i64, String)>,
+    Query(params): Query<Params>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let focus = key(&k)?;
+    let limit = params.limit.clamp(1, MAX_LIMIT);
+
+    let item = app.store().items.get(lib, &focus).await?;
+    let structural = app.store().graph.neighbours(lib, &focus, limit).await?;
+    let similar = app.search().similar(lib, &focus, limit as usize).await?;
+
+    // One node per item, however many reasons connect it. Drawing an item three
+    // times because it shares a tag, an author and a shelf would say "three
+    // papers" when the truth is "one paper, three times over".
+    let mut nodes: HashMap<String, serde_json::Value> = HashMap::new();
+    let mut edges = Vec::new();
+
+    for n in &structural {
+        nodes.entry(n.key.to_string()).or_insert_with(|| {
+            json!({
+                "key": n.key,
+                "title": n.title,
+                "year": n.year,
+                "itemType": n.item_type,
+            })
+        });
+        edges.push(json!({
+            "source": focus,
+            "target": n.key,
+            "relation": n.relation,
+            "weight": n.weight,
+        }));
+    }
+
+    let known: Vec<Key> = similar.iter().map(|(key, _)| key.clone()).collect();
+    let titles = titles_for(&app, lib, &known).await;
+
+    for (key, score) in similar {
+        if key == focus {
+            continue;
+        }
+        let Some(found) = titles.get(key.as_str()) else { continue };
+        nodes.entry(key.to_string()).or_insert_with(|| found.clone());
+        edges.push(json!({
+            "source": focus,
+            "target": key,
+            "relation": "similar",
+            // The cosine, kept as it is: a similarity edge that claims the same
+            // strength as a shared tag would be lying about where it came from.
+            "weight": score,
+        }));
+    }
+
+    let focus_node = json!({
+        "key": item.key,
+        "title": item.title(),
+        "year": item.field("date").and_then(year),
+        "itemType": item.item_type,
+        "focus": true,
+    });
+
+    let mut all: Vec<serde_json::Value> = vec![focus_node];
+    all.extend(nodes.into_values());
+
+    Ok(Json(json!({ "focus": focus, "nodes": all, "edges": edges })))
+}
+
+/// Look up the labels for keys the search engine returned.
+///
+/// A node with no label is a dot, and a dot is not information.
+async fn titles_for(app: &App, lib: i64, keys: &[Key]) -> HashMap<String, serde_json::Value> {
+    let mut out = HashMap::new();
+    for key in keys {
+        if let Ok(item) = app.store().items.get(lib, key).await {
+            out.insert(
+                key.to_string(),
+                json!({
+                    "key": item.key,
+                    "title": item.title(),
+                    "year": item.field("date").and_then(year),
+                    "itemType": item.item_type,
+                }),
+            );
+        }
+    }
+    out
+}
+
+fn year(date: &str) -> Option<i64> {
+    let chars: Vec<char> = date.chars().collect();
+    chars
+        .windows(4)
+        .find(|w| w.iter().all(char::is_ascii_digit))
+        .and_then(|w| w.iter().collect::<String>().parse().ok())
+}

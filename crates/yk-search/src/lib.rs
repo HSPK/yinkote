@@ -94,6 +94,28 @@ impl SearchEngine {
         Ok(n)
     }
 
+    /// The most semantically similar items to one already in the library.
+    ///
+    /// Uses the item's own stored vector rather than re-embedding its text: the
+    /// vector is already there, embedding costs a network round trip, and an
+    /// item whose text has changed since it was embedded should be compared as
+    /// the index sees it — otherwise the graph and the search results disagree.
+    ///
+    /// Returns nothing at all when the item has no vector yet, which is honest:
+    /// "not embedded" is not "nothing is similar".
+    pub fn similar(&self, library_id: i64, item_id: i64, k: usize) -> Vec<(i64, f32)> {
+        let vectors = self.vectors.read();
+        let Some(query) = vectors.get(item_id).map(|v| v.to_vec()) else {
+            return Vec::new();
+        };
+        vectors
+            .search(library_id, &query, k + 1, None)
+            .into_iter()
+            .filter(|(id, _)| *id != item_id)
+            .take(k)
+            .collect()
+    }
+
     /// Item ids permitted by the structural filter, or `None` when the filter
     /// adds nothing beyond "this library, not trashed" — which every retriever
     /// already enforces in SQL.
@@ -401,6 +423,58 @@ impl SearchIndex for SearchEngine {
                     snippet: if terms.is_empty() { None } else { snippet(d, &terms) },
                     sources: f.sources,
                 })
+            })
+            .collect())
+    }
+
+    async fn similar(&self, library_id: i64, key: &Key, k: usize) -> Result<Vec<(Key, f32)>> {
+        let wanted = key.to_string();
+        let id: Option<i64> = self
+            .db
+            .call(move |c| {
+                Ok(c.query_row(
+                    "SELECT id FROM items WHERE library_id=?1 AND key=?2",
+                    params![library_id, wanted],
+                    |r| r.get(0),
+                )
+                .ok())
+            })
+            .await?;
+        let Some(id) = id else { return Ok(Vec::new()) };
+
+        let hits = self.similar(library_id, id, k);
+        if hits.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Back to keys, which is the only identifier anything outside this
+        // crate is allowed to know about.
+        let ids: Vec<i64> = hits.iter().map(|(id, _)| *id).collect();
+        let keys = self
+            .db
+            .call(move |c| {
+                let mut out = std::collections::HashMap::new();
+                let places = vec!["?"; ids.len()].join(",");
+                let mut stmt = c
+                    .prepare(&format!("SELECT id, key FROM items WHERE id IN ({places})"))
+                    .map_err(sql_err)?;
+                let rows = stmt
+                    .query_map(rusqlite::params_from_iter(ids), |r| {
+                        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+                    })
+                    .map_err(sql_err)?;
+                for row in rows {
+                    let (id, key) = row.map_err(sql_err)?;
+                    out.insert(id, key);
+                }
+                Ok(out)
+            })
+            .await?;
+
+        Ok(hits
+            .into_iter()
+            .filter_map(|(id, score)| {
+                Key::parse(keys.get(&id)?).ok().map(|key| (key, score))
             })
             .collect())
     }

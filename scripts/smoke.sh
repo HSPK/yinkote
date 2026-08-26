@@ -156,6 +156,22 @@ check "import notes"      "$(j "$BASE/libraries/$LIB/items/SMOKEZ01/children" \
                              | jq -r '.[] | select(.itemType == "note") | .note')"
 rm -rf "$(dirname "$ZDB")"
 
+echo "▸ graph"
+GA=$(j -X POST "$BASE/libraries/$LIB/items" \
+       -d '[{"itemType":"journalArticle","title":"Graph focus","tags":[{"tag":"graph-smoke"}]}]' \
+       | jq -r '.created[0].key')
+j -X POST "$BASE/libraries/$LIB/items" \
+  -d '[{"itemType":"journalArticle","title":"Graph neighbour","tags":[{"tag":"graph-smoke"}]}]' >/dev/null
+# The focus is always in the picture, and exactly once.
+check "graph focus"       "$(j "$BASE/libraries/$LIB/graph/$GA" \
+                             | jq -r '[.nodes[] | select(.focus == true)] | length | select(. == 1)')"
+# An edge must say why it exists; an unexplained one is a claim on trust.
+check "graph tag edge"    "$(j "$BASE/libraries/$LIB/graph/$GA" \
+                             | jq -r '.edges[] | select(.relation == "tag") | .target')"
+check "graph names nodes" "$(j "$BASE/libraries/$LIB/graph/$GA" \
+                             | jq -r '.nodes[] | select(.focus != true) | .title')"
+check "graph unknown key" "$(j "$BASE/libraries/$LIB/graph/ZZZZZZZZ" | jq -r '.title // empty')"
+
 echo "▸ citations"
 CK=$(j -X POST "$BASE/libraries/$LIB/items" \
        -d '[{"itemType":"journalArticle","title":"Citation smoke","publicationTitle":"Journal of Smoke","volume":"30","issue":"1","pages":"1-9","date":"2017-06-12","DOI":"10.1000/smoke","creators":[{"creatorType":"author","firstName":"Ashish","lastName":"Vaswani"}]}]' \

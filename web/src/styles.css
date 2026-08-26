@@ -1831,3 +1831,65 @@ select.ctl { padding: 4px 6px; }
   background: var(--bg-2);
   border-left: 2px solid var(--accent);
 }
+
+
+/* ─── relationship graph ─────────────────────────────────────────────────── */
+
+.graph { position: relative; overflow: hidden; }
+.graph-canvas { display: block; }
+
+/* A relation is told apart by colour rather than by line style: dashes at this
+   weight are indistinguishable from a solid line on a low-DPI screen. */
+.graph-edge {
+  stroke: var(--line-2);
+  stroke-width: 1;
+  opacity: 0.55;
+}
+.graph-edge[data-relation='tag']        { stroke: #4da3ff; }
+.graph-edge[data-relation='author']     { stroke: #d6a44c; }
+.graph-edge[data-relation='collection'] { stroke: #5fb236; }
+.graph-edge[data-relation='similar']    { stroke: #a28ae5; }
+.graph-edge[data-lit] { opacity: 1; stroke-width: 1.6; }
+
+.graph-node { cursor: pointer; }
+.graph-node circle {
+  fill: var(--bg-3);
+  stroke: var(--line-2);
+  stroke-width: 1.2;
+}
+.graph-node[data-focus] circle { fill: var(--accent-dim); stroke: var(--accent); }
+.graph-node[data-lit] circle,
+.graph-node:hover circle { stroke: var(--accent); }
+.graph-node:focus-visible { outline: none; }
+.graph-node:focus-visible circle { stroke: var(--accent); stroke-width: 2; }
+
+.graph-node text {
+  fill: var(--fg-dim);
+  font: 11px/1.4 var(--mono);
+  pointer-events: none;
+  /* Long titles are common and a graph is not a place to read one. */
+  overflow: hidden;
+}
+.graph-node[data-focus] text,
+.graph-node:hover text { fill: var(--fg); }
+
+.graph-legend {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 9px;
+  font: 11px/1.4 var(--mono);
+  color: var(--fg-dim);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+}
+.graph-key { display: flex; align-items: center; gap: 6px; }
+.graph-swatch { width: 10px; height: 2px; flex: none; background: var(--line-2); }
+.graph-swatch[data-relation='tag']        { background: #4da3ff; }
+.graph-swatch[data-relation='author']     { background: #d6a44c; }
+.graph-swatch[data-relation='collection'] { background: #5fb236; }
+.graph-swatch[data-relation='similar']    { background: #a28ae5; }
+.graph-hint { display: flex; align-items: center; gap: 6px; margin-top: 2px; opacity: 0.7; }

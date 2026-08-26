@@ -11,7 +11,14 @@
  *  contribute their own.
  */
 
-export type TabKind = 'library' | 'collections' | 'chat' | 'reader' | 'plugins' | 'status'
+export type TabKind =
+  | 'library'
+  | 'collections'
+  | 'chat'
+  | 'reader'
+  | 'graph'
+  | 'plugins'
+  | 'status'
 
 export interface Tab {
   /** Stable across reopening, so asking for the same thing twice focuses it. */

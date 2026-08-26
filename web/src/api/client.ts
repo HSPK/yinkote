@@ -12,6 +12,7 @@ import type {
   CitationRender,
   CitationStyle,
   Collection,
+  GraphNeighbourhood,
   Conversation,
   Item,
   Message,
@@ -171,6 +172,11 @@ export const api = {
         method: 'POST',
         ...json({ keys }),
       }),
+  },
+
+  graph: {
+    around: (lib: number, key: string, limit = 8) =>
+      request<GraphNeighbourhood>(`/libraries/${lib}/graph/${key}?limit=${limit}`),
   },
 
   citations: {

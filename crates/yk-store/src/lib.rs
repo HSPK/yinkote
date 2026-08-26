@@ -8,6 +8,7 @@ mod collections;
 mod conversations;
 mod db;
 pub mod filter;
+pub mod graph;
 pub mod index;
 mod items;
 mod smart;
@@ -20,6 +21,7 @@ pub use collections::{SqliteCollectionRepository, SqliteLibraryRepository, Sqlit
 pub use db::{sql_err, write_tx, Db, Pool, PooledConn};
 pub use items::{SqliteItemRepository, SqliteSettingsRepository};
 pub use conversations::SqliteConversationRepository;
+pub use graph::{GraphRepository, Neighbour, Relation, SqliteGraphRepository};
 pub use smart::SqliteSmartCollectionRepository;
 
 use yk_core::ports::*;
@@ -42,6 +44,7 @@ pub struct Store {
     pub tags: Arc<dyn TagRepository>,
     pub smart: Arc<dyn SmartCollectionRepository>,
     pub conversations: Arc<dyn ConversationRepository>,
+    pub graph: Arc<dyn GraphRepository>,
     pub settings: Arc<dyn SettingsRepository>,
     /// Concrete handle for operations outside the port surface (index rebuild).
     items_impl: SqliteItemRepository,
@@ -69,6 +72,7 @@ impl Store {
             tags,
             smart: Arc::new(SqliteSmartCollectionRepository::new(db.clone())),
             conversations: Arc::new(SqliteConversationRepository::new(db.clone())),
+            graph: Arc::new(SqliteGraphRepository::new(db.clone())),
             settings: Arc::new(SqliteSettingsRepository::new(db.clone())),
             items_impl,
             default_library,

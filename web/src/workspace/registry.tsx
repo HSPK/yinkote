@@ -4,13 +4,14 @@ import type { MessageKey } from '../i18n'
 import type { TabKind } from '../lib/tabs'
 import { ChatView } from '../pages/ChatView'
 import { CollectionsPage } from '../pages/CollectionsPage'
+import { GraphView } from '../pages/GraphView'
 import { ItemTable } from '../components/ItemTable'
 import { PluginsPage } from '../pages/PluginsPage'
 import { ReaderView } from '../pages/ReaderView'
 import { StatusPage } from '../pages/StatusPage'
 import type { IconName } from '../ui'
 import { CollectionDetail } from '../components/CollectionDetail'
-import { ChatFooter, CollectionsFooter, LibraryFooter, ReaderFooter } from './footers'
+import { ChatFooter, CollectionsFooter, GraphFooter, LibraryFooter, ReaderFooter } from './footers'
 
 export interface TabDefinition {
   Body: ComponentType<{ target?: string }>
@@ -60,6 +61,14 @@ export const TABS: Record<TabKind, TabDefinition> = {
     withDetail: true,
     Footer: ReaderFooter,
     search: 'find',
+  },
+  graph: {
+    Body: GraphView,
+    icon: 'Graph',
+    labelKey: 'graph.title',
+    withDetail: true,
+    Footer: GraphFooter,
+    search: 'none',
   },
   plugins: { Body: PluginsPage, icon: 'Plugin', labelKey: 'nav.plugins', search: 'none' },
   status: { Body: StatusPage, icon: 'Gauge', labelKey: 'nav.status', search: 'none' },

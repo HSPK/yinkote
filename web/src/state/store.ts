@@ -108,6 +108,11 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   activateTab: (id: string) => void
   keepTab: (id: string) => void
   openReader: (itemKey: string, keep?: boolean) => void
+  /** Show the relationship graph around an item. */
+  openGraph: (itemKey: string, keep?: boolean) => void
+  /** What the graph tab is currently showing, for the status bar. */
+  graphSize: { nodes: number; edges: number }
+  setGraphSize: (nodes: number, edges: number) => void
   fetchPdf: (itemKey: string, url?: string) => Promise<void>
   openCollectionEditor: (key: string | null) => void
   loadBadges: (keys: string[]) => Promise<void>
@@ -453,6 +458,25 @@ export const useStore = create<State>((set, get, store) => ({
   },
 
 
+
+  graphSize: { nodes: 0, edges: 0 },
+
+  setGraphSize(nodes, edges) {
+    set({ graphSize: { nodes, edges } })
+  },
+
+  /** Show what an item sits next to. A preview tab, like the reader: a graph is
+   *  usually a glance on the way somewhere else. */
+  openGraph(itemKey, keep = false) {
+    const title = get().items.find((i) => i.key === itemKey)?.title
+    get().openTab({
+      id: tabId('graph', itemKey),
+      kind: 'graph',
+      title: String(title ?? itemKey),
+      target: itemKey,
+      preview: !keep,
+    })
+  },
 
   /** Download the item's PDF and attach it, then show it. */
   async fetchPdf(itemKey, url) {

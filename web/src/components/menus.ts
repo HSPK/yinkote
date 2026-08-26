@@ -54,6 +54,7 @@ export function itemMenu(item: Item): MenuItem[] {
 
   return [
     { label: t('reader.open'), onSelect: () => store.openReader(item.key) },
+    { label: t('graph.open'), onSelect: () => store.openGraph(item.key) },
     {
       label: t('reader.fetch'),
       onSelect: () =>

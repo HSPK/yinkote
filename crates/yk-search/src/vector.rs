@@ -45,6 +45,12 @@ impl VectorStore {
         *self = VectorStore::new(dim);
     }
 
+    /// The stored vector for an item, if it has been embedded.
+    pub fn get(&self, id: i64) -> Option<&[f32]> {
+        let slot = *self.pos.get(&id)?;
+        Some(&self.data[slot * self.dim..(slot + 1) * self.dim])
+    }
+
     pub fn upsert(&mut self, id: i64, library_id: i64, vec: &[f32]) {
         if vec.len() != self.dim {
             return;

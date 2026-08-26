@@ -148,6 +148,12 @@ pub trait SettingsRepository: Send + Sync {
 pub trait SearchIndex: Send + Sync {
     async fn search(&self, request: &SearchRequest) -> Result<Vec<SearchHit>>;
     async fn stats(&self) -> Result<SearchStats>;
+    /// The items whose meaning is closest to one already in the library, with
+    /// their cosine similarity, best first.
+    ///
+    /// Empty when the item has not been embedded yet — which is not the same
+    /// claim as "nothing is similar", and callers must not present it as one.
+    async fn similar(&self, library_id: i64, key: &Key, k: usize) -> Result<Vec<(Key, f32)>>;
     /// Compute and store embeddings for queued documents. Returns how many
     /// were processed; call in a loop until it returns 0.
     async fn embed_pending(&self, batch: u32) -> Result<u32>;

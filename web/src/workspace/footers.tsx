@@ -98,6 +98,19 @@ export function ChatFooter() {
   )
 }
 
+export function GraphFooter() {
+  const t = useT()
+  const nodes = useStore((s) => s.graphSize.nodes)
+  const edges = useStore((s) => s.graphSize.edges)
+  return (
+    <>
+      <span>{t('graph.footer', { nodes, edges })}</span>
+      <span className="spacer" />
+      <DetailToggle />
+    </>
+  )
+}
+
 export function ReaderFooter() {
   return (
     <>

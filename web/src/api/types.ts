@@ -289,3 +289,28 @@ export interface CitationRender {
   /** The bibliography entry, one per key, in the order asked for. */
   bibliography: string[]
 }
+
+/** A node in the relationship graph: one item, however many edges reach it. */
+export interface GraphNode {
+  key: string
+  title: string
+  year?: number | null
+  itemType: string
+  /** The item the neighbourhood is about. Exactly one node has this. */
+  focus?: boolean
+}
+
+/** Why two items are connected, and how strongly. */
+export interface GraphEdge {
+  source: string
+  target: string
+  relation: 'tag' | 'author' | 'collection' | 'similar'
+  /** Shared tags or collections for structural edges; a cosine for similarity. */
+  weight: number
+}
+
+export interface GraphNeighbourhood {
+  focus: string
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+}
