@@ -1808,3 +1808,8 @@ select.ctl { padding: 4px 6px; }
 .step { display: flex; gap: 6px; padding: 2px 0 2px 12px; }
 .step code { color: var(--accent); }
 .step .dim { color: var(--fg-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+.surface-error { display: grid; place-items: center; }
+.surface-error-body { max-width: 420px; text-align: center; display: grid; gap: 10px; justify-items: center; }
+.surface-error-body .note { border-left: 2px solid var(--err, #c0554b); text-align: left; }

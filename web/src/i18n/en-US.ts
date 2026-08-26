@@ -407,4 +407,6 @@ export const enUS: Record<MessageKey, string> = {
   'chat.steps': '{count} tool calls',
   'chat.truncated': 'Stopped at the step limit; this answer may be incomplete',
   'chat.askAbout': 'Ask about this',
+  'error.surface': 'This panel failed to draw',
+  'error.retry': 'Try again',
 }

@@ -34,7 +34,7 @@ export function StatusBar() {
           ⚠ {error}
         </span>
       )}
-      {stats && (
+      {stats?.search && (
         <span className="dim">
           {t('status.vectors', {
             done: stats.search.embedded,

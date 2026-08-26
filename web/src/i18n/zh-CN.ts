@@ -403,6 +403,8 @@ export const zhCN = {
   'chat.steps': '{count} 次工具调用',
   'chat.truncated': '已达步数上限，回答可能不完整',
   'chat.askAbout': '就这篇提问',
+  'error.surface': '这个面板出错了',
+  'error.retry': '重试',
 } as const
 
 export type MessageKey = keyof typeof zhCN

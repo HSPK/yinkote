@@ -129,7 +129,7 @@ function Row({
   const select = useStore((s) => s.select)
   const selection = useStore((s) => s.selected)
   const openReader = useStore((s) => s.openReader)
-  const typeDef = useStore((s) => s.schema?.itemTypes.find((d) => d.type === item.itemType))
+  const typeDef = useStore((s) => s.schema?.itemTypes?.find((d) => d.type === item.itemType))
   const badges = useStore((s) => s.badges[item.key])
 
   const ctx: CellContext = {

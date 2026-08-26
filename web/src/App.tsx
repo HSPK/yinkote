@@ -11,7 +11,7 @@ import { TABS } from './workspace/registry'
 import { useT } from './i18n'
 import { SettingsPage } from './pages/SettingsPage'
 import { useStore } from './state/store'
-import { Modal, OverlayHost, Splitter } from './ui'
+import { ErrorBoundary, Modal, OverlayHost, Splitter } from './ui'
 
 /** True when a keystroke belongs to whatever the user is typing into. */
 function isEditing(target: EventTarget | null): boolean {
@@ -164,7 +164,11 @@ export function App() {
 
         <div className="workspace-main">
           <TabBar />
-          {current && <current.def.Body target={current.tab.target} />}
+          {/* Per surface, so a reader that cannot draw a page does not cost
+              you the library in the tab beside it. */}
+          <ErrorBoundary resetKey={activeTab}>
+            {current && <current.def.Body target={current.tab.target} />}
+          </ErrorBoundary>
         </div>
 
         {showDetail && detailOpen && (
@@ -178,7 +182,9 @@ export function App() {
               onCommit={(detail) => setLayout({ detail }, true)}
             />
             <div className="pane detail-pane" style={{ width: layout.detail }}>
-              <Detail />
+              <ErrorBoundary resetKey={activeTab}>
+                <Detail />
+              </ErrorBoundary>
             </div>
           </>
         )}

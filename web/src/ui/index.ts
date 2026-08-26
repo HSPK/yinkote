@@ -1,4 +1,5 @@
 export { OverlayHost, contextMenu } from './OverlayHost'
+export { ErrorBoundary } from './ErrorBoundary'
 export { Icon, type IconName } from './Icon'
 export { Modal } from './Modal'
 export { Splitter } from './Splitter'
