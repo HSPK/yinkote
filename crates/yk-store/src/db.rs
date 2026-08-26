@@ -1,6 +1,6 @@
 //! Connection pool, PRAGMA tuning and forward-only migrations.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::Connection;
@@ -28,6 +28,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
 #[derive(Clone)]
 pub struct Db {
     pool: Pool,
+    /// Kept so the size of the write-ahead log can be read from disk. SQLite
+    /// reports how many *frames* the log holds, which says nothing about how
+    /// large the file has grown — see [`Db::checkpoint`].
+    path: Option<PathBuf>,
 }
 
 impl Db {
@@ -79,7 +83,7 @@ impl Db {
             .build(manager)
             .map_err(|e| Error::storage(format!("pool: {e}")))?;
 
-        let db = Db { pool };
+        let db = Db { pool, path: path.map(Path::to_path_buf) };
         db.migrate()?;
         Ok(db)
     }
@@ -143,16 +147,62 @@ impl Db {
         .await
     }
 
-    /// Fold the write-ahead log back into the database.
+    /// Fold the write-ahead log back into the database, and keep its *file*
+    /// from staying huge. Returns the log's size in bytes afterwards.
     ///
-    /// `PASSIVE` never blocks and gives up if readers or writers are active, so
-    /// it is safe to run on a timer under load — unlike `TRUNCATE`, which waits.
-    pub async fn checkpoint(&self) -> Result<()> {
-        self.call(|c| {
-            c.execute_batch("PRAGMA wal_checkpoint(PASSIVE);").map_err(sql_err)
+    /// Two separate things go wrong here and only one of them is obvious.
+    ///
+    /// `PASSIVE` never blocks, which is what makes it safe on a timer, but it
+    /// only reclaims frames older than the oldest live reader — and a busy pool
+    /// always has one. Under a burst of concurrent writers the log outruns it
+    /// and grows: a 246 MB library was observed with a 1 GB log.
+    ///
+    /// The subtler part is that folding the log does not shrink the file.
+    /// SQLite keeps the space and reuses it, so after a successful pass the
+    /// pragma reports a few hundred frames while a gigabyte sits on disk.
+    /// Deciding from the frame count therefore never escalates, which is
+    /// exactly the bug this once had. The file's size on disk is the thing that
+    /// matters, so that is what is measured.
+    ///
+    /// `TRUNCATE` waits for readers and then resets the file. That pause is
+    /// real and much cheaper than an unbounded log, which costs disk and slows
+    /// every read, since each one searches the log's index first.
+    pub async fn checkpoint(&self, truncate_above_bytes: u64) -> Result<u64> {
+        let wal = self.wal_path();
+        self.call(move |c| {
+            checkpoint_once(c, "PASSIVE")?;
+            let size = wal.as_deref().map(wal_bytes).unwrap_or(0);
+            if size <= truncate_above_bytes {
+                return Ok(size);
+            }
+            tracing::debug!(bytes = size, "write-ahead log is large; truncating");
+            checkpoint_once(c, "TRUNCATE")?;
+            Ok(wal.as_deref().map(wal_bytes).unwrap_or(0))
         })
         .await
     }
+
+    /// Where the write-ahead log lives, for in-memory databases `None`.
+    fn wal_path(&self) -> Option<PathBuf> {
+        self.path.as_ref().map(|p| {
+            let mut name = p.clone().into_os_string();
+            name.push("-wal");
+            PathBuf::from(name)
+        })
+    }
+}
+
+/// Run one checkpoint and report the frames still in the log.
+///
+/// The pragma answers `(busy, log_frames, checkpointed_frames)`; a busy result
+/// is normal rather than an error, so the caller carries on either way.
+fn checkpoint_once(c: &Connection, mode: &str) -> Result<i64> {
+    c.query_row(&format!("PRAGMA wal_checkpoint({mode})"), [], |r| r.get::<_, i64>(1))
+        .map_err(sql_err)
+}
+
+fn wal_bytes(path: &Path) -> u64 {
+    std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
 }
 
 /// Begin a write transaction.

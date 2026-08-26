@@ -10,6 +10,38 @@ use yk_core::model::ItemDraft;
 use yk_core::query::ItemFilter;
 use yk_store::Store;
 
+/// A directory of this test's own, cleaned up when the test ends.
+///
+/// Tests run in parallel, so a name built from the pid alone collides and one
+/// test deletes the files another is using.
+struct Root(std::path::PathBuf);
+
+impl Root {
+    fn new(name: &str) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+        let dir = std::env::temp_dir().join(format!(
+            "yk-{name}-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir)
+    }
+
+    fn db(&self) -> std::path::PathBuf {
+        self.0.join("test.db")
+    }
+}
+
+impl Drop for Root {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}
+
 const WORKERS: i64 = 8;
 const BATCHES: i64 = 5;
 const PER_BATCH: i64 = 50;
@@ -55,4 +87,51 @@ async fn parallel_batch_writes_do_not_fail() {
     assert_eq!(total, WORKERS * BATCHES * PER_BATCH);
 
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The write-ahead log must not grow without bound under sustained writes.
+///
+/// This is the regression that a passive-only checkpoint could not prevent: a
+/// 246 MB library was observed with a 1 GB log, because a passive pass can only
+/// reclaim frames older than the oldest live reader and a busy pool always has
+/// one. Nothing about the data is wrong when this happens, so only a size
+/// assertion catches it.
+#[tokio::test]
+async fn checkpointing_bounds_the_write_ahead_log() {
+    let root = Root::new("wal-bound");
+    let store = Store::open(Some(&root.db())).unwrap();
+    let lib = store.default_library;
+
+    // Enough writes to push the log well past the truncate threshold used here.
+    for batch in 0..20 {
+        let drafts: Vec<_> = (0..200)
+            .map(|i| {
+                ItemDraft::new("journalArticle")
+                    .with_field("title", format!("Item {batch}-{i}"))
+                    .with_field("abstractNote", "x".repeat(2_000))
+            })
+            .collect();
+        store.items.create_many(lib, drafts).await.unwrap();
+    }
+
+    let before = wal_bytes(&root.db());
+    assert!(before > 0, "the test needs a log to reclaim; got {before} bytes");
+
+    // Folding alone leaves the file at its high-water mark, so a generous
+    // threshold must *not* shrink it — this is the case that made an earlier
+    // frame-count check useless.
+    let folded = store.db().checkpoint(u64::MAX).await.unwrap();
+    assert_eq!(folded, wal_bytes(&root.db()));
+    assert!(folded >= before, "folding reuses the space rather than releasing it");
+
+    // A threshold below the current size forces the escalation the worker takes.
+    let after = store.db().checkpoint(1024).await.unwrap();
+    assert_eq!(after, 0, "a truncating checkpoint resets the file");
+    assert_eq!(wal_bytes(&root.db()), 0);
+}
+
+fn wal_bytes(db: &std::path::Path) -> u64 {
+    let mut wal = db.as_os_str().to_owned();
+    wal.push("-wal");
+    std::fs::metadata(std::path::PathBuf::from(wal)).map(|m| m.len()).unwrap_or(0)
 }
