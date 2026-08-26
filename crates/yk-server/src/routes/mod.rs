@@ -8,9 +8,13 @@ mod system;
 
 use axum::Router;
 use serde::Deserialize;
+use serde_json::Value;
+use yk_core::event::DomainEvent;
+use yk_core::plugin::HookEvent;
 use yk_core::query::*;
 use yk_core::{Error, Key, Result};
 
+use crate::error::ApiResult;
 use crate::state::App;
 
 pub fn router() -> Router<App> {
@@ -20,6 +24,29 @@ pub fn router() -> Router<App> {
         .merge(collections::router())
         .merge(search::router())
         .merge(plugins::router())
+}
+
+/// Look up the library version after a write and broadcast the change.
+///
+/// Every mutating handler needs exactly this, and getting it wrong (stale
+/// version, forgotten event) is invisible until a client fails to resynchronise
+/// — so it lives in one place.
+async fn announce(
+    app: &App,
+    lib: i64,
+    event: impl FnOnce(i64) -> DomainEvent,
+) -> ApiResult<i64> {
+    let version = app.store().libraries.version(lib).await?;
+    app.events().publish(event(version));
+    Ok(version)
+}
+
+/// Fire a lifecycle hook without making the client wait for plugins.
+fn notify_plugins(app: &App, hook: &'static str, payload: Value) {
+    let plugins = app.plugins.clone();
+    tokio::spawn(async move {
+        plugins.dispatch(HookEvent::new(hook, payload)).await;
+    });
 }
 
 /// Query string shared by listing and search endpoints.

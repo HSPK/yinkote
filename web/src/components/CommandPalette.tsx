@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { rankMatches } from '../lib/fuzzy'
 import { useStore } from '../state/store'
 
 interface Command {
@@ -7,19 +8,6 @@ interface Command {
   label: string
   hint?: string
   run: () => void | Promise<void>
-}
-
-/** Subsequence match, the behaviour people expect from a fuzzy palette. */
-function matches(query: string, text: string): boolean {
-  if (!query) return true
-  const q = query.toLowerCase()
-  const t = text.toLowerCase()
-  let i = 0
-  for (const ch of t) {
-    if (ch === q[i]) i++
-    if (i === q.length) return true
-  }
-  return false
 }
 
 export function CommandPalette() {
@@ -77,7 +65,7 @@ export function CommandPalette() {
   }, [store])
 
   const visible = useMemo(
-    () => commands.filter((c) => matches(query, c.label)),
+    () => rankMatches(query, commands, (c) => c.label),
     [commands, query],
   )
 

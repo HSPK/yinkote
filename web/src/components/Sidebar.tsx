@@ -1,38 +1,8 @@
 import { useMemo } from 'react'
 
-import type { Collection } from '../api/types'
 import { compact } from '../lib/format'
-import { useStore } from '../state/store'
-
-interface Node extends Collection {
-  children: Node[]
-  depth: number
-}
-
-/** Flatten the collection list into render order, preserving hierarchy. */
-function toTree(collections: Collection[]): Node[] {
-  const nodes = new Map<string, Node>()
-  for (const c of collections) nodes.set(c.key, { ...c, children: [], depth: 0 })
-
-  const roots: Node[] = []
-  for (const node of nodes.values()) {
-    const parent = node.parentKey ? nodes.get(node.parentKey) : undefined
-    if (parent) parent.children.push(node)
-    else roots.push(node)
-  }
-
-  const out: Node[] = []
-  const walk = (list: Node[], depth: number) => {
-    list.sort((a, b) => a.sortIndex - b.sortIndex || a.name.localeCompare(b.name))
-    for (const n of list) {
-      n.depth = depth
-      out.push(n)
-      walk(n.children, depth + 1)
-    }
-  }
-  walk(roots, 0)
-  return out
-}
+import { buildTree } from '../lib/tree'
+import { useStore } from '../state/store' 
 
 export function Sidebar() {
   const view = useStore((s) => s.view)
@@ -47,7 +17,7 @@ export function Sidebar() {
   const toggleTag = useStore((s) => s.toggleTag)
   const createCollection = useStore((s) => s.createCollection)
 
-  const tree = useMemo(() => toTree(collections), [collections])
+  const tree = useMemo(() => buildTree(collections), [collections])
 
   return (
     <nav className="pane">

@@ -14,7 +14,7 @@ use yk_core::plugin::{hooks, HookEvent};
 use yk_core::query::{SearchHit, SearchRequest};
 use yk_core::Key;
 
-use super::{key, ListParams};
+use super::{announce, key, notify_plugins, ListParams};
 use crate::error::ApiResult;
 use crate::state::App;
 
@@ -160,17 +160,20 @@ async fn create(
 
     let results = app.store().items.create_many(lib, drafts).await?;
     let created: Vec<&Item> = results.iter().filter_map(|r| r.as_ref().ok()).collect();
-    let version = app.store().libraries.version(lib).await?;
+    let keys: Vec<Key> = created.iter().map(|i| i.key.clone()).collect();
 
-    if !created.is_empty() {
-        let keys: Vec<Key> = created.iter().map(|i| i.key.clone()).collect();
-        app.events().publish(DomainEvent::ItemsChanged { library_id: lib, keys, version });
-        let payload = json!({ "libraryId": lib, "items": created });
-        let plugins = app.plugins.clone();
-        tokio::spawn(async move {
-            plugins.dispatch(HookEvent::new(hooks::ITEM_CREATED, payload)).await;
-        });
-    }
+    let version = if keys.is_empty() {
+        app.store().libraries.version(lib).await?
+    } else {
+        let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
+            library_id: lib,
+            keys: keys.clone(),
+            version,
+        })
+        .await?;
+        notify_plugins(&app, hooks::ITEM_CREATED, json!({ "libraryId": lib, "items": created }));
+        version
+    };
 
     Ok(Json(json!({
         "version": version,
@@ -210,12 +213,7 @@ async fn update(
         keys: vec![item.key.clone()],
         version: item.version,
     });
-
-    let payload = json!({ "libraryId": lib, "item": item });
-    let plugins = app.plugins.clone();
-    tokio::spawn(async move {
-        plugins.dispatch(HookEvent::new(hooks::ITEM_UPDATED, payload)).await;
-    });
+    notify_plugins(&app, hooks::ITEM_UPDATED, json!({ "libraryId": lib, "item": item }));
     Ok(Json(item))
 }
 
@@ -235,17 +233,13 @@ async fn trash(
 ) -> ApiResult<Json<serde_json::Value>> {
     let keys = parse_keys(&body.keys)?;
     let n = app.store().items.set_trashed(lib, &keys, true).await?;
-    let version = app.store().libraries.version(lib).await?;
-    app.events().publish(DomainEvent::ItemsTrashed {
+    let version = announce(&app, lib, |version| DomainEvent::ItemsTrashed {
         library_id: lib,
         keys: keys.clone(),
         version,
-    });
-    let payload = json!({ "libraryId": lib, "keys": keys });
-    let plugins = app.plugins.clone();
-    tokio::spawn(async move {
-        plugins.dispatch(HookEvent::new(hooks::ITEM_TRASHED, payload)).await;
-    });
+    })
+    .await?;
+    notify_plugins(&app, hooks::ITEM_TRASHED, json!({ "libraryId": lib, "keys": keys }));
     Ok(Json(json!({ "trashed": n, "version": version })))
 }
 
@@ -256,8 +250,12 @@ async fn restore(
 ) -> ApiResult<Json<serde_json::Value>> {
     let keys = parse_keys(&body.keys)?;
     let n = app.store().items.set_trashed(lib, &keys, false).await?;
-    let version = app.store().libraries.version(lib).await?;
-    app.events().publish(DomainEvent::ItemsChanged { library_id: lib, keys, version });
+    let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
+        library_id: lib,
+        keys: keys.clone(),
+        version,
+    })
+    .await?;
     Ok(Json(json!({ "restored": n, "version": version })))
 }
 
@@ -268,8 +266,12 @@ async fn destroy(
 ) -> ApiResult<Json<serde_json::Value>> {
     let keys = parse_keys(&body.keys)?;
     let n = app.store().items.delete(lib, &keys).await?;
-    let version = app.store().libraries.version(lib).await?;
-    app.events().publish(DomainEvent::ItemsDeleted { library_id: lib, keys, version });
+    let version = announce(&app, lib, |version| DomainEvent::ItemsDeleted {
+        library_id: lib,
+        keys: keys.clone(),
+        version,
+    })
+    .await?;
     Ok(Json(json!({ "deleted": n, "version": version })))
 }
 
@@ -278,8 +280,12 @@ async fn empty_trash(
     Path(lib): Path<i64>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let n = app.store().items.empty_trash(lib).await?;
-    let version = app.store().libraries.version(lib).await?;
-    app.events().publish(DomainEvent::ItemsDeleted { library_id: lib, keys: vec![], version });
+    let version = announce(&app, lib, |version| DomainEvent::ItemsDeleted {
+        library_id: lib,
+        keys: Vec::new(),
+        version,
+    })
+    .await?;
     Ok(Json(json!({ "deleted": n, "version": version })))
 }
 
@@ -290,8 +296,12 @@ async fn add_to_collection(
 ) -> ApiResult<Json<serde_json::Value>> {
     let keys = parse_keys(&body.keys)?;
     let n = app.store().items.add_to_collection(lib, &key(&ckey)?, &keys).await?;
-    let version = app.store().libraries.version(lib).await?;
-    app.events().publish(DomainEvent::ItemsChanged { library_id: lib, keys, version });
+    let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
+        library_id: lib,
+        keys: keys.clone(),
+        version,
+    })
+    .await?;
     Ok(Json(json!({ "added": n, "version": version })))
 }
 

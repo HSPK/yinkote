@@ -52,7 +52,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
-function qs(query: ListQuery): string {
+/** Serialise a list/search query. Exported so the encoding is directly
+ *  testable — it is the contract with the server's `ListParams`. */
+export function buildQuery(query: ListQuery): string {
   const p = new URLSearchParams()
   const add = (k: string, v: unknown) => {
     if (v === undefined || v === null || v === '') return
@@ -82,7 +84,7 @@ export const api = {
 
   items: {
     list: (lib: number, query: ListQuery = {}) =>
-      request<Page<Item>>(`/libraries/${lib}/items${qs(query)}`),
+      request<Page<Item>>(`/libraries/${lib}/items${buildQuery(query)}`),
     get: (lib: number, key: string) => request<Item>(`/libraries/${lib}/items/${key}`),
     children: (lib: number, key: string) =>
       request<Item[]>(`/libraries/${lib}/items/${key}/children`),
@@ -139,7 +141,7 @@ export const api = {
     list: (lib: number, q?: string) =>
       request<Tag[]>(`/libraries/${lib}/tags${q ? `?q=${encodeURIComponent(q)}` : ''}`),
     facets: (lib: number, query: ListQuery = {}) =>
-      request<Tag[]>(`/libraries/${lib}/facets${qs(query)}`),
+      request<Tag[]>(`/libraries/${lib}/facets${buildQuery(query)}`),
     rename: (lib: number, from: string, to: string) =>
       request<{ updated: number }>(`/libraries/${lib}/tags`, { method: 'PATCH', ...json({ from, to }) }),
     remove: (lib: number, name: string) =>
@@ -148,7 +150,7 @@ export const api = {
 
   search: (lib: number, query: ListQuery) =>
     request<{ hits: SearchHit[]; mode: string; tookMs: number }>(
-      `/libraries/${lib}/search${qs(query)}`,
+      `/libraries/${lib}/search${buildQuery(query)}`,
     ),
 
   plugins: {

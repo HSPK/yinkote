@@ -8,7 +8,7 @@ use serde_json::json;
 use yk_core::event::DomainEvent;
 use yk_core::model::*;
 
-use super::{key, ListParams};
+use super::{announce, key, ListParams};
 use crate::error::ApiResult;
 use crate::state::App;
 
@@ -66,8 +66,9 @@ async fn remove(
     Query(p): Query<DeleteParams>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let n = app.store().collections.delete(lib, &key(&k)?, p.recursive).await?;
-    let version = app.store().libraries.version(lib).await?;
-    app.events().publish(DomainEvent::CollectionsChanged { library_id: lib, version });
+    let version =
+        announce(&app, lib, |version| DomainEvent::CollectionsChanged { library_id: lib, version })
+            .await?;
     Ok(Json(json!({ "deleted": n, "version": version })))
 }
 
