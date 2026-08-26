@@ -9,8 +9,11 @@ import type {
   ListQuery,
   Page,
   PluginStatus,
+  QuickAddResponse,
+  ResolveResponse,
   Schema,
   SearchHit,
+  SourceInfo,
   Stats,
   Tag,
 } from './types'
@@ -114,6 +117,8 @@ export const api = {
         method: 'POST',
         ...json({ keys }),
       }),
+    emptyTrash: (lib: number) =>
+      request<{ deleted: number }>(`/libraries/${lib}/trash`, { method: 'DELETE' }),
     addToCollection: (lib: number, collection: string, keys: string[]) =>
       request<{ added: number }>(`/libraries/${lib}/collections/${collection}/items`, {
         method: 'POST',
@@ -152,6 +157,17 @@ export const api = {
     request<{ hits: SearchHit[]; mode: string; tookMs: number }>(
       `/libraries/${lib}/search${buildQuery(query)}`,
     ),
+
+  /** Identifier detection and metadata lookup. */
+  scrape: {
+    sources: () => request<SourceInfo[]>('/resolve/sources'),
+    resolve: (text: string, limit?: number) =>
+      request<ResolveResponse>('/resolve', { method: 'POST', ...json({ text, limit }) }),
+    quickAdd: (
+      lib: number,
+      body: { text: string; collection?: string; tags?: string[]; allowDuplicates?: boolean },
+    ) => request<QuickAddResponse>(`/libraries/${lib}/quick-add`, { method: 'POST', ...json(body) }),
+  },
 
   plugins: {
     list: () => request<PluginStatus[]>('/plugins'),

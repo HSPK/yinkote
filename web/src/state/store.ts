@@ -7,6 +7,7 @@
 import { create } from 'zustand'
 
 import { api, connectEvents } from '../api/client'
+import { useOverlays } from '../ui/overlays'
 import type {
   Collection,
   Item,
@@ -76,9 +77,16 @@ interface State {
   trashSelected: () => Promise<void>
   restoreSelected: () => Promise<void>
   destroySelected: () => Promise<void>
+  emptyTrash: () => Promise<void>
   createItem: (itemType: string, title: string) => Promise<void>
-  createCollection: (name: string) => Promise<void>
+  /** Ask for a type and title. Resolves to `null` when cancelled. */
+  newItemDialog: () => Promise<{ itemType: string; title: string } | null>
+  createCollection: (name: string, parentKey?: string) => Promise<void>
+  renameCollection: (key: string, name: string) => Promise<void>
+  removeCollection: (key: string) => Promise<void>
   addSelectedToCollection: (key: string) => Promise<void>
+  tagSelected: (tag: string) => Promise<void>
+  copySelected: (kind: 'title' | 'doi' | 'url' | 'citation') => Promise<number>
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
   reloadPlugins: () => Promise<void>
   reindex: () => Promise<void>
@@ -314,6 +322,12 @@ export const useStore = create<State>((set, get) => ({
     await Promise.all([get().refresh(), get().reloadSidebar()])
   },
 
+  async emptyTrash() {
+    await api.items.emptyTrash(get().library)
+    set({ selected: [] })
+    await Promise.all([get().refresh(), get().reloadSidebar()])
+  },
+
   async createItem(itemType, title) {
     const s = get()
     const draft: Record<string, unknown> = { itemType, title }
@@ -324,11 +338,52 @@ export const useStore = create<State>((set, get) => ({
     if (created) set({ selected: [created.key], panel: 'detail' })
   },
 
-  async createCollection(name) {
+  async newItemDialog() {
+    const types = (get().schema?.itemTypes ?? []).filter((t) => !t.internal)
+    const values = await useOverlays.getState().ask({
+      title: '新建条目',
+      fields: [
+        {
+          name: 'title',
+          label: '标题',
+          required: true,
+          autoFocus: true,
+          placeholder: '文献标题',
+        },
+        {
+          name: 'itemType',
+          label: '类型',
+          type: 'select',
+          defaultValue: 'journalArticle',
+          options: types.map((t) => ({ value: t.type, label: t.label })),
+        },
+      ],
+      confirmLabel: '创建',
+    })
+    if (!values?.title?.trim()) return null
+    return {
+      title: values.title.trim(),
+      itemType: values.itemType || 'journalArticle',
+    }
+  },
+
+  async createCollection(name, parentKey) {
     const s = get()
-    const created = await api.collections.create(s.library, name)
+    const created = await api.collections.create(s.library, name, parentKey)
     await get().reloadSidebar()
     get().openCollection(created.key)
+  },
+
+  async renameCollection(key, name) {
+    await api.collections.rename(get().library, key, name)
+    await get().reloadSidebar()
+  },
+
+  async removeCollection(key) {
+    const s = get()
+    await api.collections.remove(s.library, key)
+    if (s.collection === key) get().openLibrary()
+    await get().reloadSidebar()
   },
 
   async addSelectedToCollection(key) {
@@ -336,6 +391,46 @@ export const useStore = create<State>((set, get) => ({
     if (!s.selected.length) return
     await api.items.addToCollection(s.library, key, s.selected)
     await Promise.all([get().refresh(), get().reloadSidebar()])
+  },
+
+  async tagSelected(tag) {
+    const s = get()
+    const name = tag.trim()
+    if (!name || !s.selected.length) return
+    for (const key of s.selected) {
+      const item = s.items.find((i) => i.key === key)
+      if (!item || item.tags.some((t) => t.tag === name)) continue
+      await api.items.update(s.library, key, { tags: [...item.tags, { tag: name, type: 0 }] })
+    }
+    await Promise.all([get().refresh(), get().reloadSidebar()])
+  },
+
+  /** Copy something about the selection to the clipboard. Returns how many
+   *  items contributed, so the caller can report accurately. */
+  async copySelected(kind) {
+    const s = get()
+    const chosen = s.items.filter((i) => s.selected.includes(i.key))
+    const lines = chosen
+      .map((item) => {
+        switch (kind) {
+          case 'title':
+            return String(item.title ?? '')
+          case 'doi':
+            return String(item.DOI ?? '')
+          case 'url':
+            return String(item.url ?? item.DOI ? `https://doi.org/${String(item.DOI)}` : '')
+          case 'citation': {
+            const authors = item.creators.map((c) => c.lastName || c.name || '').join(', ')
+            const y = /\d{4}/.exec(String(item.date ?? ''))?.[0] ?? 'n.d.'
+            const venue = String(item.publicationTitle ?? item.bookTitle ?? '')
+            return [authors, `(${y})`, String(item.title ?? ''), venue].filter(Boolean).join('. ')
+          }
+        }
+      })
+      .filter((l) => l.trim().length > 0)
+
+    if (lines.length) await navigator.clipboard.writeText(lines.join('\n'))
+    return lines.length
   },
 
   async setPluginEnabled(id, enabled) {

@@ -2,7 +2,9 @@ import { useMemo } from 'react'
 
 import { compact } from '../lib/format'
 import { buildTree } from '../lib/tree'
-import { useStore } from '../state/store' 
+import { useStore } from '../state/store'
+import { contextMenu, promptFor, withToast } from '../ui'
+import { collectionMenu, libraryMenu, trashMenu } from './menus' 
 
 export function Sidebar() {
   const view = useStore((s) => s.view)
@@ -26,12 +28,18 @@ export function Sidebar() {
           className="nav-item"
           data-active={view === 'library'}
           onClick={openLibrary}
+          onContextMenu={contextMenu(libraryMenu)}
         >
           <span className="glyph">▤</span>
           <span className="label">我的文库</span>
           <span className="count">{stats ? compact(stats.items) : ''}</span>
         </button>
-        <button className="nav-item" data-active={view === 'trash'} onClick={openTrash}>
+        <button
+          className="nav-item"
+          data-active={view === 'trash'}
+          onClick={openTrash}
+          onContextMenu={contextMenu(trashMenu)}
+        >
           <span className="glyph">⌫</span>
           <span className="label">回收站</span>
           <span className="count">{stats ? compact(stats.trashed) : ''}</span>
@@ -43,9 +51,17 @@ export function Sidebar() {
           收藏夹
           <button
             title="新建收藏夹"
-            onClick={() => {
-              const name = window.prompt('收藏夹名称')
-              if (name?.trim()) void createCollection(name.trim())
+            onClick={async () => {
+              const name = await promptFor('新建收藏夹', {
+                label: '名称',
+                placeholder: '例如：扩散模型',
+              })
+              if (name) {
+                await withToast(() => createCollection(name), {
+                  success: `已创建「${name}」`,
+                  failure: '创建收藏夹失败',
+                })
+              }
             }}
           >
             +
@@ -59,6 +75,7 @@ export function Sidebar() {
             data-active={view === 'collection' && collection === c.key}
             style={{ paddingLeft: 8 + c.depth * 12 }}
             onClick={() => openCollection(c.key)}
+            onContextMenu={contextMenu(() => collectionMenu(c))}
             title={c.name}
           >
             <span className="glyph">{c.children.length ? '▾' : '·'}</span>

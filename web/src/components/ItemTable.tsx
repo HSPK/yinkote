@@ -4,6 +4,8 @@ import { useEffect, useRef } from 'react'
 import type { Item, MatchSource } from '../api/types'
 import { creatorSummary, shortDate, snippetParts, year } from '../lib/format'
 import { useStore } from '../state/store'
+import { contextMenu } from '../ui'
+import { itemMenu } from './menus'
 
 /** Column layout, shared by the header and every row so they stay aligned. */
 const COLUMNS = '1fr 150px 48px 108px 132px 108px'
@@ -42,6 +44,7 @@ function Row({ item, selected, cursor, style }: {
       data-selected={selected}
       data-cursor={cursor}
       onMouseDown={(e) => select(item.key, e.metaKey || e.ctrlKey)}
+      onContextMenu={contextMenu(() => itemMenu(item))}
     >
       <div className="cell" title={String(item.title ?? '')}>
         {item.match?.sources.map((s) => (

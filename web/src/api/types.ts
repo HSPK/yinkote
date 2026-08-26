@@ -137,3 +137,35 @@ export interface ListQuery {
   limit?: number
   offset?: number
 }
+
+export interface DetectedIdentifier {
+  kind: string
+  value: string
+}
+
+/** A draft resolved from an identifier, not yet written to the library. */
+export interface Resolution {
+  kind: string
+  identifier: string
+  source: string
+  draft: Record<string, unknown> & { itemType: string; title?: string }
+}
+
+export interface ResolveResponse {
+  identifiers: DetectedIdentifier[]
+  resolutions: Resolution[]
+  tookMs: number
+}
+
+export interface QuickAddResponse {
+  created: Item[]
+  duplicates: { identifier: string; existingKey: string; title: string }[]
+  unresolved: DetectedIdentifier[]
+  version: number
+}
+
+export interface SourceInfo {
+  id: string
+  label: string
+  supports: string[]
+}

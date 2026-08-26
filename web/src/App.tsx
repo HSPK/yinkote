@@ -9,6 +9,7 @@ import { StatsPanel } from './components/StatsPanel'
 import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
 import { useStore } from './state/store'
+import { OverlayHost } from './ui'
 
 /** True when a keystroke belongs to whatever the user is typing into. */
 function isEditing(target: EventTarget | null): boolean {
@@ -43,6 +44,10 @@ function useGlobalKeys() {
         case '/':
           e.preventDefault()
           document.getElementById('search-input')?.focus()
+          break
+        case 'a':
+          e.preventDefault()
+          document.getElementById('quick-add-input')?.focus()
           break
         case 'j':
         case 'ArrowDown':
@@ -109,6 +114,7 @@ export function App() {
       </div>
       <StatusBar />
       <CommandPalette />
+      <OverlayHost />
     </div>
   )
 }

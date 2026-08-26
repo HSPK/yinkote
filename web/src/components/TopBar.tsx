@@ -1,5 +1,6 @@
 import { useStore } from '../state/store'
 import type { SearchMode } from '../api/types'
+import { QuickAdd } from './QuickAdd'
 
 const MODES: { id: SearchMode; label: string; hint: string }[] = [
   { id: 'hybrid', label: 'hyb', hint: '混合：关键词 + 模糊 + 语义融合' },
@@ -49,7 +50,7 @@ export function TopBar() {
         </div>
       </div>
 
-      <span className="kbd-hint">/ 搜索 · ⌘K 命令 · J/K 移动 · Del 删除</span>
+      <QuickAdd />
     </header>
   )
 }
