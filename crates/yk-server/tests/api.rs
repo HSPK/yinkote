@@ -633,3 +633,92 @@ async fn trashing_an_item_keeps_its_files() {
     c.post(&format!("/libraries/{lib}/items/restore"), json!({ "keys": [paper] })).await;
     assert!(app.storage().size(&key, "p.pdf").await.is_some());
 }
+
+/// Build a minimal Zotero library on disk, for the import tests.
+fn zotero_fixture(dir: &std::path::Path) -> std::path::PathBuf {
+    let path = dir.join("zotero.sqlite");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch(
+        "CREATE TABLE itemTypes (itemTypeID INTEGER PRIMARY KEY, typeName TEXT);
+         CREATE TABLE items (itemID INTEGER PRIMARY KEY, itemTypeID INTEGER, key TEXT,
+                             dateAdded TEXT, dateModified TEXT);
+         CREATE TABLE deletedItems (itemID INTEGER PRIMARY KEY);
+         CREATE TABLE fields (fieldID INTEGER PRIMARY KEY, fieldName TEXT);
+         CREATE TABLE itemDataValues (valueID INTEGER PRIMARY KEY, value TEXT);
+         CREATE TABLE itemData (itemID INTEGER, fieldID INTEGER, valueID INTEGER);
+         CREATE TABLE creators (creatorID INTEGER PRIMARY KEY, firstName TEXT, lastName TEXT,
+                                fieldMode INTEGER);
+         CREATE TABLE creatorTypes (creatorTypeID INTEGER PRIMARY KEY, creatorType TEXT);
+         CREATE TABLE itemCreators (itemID INTEGER, creatorID INTEGER, creatorTypeID INTEGER,
+                                    orderIndex INTEGER);
+         CREATE TABLE tags (tagID INTEGER PRIMARY KEY, name TEXT);
+         CREATE TABLE itemTags (itemID INTEGER, tagID INTEGER, type INTEGER);
+         CREATE TABLE collections (collectionID INTEGER PRIMARY KEY, collectionName TEXT,
+                                   key TEXT, parentCollectionID INTEGER);
+         CREATE TABLE collectionItems (collectionID INTEGER, itemID INTEGER);
+         CREATE TABLE itemAttachments (itemID INTEGER PRIMARY KEY, parentItemID INTEGER, path TEXT);
+
+         INSERT INTO itemTypes VALUES (1, 'journalArticle');
+         INSERT INTO fields VALUES (1, 'title');
+         INSERT INTO creatorTypes VALUES (1, 'author');
+         INSERT INTO items VALUES (10, 1, 'ZOTE1111', '2020-01-01', '2020-01-02'),
+                                  (11, 1, 'ZOTE2222', '2020-01-01', '2020-01-02');
+         INSERT INTO itemDataValues VALUES (1, 'Imported One'), (2, 'Imported Two');
+         INSERT INTO itemData VALUES (10, 1, 1), (11, 1, 2);
+         INSERT INTO collections VALUES (1, 'From Zotero', 'ZCOL1111', NULL);
+         INSERT INTO collectionItems VALUES (1, 10);",
+    )
+    .unwrap();
+    path
+}
+
+#[tokio::test]
+async fn importing_a_zotero_library_is_previewed_then_committed() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let dir = tempfile::tempdir().unwrap();
+    let path = zotero_fixture(dir.path()).to_string_lossy().to_string();
+
+    // Merging one library into another is not something to discover you did.
+    let seen = c.post("/import/zotero/preview", json!({ "path": path })).await;
+    assert_eq!(seen["items"], 2);
+    assert_eq!(seen["collections"], 1);
+    assert_eq!(c.get(&format!("/libraries/{lib}/items")).await["total"], 0, "preview writes nothing");
+
+    let done = c.post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
+    assert_eq!(done["items"], 2);
+    assert_eq!(done["failed"], 0);
+
+    let items = c.get(&format!("/libraries/{lib}/items")).await;
+    assert_eq!(items["total"], 2);
+
+    // Membership survives the crossing.
+    let filed = c.get(&format!("/libraries/{lib}/items?collection=ZCOL1111")).await;
+    assert_eq!(filed["total"], 1);
+    assert_eq!(filed["items"][0]["title"], "Imported One");
+}
+
+#[tokio::test]
+async fn importing_the_same_library_twice_does_not_duplicate_it() {
+    // Zotero's keys are kept precisely so that a repeated import is safe.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let dir = tempfile::tempdir().unwrap();
+    let path = zotero_fixture(dir.path()).to_string_lossy().to_string();
+
+    c.post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
+    c.post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
+
+    assert_eq!(c.get(&format!("/libraries/{lib}/items")).await["total"], 2);
+    assert_eq!(c.get(&format!("/libraries/{lib}/collections")).await.as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn importing_something_that_is_not_a_zotero_library_says_so() {
+    let (c, _) = Client::new().await;
+    let (status, body) =
+        c.send("POST", "/import/zotero/preview", Some(json!({ "path": "/nope/zotero.sqlite" })))
+            .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(body["title"].as_str().unwrap().contains("cannot read"));
+}

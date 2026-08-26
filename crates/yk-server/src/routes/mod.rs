@@ -3,6 +3,7 @@
 mod badges;
 mod collections;
 pub(crate) mod files;
+mod import;
 mod conversations;
 mod items;
 mod plugins;
@@ -29,6 +30,7 @@ pub fn router() -> Router<App> {
         .merge(items::router())
         .merge(badges::router())
         .merge(files::router())
+        .merge(import::router())
         .merge(collections::router())
         .merge(conversations::router())
         .merge(search::router())

@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 yk-agent = { path = "../yk-agent" }
+yk-import = { path = "../yk-import" }
 yk-core.workspace = true
 yk-store.workspace = true
 yk-search.workspace = true
@@ -34,5 +35,7 @@ hex.workspace = true
 parking_lot.workspace = true
 
 [dev-dependencies]
+rusqlite = { workspace = true }
+tempfile = "3"
 tower = { workspace = true, features = ["util"] }
 http-body-util = "0.1"
