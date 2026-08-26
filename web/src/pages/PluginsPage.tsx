@@ -3,10 +3,12 @@ import { useState } from 'react'
 import { api } from '../api/client'
 import { useStore } from '../state/store'
 import { Badge, Button, Empty, Field, Section, Textarea, toast, withToast } from '../ui'
+import { useT } from '../i18n'
 
 /** Full-page plugin manager: inventory, health, permissions and a console for
  *  calling a plugin's own methods while developing it. */
 export function PluginsPage() {
+  const t = useT()
   const plugins = useStore((s) => s.plugins)
   const server = useStore((s) => s.server)
   const setEnabled = useStore((s) => s.setPluginEnabled)
@@ -25,7 +27,7 @@ export function PluginsPage() {
       setResponse(JSON.stringify(result, null, 2))
     } catch (error) {
       setResponse(String(error instanceof Error ? error.message : error))
-      toast.fromError('调用失败', error)
+      toast.fromError(t('toast.callFailed'), error)
     } finally {
       setBusy(false)
     }
@@ -34,22 +36,29 @@ export function PluginsPage() {
   return (
     <div className="page">
       <Section
-        title={`已安装插件 · ${plugins.length}`}
+        title={t('plugins.installed', { count: plugins.length })}
         action={
-          <Button onClick={() => withToast(reload, { success: '已重新扫描', failure: '扫描失败' })}>
-            重新扫描
+          <Button
+            onClick={() =>
+              withToast(reload, {
+                success: t('toast.rescanned'),
+                failure: t('toast.rescanFailed'),
+              })
+            }
+          >
+            {t('plugins.rescan')}
           </Button>
         }
       >
         {plugins.length === 0 ? (
           <Empty>
-            尚未安装插件。把插件目录放进下列任一位置，再点「重新扫描」：
+            {t('plugins.none')}
             <ul className="path-list">
               {(server?.pluginDirs ?? []).map((d) => (
                 <li key={d}>{d}</li>
               ))}
             </ul>
-            每个插件目录需包含 <code>plugin.json</code>，详见仓库内 <code>plugins/README.md</code>。
+            {t('plugins.manifestHint')}
           </Empty>
         ) : (
           <div className="plugin-grid">
@@ -67,15 +76,15 @@ export function PluginsPage() {
                 {p.error && <p className="desc error">{p.error}</p>}
 
                 <dl className="kv compact">
-                  <dt>标识</dt>
+                  <dt>{t('plugins.id')}</dt>
                   <dd>{p.id}</dd>
-                  <dt>调用 / 失败</dt>
+                  <dt>{t('plugins.calls')}</dt>
                   <dd>
                     {p.calls} / {p.failures}
                   </dd>
-                  <dt>平均耗时</dt>
+                  <dt>{t('plugins.latency')}</dt>
                   <dd>{p.avgLatencyMs.toFixed(0)}ms</dd>
-                  <dt>来源</dt>
+                  <dt>{t('plugins.source')}</dt>
                   <dd className="path">{p.source}</dd>
                 </dl>
 
@@ -99,7 +108,7 @@ export function PluginsPage() {
                   <div className="chip-row tight">
                     {p.contributions.metadataSources.map((s) => (
                       <Badge key={s.id} tone="accent">
-                        源: {s.label}
+                        {t('plugins.source.label', { label: s.label })}
                       </Badge>
                     ))}
                   </div>
@@ -110,12 +119,15 @@ export function PluginsPage() {
                     tone={p.state === 'disabled' ? 'primary' : 'default'}
                     onClick={() =>
                       withToast(() => setEnabled(p.id, p.state === 'disabled'), {
-                        success: p.state === 'disabled' ? `已启用 ${p.name}` : `已停用 ${p.name}`,
-                        failure: '操作失败',
+                        success:
+                          p.state === 'disabled'
+                            ? t('toast.pluginEnabled', { name: p.name })
+                            : t('toast.pluginDisabled', { name: p.name }),
+                        failure: t('toast.pluginFailed'),
                       })
                     }
                   >
-                    {p.state === 'disabled' ? '启用' : '停用'}
+                    {p.state === 'disabled' ? t('plugins.enable') : t('plugins.disable')}
                   </Button>
                   <Button
                     tone="ghost"
@@ -124,7 +136,7 @@ export function PluginsPage() {
                       document.getElementById('plugin-console')?.scrollIntoView({ behavior: 'smooth' })
                     }}
                   >
-                    调用…
+                    {t('plugins.call')}
                   </Button>
                 </footer>
               </article>
@@ -133,15 +145,18 @@ export function PluginsPage() {
         )}
       </Section>
 
-      <Section title="调用控制台" action={<span className="muted">开发插件时直接发 JSON-RPC</span>}>
+      <Section
+        title={t('plugins.console')}
+        action={<span className="muted">{t('plugins.consoleHint')}</span>}
+      >
         <div id="plugin-console" className="console">
-          <Field label="插件">
+          <Field label={t('plugins.plugin')}>
             <select
               className="ctl"
               value={target}
               onChange={(e) => setTarget(e.target.value)}
             >
-              <option value="">选择插件…</option>
+              <option value="">{t('plugins.choose')}</option>
               {plugins.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}（{p.id}）
@@ -149,14 +164,14 @@ export function PluginsPage() {
               ))}
             </select>
           </Field>
-          <Field label="请求">
+          <Field label={t('plugins.request')}>
             <Textarea rows={7} value={request} onChange={(e) => setRequest(e.target.value)} />
           </Field>
           <Button tone="primary" disabled={!target || busy} onClick={() => void call()}>
-            {busy ? '调用中…' : '发送'}
+            {busy ? t('plugins.sending') : t('plugins.send')}
           </Button>
           {response && (
-            <Field label="响应">
+            <Field label={t('plugins.response')}>
               <pre className="code">{response}</pre>
             </Field>
           )}

@@ -4,12 +4,16 @@ import { compact } from '../lib/format'
 import { buildTree } from '../lib/tree'
 import { useStore } from '../state/store'
 import { contextMenu, promptFor, withToast } from '../ui'
-import { collectionMenu, libraryMenu, trashMenu } from './menus' 
+import { collectionMenu, libraryMenu, newSmartCollection, smartMenu, trashMenu } from './menus' 
+import { useT } from '../i18n'
 
 export function Sidebar() {
+  const t = useT()
   const view = useStore((s) => s.view)
   const collection = useStore((s) => s.collection)
   const collections = useStore((s) => s.collections)
+  const smartCollections = useStore((s) => s.smartCollections)
+  const openSmart = useStore((s) => s.openSmart)
   const tags = useStore((s) => s.tags)
   const activeTags = useStore((s) => s.activeTags)
   const stats = useStore((s) => s.stats)
@@ -31,7 +35,7 @@ export function Sidebar() {
           onContextMenu={contextMenu(libraryMenu)}
         >
           <span className="glyph">▤</span>
-          <span className="label">我的文库</span>
+          <span className="label">{t('sidebar.library')}</span>
           <span className="count">{stats ? compact(stats.items) : ''}</span>
         </button>
         <button
@@ -41,25 +45,50 @@ export function Sidebar() {
           onContextMenu={contextMenu(trashMenu)}
         >
           <span className="glyph">⌫</span>
-          <span className="label">回收站</span>
+          <span className="label">{t('sidebar.trash')}</span>
           <span className="count">{stats ? compact(stats.trashed) : ''}</span>
         </button>
       </div>
 
       <div className="nav-group">
         <div className="nav-title">
-          收藏夹
+          {t('sidebar.smart')}
+          <button title={t('sidebar.newSmart')} onClick={() => void newSmartCollection()}>
+            +
+          </button>
+        </div>
+        {smartCollections.length === 0 && (
+          <div className="empty" style={{ padding: '8px 12px' }}>{t('sidebar.empty')}</div>
+        )}
+        {smartCollections.map((sc) => (
           <button
-            title="新建收藏夹"
+            key={sc.key}
+            className="nav-item"
+            data-active={view === 'smart' && collection === sc.key}
+            onClick={() => openSmart(sc.key)}
+            onContextMenu={contextMenu(() => smartMenu(sc))}
+            title={sc.query || sc.name}
+          >
+            <span className="glyph">⌕</span>
+            <span className="label">{sc.name}</span>
+            <span className="count">{sc.itemCount ?? ''}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="nav-group">
+        <div className="nav-title">
+          {t('sidebar.collections')}
+          <button
+            title={t('sidebar.newCollection')}
             onClick={async () => {
-              const name = await promptFor('新建收藏夹', {
-                label: '名称',
-                placeholder: '例如：扩散模型',
+              const name = await promptFor(t('dialog.newCollection'), {
+                label: t('dialog.name'),
               })
               if (name) {
                 await withToast(() => createCollection(name), {
-                  success: `已创建「${name}」`,
-                  failure: '创建收藏夹失败',
+                  success: t('toast.created', { name }),
+                  failure: t('toast.createFailed'),
                 })
               }
             }}
@@ -67,7 +96,9 @@ export function Sidebar() {
             +
           </button>
         </div>
-        {tree.length === 0 && <div className="empty" style={{ padding: '8px 12px' }}>暂无</div>}
+        {tree.length === 0 && (
+          <div className="empty" style={{ padding: '8px 12px' }}>{t('sidebar.empty')}</div>
+        )}
         {tree.map((c) => (
           <button
             key={c.key}
@@ -86,21 +117,27 @@ export function Sidebar() {
       </div>
 
       <div className="nav-group">
-        <div className="nav-title">标签{activeTags.length > 0 && ` · ${activeTags.length} 已选`}</div>
+        <div className="nav-title">
+          {activeTags.length > 0
+            ? t('sidebar.tags.selected', { count: activeTags.length })
+            : t('sidebar.tags')}
+        </div>
         <div className="tag-cloud">
-          {tags.map((t) => (
+          {tags.map((tag) => (
             <button
-              key={t.name}
+              key={tag.name}
               className="tag-chip"
-              data-active={activeTags.includes(t.name)}
-              onClick={() => toggleTag(t.name)}
-              title={`${t.name} · ${t.count} 条`}
+              data-active={activeTags.includes(tag.name)}
+              onClick={() => toggleTag(tag.name)}
+              title={`${tag.name} · ${tag.count}`}
             >
-              {t.name}
-              <span className="n">{t.count}</span>
+              {tag.name}
+              <span className="n">{tag.count}</span>
             </button>
           ))}
-          {tags.length === 0 && <span className="empty" style={{ padding: 0 }}>暂无标签</span>}
+          {tags.length === 0 && (
+            <span className="empty" style={{ padding: 0 }}>{t('sidebar.noTags')}</span>
+          )}
         </div>
       </div>
     </nav>

@@ -6,18 +6,21 @@ import { creatorSummary, shortDate, snippetParts, year } from '../lib/format'
 import { useStore } from '../state/store'
 import { contextMenu } from '../ui'
 import { itemMenu } from './menus'
+import { useT } from '../i18n'
 
 /** Column layout, shared by the header and every row so they stay aligned. */
-const COLUMNS = '1fr 150px 48px 108px 132px 108px'
+const GRID = '1fr 150px 48px 108px 132px 108px'
 
-const SORTABLE: { field: string; label: string }[] = [
-  { field: 'title', label: '标题' },
-  { field: 'creator', label: '作者' },
-  { field: 'year', label: '年' },
-  { field: 'itemType', label: '类型' },
-  { field: '', label: '标签' },
-  { field: 'dateModified', label: '修改' },
-]
+/** Column definitions. The i18n key doubles as the React key so a language
+ *  switch never reorders anything. */
+const COLUMNS = [
+  { field: 'title', key: 'table.title' },
+  { field: 'creator', key: 'table.creator' },
+  { field: 'year', key: 'table.year' },
+  { field: 'itemType', key: 'table.type' },
+  { field: '', key: 'table.tags' },
+  { field: 'dateModified', key: 'table.modified' },
+] as const
 
 const SOURCE_GLYPH: Record<MatchSource, string> = {
   keyword: 'K',
@@ -33,6 +36,7 @@ function Row({ item, selected, cursor, style }: {
   cursor: boolean
   style: React.CSSProperties
 }) {
+  const t = useT()
   const select = useStore((s) => s.select)
   const typeLabel = useStore((s) => s.schema?.itemTypes.find((t) => t.type === item.itemType)?.label)
   const snippet = item.match?.snippet
@@ -40,7 +44,7 @@ function Row({ item, selected, cursor, style }: {
   return (
     <div
       className="row"
-      style={{ ...style, gridTemplateColumns: COLUMNS }}
+      style={{ ...style, gridTemplateColumns: GRID }}
       data-selected={selected}
       data-cursor={cursor}
       onMouseDown={(e) => select(item.key, e.metaKey || e.ctrlKey)}
@@ -52,7 +56,7 @@ function Row({ item, selected, cursor, style }: {
             {SOURCE_GLYPH[s]}
           </span>
         ))}
-        {String(item.title ?? '(无标题)')}
+        {String(item.title ?? t('detail.untitled'))}
         {snippet && (
           <span className="snippet">
             {snippetParts(snippet).map((p, i) => (p.mark ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>))}
@@ -71,6 +75,7 @@ function Row({ item, selected, cursor, style }: {
 }
 
 export function ItemTable() {
+  const t = useT()
   const items = useStore((s) => s.items)
   const selected = useStore((s) => s.selected)
   const cursor = useStore((s) => s.cursor)
@@ -96,15 +101,15 @@ export function ItemTable() {
 
   return (
     <section className="pane table-pane">
-      <div className="table-head" style={{ gridTemplateColumns: COLUMNS }}>
-        {SORTABLE.map((c) => (
+      <div className="table-head" style={{ gridTemplateColumns: GRID }}>
+        {COLUMNS.map((c) => (
           <button
-            key={c.label}
+            key={c.key}
             className={sort === c.field ? 'sorted' : undefined}
             disabled={!c.field}
             onClick={() => c.field && setSort(c.field)}
           >
-            {c.label}
+            {t(c.key)}
             {sort === c.field ? (direction === 'asc' ? ' ↑' : ' ↓') : ''}
           </button>
         ))}
@@ -113,7 +118,7 @@ export function ItemTable() {
       <div className="table-body" ref={scrollRef}>
         {items.length === 0 && !loading && (
           <div className="empty">
-            {query ? `没有匹配 “${query}” 的条目` : '这里还没有条目 — 按 ⌘K 新建'}
+            {query ? t('search.empty', { query }) : t('table.empty', { shortcut: '⌘K' })}
           </div>
         )}
         <div style={{ height: rows.getTotalSize(), position: 'relative' }}>
@@ -134,9 +139,9 @@ export function ItemTable() {
       </div>
 
       <div className="pane-header" style={{ borderTop: '1px solid var(--line)', borderBottom: 0 }}>
-        {items.length} / {total} 条
+        {t('table.count', { shown: items.length, total })}
         <span className="spacer" />
-        {loading ? '载入中…' : ''}
+        {loading ? t('table.loading') : ''}
       </div>
     </section>
   )

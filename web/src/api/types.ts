@@ -182,3 +182,17 @@ export interface ServerInfo {
   pluginDirs: string[]
   bind: string
 }
+
+export interface SmartCollection {
+  key: string
+  libraryId: number
+  name: string
+  /** Exactly what would be typed into the search box. */
+  query: string
+  mode: SearchMode
+  sort: string
+  direction: 'asc' | 'desc'
+  sortIndex: number
+  version: number
+  itemCount?: number
+}

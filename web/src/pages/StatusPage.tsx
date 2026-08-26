@@ -1,6 +1,7 @@
 import { compact } from '../lib/format'
 import { useStore } from '../state/store'
 import { Button, Section, withToast } from '../ui'
+import { useT } from '../i18n'
 
 function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -12,18 +13,23 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
   )
 }
 
-function duration(seconds: number): string {
-  const d = Math.floor(seconds / 86400)
-  const h = Math.floor((seconds % 86400) / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (d) return `${d}天 ${h}小时`
-  if (h) return `${h}小时 ${m}分`
-  return `${m}分 ${seconds % 60}秒`
+function useDuration(): (seconds: number) => string {
+  const t = useT()
+  return (seconds) => {
+    const d = Math.floor(seconds / 86400)
+    const h = Math.floor((seconds % 86400) / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    if (d) return t('statusPage.days', { d, h })
+    if (h) return t('statusPage.hours', { h, m })
+    return t('statusPage.minutes', { m, s: seconds % 60 })
+  }
 }
 
 /** Everything about the running service in one place: corpus size, index
  *  health, connectivity and the maintenance actions that fix them. */
 export function StatusPage() {
+  const t = useT()
+  const duration = useDuration()
   const stats = useStore((s) => s.stats)
   const server = useStore((s) => s.server)
   const tookMs = useStore((s) => s.tookMs)
@@ -39,79 +45,82 @@ export function StatusPage() {
   return (
     <div className="page">
       <Section
-        title="文库"
-        action={<Button tone="ghost" onClick={() => void reloadSidebar()}>刷新</Button>}
+        title={t('statusPage.library')}
+        action={<Button tone="ghost" onClick={() => void reloadSidebar()}>{t('statusPage.refresh')}</Button>}
       >
         <div className="metrics">
-          <Metric label="条目" value={compact(stats?.items ?? 0)} />
-          <Metric label="回收站" value={compact(stats?.trashed ?? 0)} />
-          <Metric label="收藏夹" value={String(stats?.collections ?? 0)} />
-          <Metric label="标签" value={String(stats?.tags ?? 0)} />
-          <Metric label="库版本" value={String(stats?.version ?? 0)} hint="每次写入自增" />
+          <Metric label={t('statusPage.items')} value={compact(stats?.items ?? 0)} />
+          <Metric label={t('statusPage.trashed')} value={compact(stats?.trashed ?? 0)} />
+          <Metric label={t('statusPage.collections')} value={String(stats?.collections ?? 0)} />
+          <Metric label={t('statusPage.tags')} value={String(stats?.tags ?? 0)} />
+          <Metric label={t('statusPage.version')} value={String(stats?.version ?? 0)} hint={t('statusPage.versionHint')} />
         </div>
       </Section>
 
       <Section
-        title="搜索索引"
+        title={t('statusPage.index')}
         action={
           <Button
             onClick={() =>
-              withToast(reindex, { success: '索引已重建', failure: '重建索引失败' })
+              withToast(reindex, {
+              success: t('toast.reindexed'),
+              failure: t('toast.reindexFailed'),
+            })
             }
           >
-            重建索引
+            {t('statusPage.rebuild')}
           </Button>
         }
       >
         <div className="metrics">
-          <Metric label="已索引文档" value={compact(documents)} />
+          <Metric label={t('statusPage.documents')} value={compact(documents)} />
           <Metric
-            label="向量覆盖率"
+            label={t('statusPage.coverage')}
             value={`${coverage}%`}
             hint={`${compact(embedded)} / ${compact(documents)}`}
           />
-          <Metric label="向量维度" value={String(stats?.search.dimensions ?? 0)} />
-          <Metric label="嵌入提供方" value={stats?.search.provider ?? '—'} />
-          <Metric label="上次查询" value={`${tookMs}ms`} />
+          <Metric label={t('statusPage.dimensions')} value={String(stats?.search.dimensions ?? 0)} />
+          <Metric label={t('statusPage.provider')} value={stats?.search.provider ?? '—'} />
+          <Metric label={t('statusPage.lastQuery')} value={`${tookMs}ms`} />
         </div>
         {coverage < 100 && (
-          <p className="note">
-            后台正在补齐向量，语义搜索的召回会随之提升。写入期间它会主动让出数据库写锁，
-            所以不会影响你的编辑速度。
-          </p>
+          <p className="note">{t('statusPage.coverageNote')}</p>
         )}
       </Section>
 
       <Section
-        title="服务"
+        title={t('statusPage.service')}
         action={
           <Button
             onClick={() =>
-              withToast(optimize, { success: '数据库已优化', failure: '优化失败' })
+              withToast(optimize, {
+              success: t('toast.optimized'),
+              failure: t('toast.optimizeFailed'),
+            })
             }
           >
-            优化数据库
+            {t('statusPage.optimize')}
           </Button>
         }
       >
         <dl className="kv">
-          <dt>版本</dt>
+          <dt>Yinkote</dt>
           <dd>{server?.version ?? '—'}</dd>
-          <dt>API 版本</dt>
+          <dt>{t('statusPage.apiVersion')}</dt>
           <dd>v{server?.apiVersion ?? '—'}</dd>
-          <dt>插件协议</dt>
+          <dt>{t('statusPage.pluginProtocol')}</dt>
           <dd>v{server?.pluginApiVersion ?? '—'}</dd>
-          <dt>监听地址</dt>
+          <dt>{t('statusPage.bind')}</dt>
           <dd>{server?.bind ?? '—'}</dd>
-          <dt>运行时长</dt>
+          <dt>{t('statusPage.uptime')}</dt>
           <dd>{duration(stats?.uptimeSecs ?? 0)}</dd>
-          <dt>实时连接</dt>
+          <dt>{t('statusPage.realtime')}</dt>
           <dd style={{ color: connected ? 'var(--ok)' : 'var(--err)' }}>
-            {connected ? '已连接' : '已断开'}
+            {connected ? t('status.live') : t('status.offline')}
           </dd>
-          <dt>WebSocket 客户端</dt>
+          <dt>{t('statusPage.wsClients')}</dt>
           <dd>{stats?.wsClients ?? 0}</dd>
-          <dt>已加载插件</dt>
+          <dt>{t('statusPage.plugins')}</dt>
           <dd>{stats?.plugins ?? 0}</dd>
         </dl>
       </Section>

@@ -9,6 +9,7 @@ mod db;
 pub mod filter;
 pub mod index;
 mod items;
+mod smart;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -17,6 +18,7 @@ pub use cache::CachingTagRepository;
 pub use collections::{SqliteCollectionRepository, SqliteLibraryRepository, SqliteTagRepository};
 pub use db::{sql_err, write_tx, Db, Pool, PooledConn};
 pub use items::{SqliteItemRepository, SqliteSettingsRepository};
+pub use smart::SqliteSmartCollectionRepository;
 
 use yk_core::ports::*;
 use yk_core::Result;
@@ -29,6 +31,7 @@ pub struct Store {
     pub items: Arc<dyn ItemRepository>,
     pub collections: Arc<dyn CollectionRepository>,
     pub tags: Arc<dyn TagRepository>,
+    pub smart: Arc<dyn SmartCollectionRepository>,
     pub settings: Arc<dyn SettingsRepository>,
     /// Concrete handle for operations outside the port surface (index rebuild).
     items_impl: SqliteItemRepository,
@@ -54,6 +57,7 @@ impl Store {
             items: Arc::new(items_impl.clone()),
             collections: Arc::new(SqliteCollectionRepository::new(db.clone())),
             tags,
+            smart: Arc::new(SqliteSmartCollectionRepository::new(db.clone())),
             settings: Arc::new(SqliteSettingsRepository::new(db.clone())),
             items_impl,
             default_library,
@@ -418,6 +422,63 @@ mod tests {
         let kids = s.items.children(lib, &parent.key).await.unwrap();
         assert_eq!(kids.len(), 1);
         assert_eq!(kids[0].item_type, "note");
+    }
+
+    #[tokio::test]
+    async fn smart_collections_round_trip() {
+        let s = store();
+        let lib = s.default_library;
+        let created = s
+            .smart
+            .create(
+                lib,
+                SmartCollectionDraft {
+                    name: "近年综述".into(),
+                    query: "tag:综述 year:2020..2024".into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(created.query, "tag:综述 year:2020..2024");
+        assert_eq!(created.mode, "hybrid", "defaults are applied");
+
+        let listed = s.smart.list(lib).await.unwrap();
+        assert_eq!(listed.len(), 1);
+
+        let updated = s
+            .smart
+            .update(
+                lib,
+                &created.key,
+                SmartCollectionPatch { name: Some("综述".into()), ..Default::default() },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.name, "综述");
+        assert_eq!(updated.query, created.query, "untouched fields survive");
+        assert!(updated.version > created.version);
+
+        assert_eq!(s.smart.delete(lib, &created.key).await.unwrap(), 1);
+        assert!(s.smart.list(lib).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn smart_collection_requires_a_name() {
+        let s = store();
+        let err = s
+            .smart
+            .create(s.default_library, SmartCollectionDraft { name: "  ".into(), ..Default::default() })
+            .await
+            .unwrap_err();
+        assert_eq!(err.kind(), yk_core::ErrorKind::Invalid);
+    }
+
+    #[tokio::test]
+    async fn missing_smart_collection_is_not_found() {
+        let s = store();
+        let err = s.smart.get(s.default_library, &yk_core::Key::generate()).await.unwrap_err();
+        assert_eq!(err.kind(), yk_core::ErrorKind::NotFound);
     }
 
     #[tokio::test]

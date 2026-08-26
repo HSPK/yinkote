@@ -2,105 +2,144 @@ import { useEffect, useState } from 'react'
 
 import { api } from '../api/client'
 import type { SearchMode, SourceInfo } from '../api/types'
+import { LOCALES, useI18n, useT, type Locale } from '../i18n'
+import { THEMES, isHexColour } from '../lib/theme'
 import { useStore } from '../state/store'
 import { Badge, Button, Field, Section, Select, toast, withToast } from '../ui'
 
-const MODES: { value: SearchMode; label: string }[] = [
-  { value: 'hybrid', label: '混合（关键词 + 模糊 + 语义）' },
-  { value: 'keyword', label: '关键词（BM25 精确匹配）' },
-  { value: 'fuzzy', label: '模糊（容错拼写）' },
-  { value: 'semantic', label: '语义（向量近邻）' },
-]
-
-const DENSITIES = [
-  { value: 'compact', label: '紧凑（26px 行高）' },
-  { value: 'comfortable', label: '宽松（32px 行高）' },
-]
+const MODES: SearchMode[] = ['hybrid', 'keyword', 'fuzzy', 'semantic']
+const DENSITIES = ['compact', 'comfortable'] as const
 
 export function SettingsPage() {
+  const t = useT()
+  const locale = useI18n((s) => s.locale)
+
   const server = useStore((s) => s.server)
   const stats = useStore((s) => s.stats)
   const mode = useStore((s) => s.mode)
   const density = useStore((s) => s.density)
+  const theme = useStore((s) => s.theme)
+  const accent = useStore((s) => s.accent)
   const setMode = useStore((s) => s.setMode)
   const setDensity = useStore((s) => s.setDensity)
+  const setTheme = useStore((s) => s.setTheme)
+  const setLocale = useStore((s) => s.setLocale)
 
   const [sources, setSources] = useState<SourceInfo[]>([])
 
   useEffect(() => {
-    api.scrape.sources().then(setSources).catch(() => setSources([]))
+    api.scrape
+      .sources()
+      .then(setSources)
+      .catch(() => setSources([]))
   }, [])
 
-  const copy = async (value: string, label: string) => {
+  const copy = async (value: string) => {
     await navigator.clipboard.writeText(value)
-    toast.success(`已复制${label}`)
+    toast.success(t('toast.copiedPath'))
   }
 
   return (
     <div className="page narrow">
-      <Section title="检索">
-        <Field label="默认搜索模式" hint="也可以在搜索框右侧随时切换。">
+      <Section title={t('settings.appearance')}>
+        <Field label={t('settings.language')}>
           <Select
-            value={mode}
-            options={MODES}
-            onChange={(e) => setMode(e.target.value as SearchMode)}
+            value={locale}
+            options={LOCALES.map((l) => ({ value: l.value, label: l.label }))}
+            onChange={(e) => setLocale(e.target.value as Locale)}
           />
         </Field>
-        <Field
-          label="查询语法"
-          hint="在搜索框中可用的操作符，与默认模式无关。"
-        >
-          <div className="syntax">
-            <code>tag:综述</code>
-            <code>-tag:废弃</code>
-            <code>type:book</code>
-            <code>author:zhang</code>
-            <code>year:2020..2024</code>
-            <code>&quot;精确短语&quot;</code>
+
+        <Field label={t('settings.theme')}>
+          <div className="theme-grid">
+            {THEMES.map((preset) => (
+              <button
+                key={preset.id}
+                className="theme-swatch"
+                data-active={theme === preset.id}
+                onClick={() => setTheme(preset.id)}
+                title={preset.name}
+              >
+                <span className="theme-preview">
+                  {(['--bg', '--bg-2', '--fg-dim', '--accent'] as const).map((key) => (
+                    <i key={key} style={{ background: preset.vars[key] }} />
+                  ))}
+                </span>
+                <span className="theme-name">{preset.name}</span>
+              </button>
+            ))}
           </div>
         </Field>
-      </Section>
 
-      <Section title="外观">
-        <Field label="列表密度">
+        <Field label="Accent">
+          <div className="accent-row">
+            <input
+              type="color"
+              className="accent-picker"
+              value={isHexColour(accent) ? accent : '#4da3ff'}
+              onChange={(e) => setTheme(theme, e.target.value)}
+            />
+            <code>{accent || '—'}</code>
+            {accent && (
+              <Button tone="ghost" onClick={() => setTheme(theme, '')}>
+                {t('dialog.cancel')}
+              </Button>
+            )}
+          </div>
+        </Field>
+
+        <Field label={t('settings.density')}>
           <Select
             value={density}
-            options={DENSITIES}
+            options={DENSITIES.map((d) => ({ value: d, label: t(`settings.density.${d}`) }))}
             onChange={(e) => setDensity(e.target.value)}
           />
         </Field>
       </Section>
 
-      <Section title="快速添加">
-        <Field
-          label="已启用的解析源"
-          hint="粘贴标识符时按特异性依次尝试；网页元数据是最后的兜底。"
-        >
+      <Section title={t('settings.search')}>
+        <Field label={t('settings.defaultMode')} hint={t('settings.defaultModeHint')}>
+          <Select
+            value={mode}
+            options={MODES.map((m) => ({ value: m, label: t(`search.mode.${m}`) }))}
+            onChange={(e) => setMode(e.target.value as SearchMode)}
+          />
+        </Field>
+        <Field label={t('settings.syntax')} hint={t('settings.syntaxHint')}>
+          <div className="syntax">
+            <code>tag:survey</code>
+            <code>-tag:obsolete</code>
+            <code>type:book</code>
+            <code>author:zhang</code>
+            <code>year:2020..2024</code>
+            <code>&quot;exact phrase&quot;</code>
+          </div>
+        </Field>
+      </Section>
+
+      <Section title={t('settings.quickAdd')}>
+        <Field label={t('settings.resolvers')} hint={t('settings.resolversHint')}>
           <div className="chip-row tight">
             {sources.map((s) => (
               <Badge key={s.id} tone="accent" title={s.supports.join(' / ')}>
                 {s.label}
               </Badge>
             ))}
-            {sources.length === 0 && <span className="muted">载入中…</span>}
+            {sources.length === 0 && <span className="muted">{t('settings.loading')}</span>}
           </div>
         </Field>
       </Section>
 
-      <Section title="存储">
-        <Field label="数据目录" hint="文库、索引、插件与日志都在这里。">
+      <Section title={t('settings.storage')}>
+        <Field label={t('settings.dataDir')} hint={t('settings.dataDirHint')}>
           <div className="path-row">
             <code>{server?.dataDir ?? '—'}</code>
-            <Button
-              tone="ghost"
-              disabled={!server}
-              onClick={() => void copy(server?.dataDir ?? '', '路径')}
-            >
-              复制
+            <Button tone="ghost" disabled={!server} onClick={() => void copy(server?.dataDir ?? '')}>
+              {t('settings.copy')}
             </Button>
           </div>
         </Field>
-        <Field label="插件目录">
+        <Field label={t('settings.pluginDirs')}>
           <ul className="path-list">
             {(server?.pluginDirs ?? []).map((d) => (
               <li key={d}>{d}</li>
@@ -109,41 +148,39 @@ export function SettingsPage() {
         </Field>
       </Section>
 
-      <Section title="维护">
+      <Section title={t('settings.maintenance')}>
         <div className="button-row">
           <Button
             onClick={() =>
               withToast(useStore.getState().reindex, {
-                success: '索引已重建',
-                failure: '重建索引失败',
+                success: t('toast.reindexed'),
+                failure: t('toast.reindexFailed'),
               })
             }
           >
-            重建搜索索引
+            {t('menu.reindex')}
           </Button>
           <Button
             onClick={() =>
               withToast(useStore.getState().optimize, {
-                success: '数据库已优化',
-                failure: '优化失败',
+                success: t('toast.optimized'),
+                failure: t('toast.optimizeFailed'),
               })
             }
           >
-            优化数据库
+            {t('statusPage.optimize')}
           </Button>
         </div>
-        <p className="note">
-          索引与向量都是派生数据，随时可以重建；条目本身不受影响。
-        </p>
+        <p className="note">{t('settings.maintenanceNote')}</p>
       </Section>
 
-      <Section title="关于">
+      <Section title={t('settings.about')}>
         <dl className="kv">
           <dt>Yinkote</dt>
           <dd>{server?.version ?? '—'}</dd>
-          <dt>嵌入提供方</dt>
+          <dt>{t('statusPage.provider')}</dt>
           <dd>{stats?.search.provider ?? '—'}</dd>
-          <dt>许可证</dt>
+          <dt>{t('settings.license')}</dt>
           <dd>AGPL-3.0-or-later</dd>
         </dl>
       </Section>

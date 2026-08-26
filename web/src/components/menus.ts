@@ -4,25 +4,26 @@
  *  detail panel or the command palette without duplicating the actions — and so
  *  the wording and ordering stay consistent.
  */
-import type { Collection, Item } from '../api/types'
+import type { Collection, Item, SmartCollection } from '../api/types'
+import { t } from '../i18n'
 import { useStore } from '../state/store'
-import { confirmAction, promptFor, toast, withToast, type MenuItem } from '../ui'
+import { confirmAction, promptFor, toast, useOverlays, withToast, type MenuItem } from '../ui'
 
 export function itemMenu(item: Item): MenuItem[] {
   const store = useStore.getState()
   const selected = store.selected.includes(item.key) ? store.selected : [item.key]
   const many = selected.length > 1
-  const suffix = many ? `（${selected.length} 条）` : ''
+  const suffix = many ? t('menu.selection', { count: selected.length }) : ''
 
   // Right-clicking an unselected row should act on that row.
   if (!store.selected.includes(item.key)) store.select(item.key)
 
-  const copy = (kind: 'title' | 'doi' | 'url' | 'citation', label: string) => ({
-    label,
+  const copy = (kind: 'title' | 'doi' | 'url' | 'citation', key: 'menu.copyTitle' | 'menu.copyCitation' | 'menu.copyDoi') => ({
+    label: t(key),
     onSelect: async () => {
       const n = await store.copySelected(kind)
-      if (n === 0) toast.info(`选中的条目没有${label.replace('复制', '')}`)
-      else toast.success(`已复制 ${n} 条`)
+      if (n === 0) toast.info(t('toast.nothingToCopy'))
+      else toast.success(t('toast.copied', { count: n }))
     },
   })
 
@@ -30,7 +31,7 @@ export function itemMenu(item: Item): MenuItem[] {
 
   return [
     {
-      label: '在详情中打开',
+      label: t('menu.openDetail'),
       onSelect: () => {
         store.select(item.key)
         store.setPanel('detail')
@@ -39,7 +40,7 @@ export function itemMenu(item: Item): MenuItem[] {
     ...(item.url || item.DOI
       ? [
           {
-            label: '在浏览器中打开',
+            label: t('menu.openBrowser'),
             onSelect: () => {
               const href = item.url
                 ? String(item.url)
@@ -50,33 +51,30 @@ export function itemMenu(item: Item): MenuItem[] {
         ]
       : []),
     {},
-    copy('title', '复制标题'),
-    copy('citation', '复制引用'),
-    copy('doi', '复制 DOI'),
+    copy('title', 'menu.copyTitle'),
+    copy('citation', 'menu.copyCitation'),
+    copy('doi', 'menu.copyDoi'),
     {},
     {
-      label: `加入收藏夹${suffix}`,
+      label: `${t('menu.addToCollection')}${suffix}`,
       disabled: store.collections.length === 0,
       items: store.collections.map((c) => ({
         label: c.name,
         onSelect: () =>
           withToast(() => store.addSelectedToCollection(c.key), {
-            success: `已加入「${c.name}」`,
-            failure: '加入收藏夹失败',
+            success: t('toast.addedToCollection', { name: c.name }),
+            failure: t('toast.addToCollectionFailed'),
           }),
       })),
     },
     {
-      label: `添加标签…${suffix}`,
+      label: `${t('menu.addTag')}${suffix}`,
       onSelect: async () => {
-        const tag = await promptFor('添加标签', {
-          label: '标签',
-          placeholder: '例如：综述',
-        })
+        const tag = await promptFor(t('dialog.addTag'), { label: t('dialog.tag') })
         if (tag) {
           await withToast(() => store.tagSelected(tag), {
-            success: `已添加标签「${tag}」`,
-            failure: '添加标签失败',
+            success: t('toast.tagAdded', { tag }),
+            failure: t('toast.tagFailed'),
           })
         }
       },
@@ -85,23 +83,30 @@ export function itemMenu(item: Item): MenuItem[] {
     ...(inTrash
       ? [
           {
-            label: `还原${suffix}`,
+            label: `${t('menu.restore')}${suffix}`,
             onSelect: () =>
-              withToast(store.restoreSelected, { success: '已还原', failure: '还原失败' }),
+              withToast(store.restoreSelected, {
+                success: t('toast.restored'),
+                failure: t('toast.restoreFailed'),
+              }),
           },
           {
-            label: `永久删除${suffix}`,
+            label: `${t('menu.destroy')}${suffix}`,
             danger: true,
             onSelect: async () => {
-              const ok = await confirmAction(`永久删除 ${selected.length} 条？`, {
-                description: '此操作不可撤销。',
-                confirmLabel: '永久删除',
-                danger: true,
-              })
+              const ok = await confirmAction(
+                t('dialog.destroyTitle', { count: selected.length }),
+                {
+                  description: t('dialog.destroyDesc'),
+                  confirmLabel: t('menu.destroy'),
+                  cancelLabel: t('dialog.cancel'),
+                  danger: true,
+                },
+              )
               if (ok) {
                 await withToast(store.destroySelected, {
-                  success: '已永久删除',
-                  failure: '删除失败',
+                  success: t('toast.destroyed'),
+                  failure: t('toast.deleteFailed'),
                 })
               }
             },
@@ -109,13 +114,13 @@ export function itemMenu(item: Item): MenuItem[] {
         ]
       : [
           {
-            label: `移入回收站${suffix}`,
+            label: `${t('menu.trash')}${suffix}`,
             hint: 'Del',
             danger: true,
             onSelect: () =>
               withToast(store.trashSelected, {
-                success: `已移入回收站${suffix}`,
-                failure: '移入回收站失败',
+                success: t('toast.trashed'),
+                failure: t('toast.trashFailed'),
               }),
           },
         ]),
@@ -125,52 +130,137 @@ export function itemMenu(item: Item): MenuItem[] {
 export function collectionMenu(collection: Collection): MenuItem[] {
   const store = useStore.getState()
   return [
-    { label: '打开', onSelect: () => store.openCollection(collection.key) },
+    { label: t('menu.open'), onSelect: () => store.openCollection(collection.key) },
     {},
     {
-      label: '重命名…',
+      label: t('menu.rename'),
       onSelect: async () => {
-        const name = await promptFor('重命名收藏夹', {
-          label: '名称',
+        const name = await promptFor(t('dialog.renameCollection'), {
+          label: t('dialog.name'),
           defaultValue: collection.name,
         })
         if (name && name !== collection.name) {
           await withToast(() => store.renameCollection(collection.key, name), {
-            success: '已重命名',
-            failure: '重命名失败',
+            success: t('toast.renamed'),
+            failure: t('toast.renameFailed'),
           })
         }
       },
     },
     {
-      label: '新建子收藏夹…',
+      label: t('menu.newSubcollection'),
       onSelect: async () => {
-        const name = await promptFor('新建子收藏夹', {
-          label: '名称',
-          hint: `将建立在「${collection.name}」下`,
+        const name = await promptFor(t('dialog.newSubcollection'), {
+          label: t('dialog.name'),
+          hint: t('dialog.underCollection', { name: collection.name }),
         })
         if (name) {
           await withToast(() => store.createCollection(name, collection.key), {
-            success: `已创建「${name}」`,
-            failure: '创建失败',
+            success: t('toast.created', { name }),
+            failure: t('toast.createFailed'),
           })
         }
       },
     },
     {},
     {
-      label: '删除收藏夹',
+      label: t('menu.deleteCollection'),
       danger: true,
       onSelect: async () => {
-        const ok = await confirmAction(`删除「${collection.name}」？`, {
-          description: '收藏夹内的条目会保留在文库中，子收藏夹会上移一层。',
-          confirmLabel: '删除',
+        const ok = await confirmAction(
+          t('dialog.deleteCollectionTitle', { name: collection.name }),
+          {
+            description: t('dialog.deleteCollectionDesc'),
+            confirmLabel: t('dialog.delete'),
+            cancelLabel: t('dialog.cancel'),
+            danger: true,
+          },
+        )
+        if (ok) {
+          await withToast(() => store.removeCollection(collection.key), {
+            success: t('toast.deleted'),
+            failure: t('toast.deleteFailed'),
+          })
+        }
+      },
+    },
+  ]
+}
+
+/** Asks for a name and a query in one dialog, because a smart collection is
+ *  meaningless without both. */
+async function askSmart(
+  title: string,
+  defaults: { name?: string; query?: string } = {},
+): Promise<{ name: string; query: string } | null> {
+  const values = await useOverlays.getState().ask({
+    title,
+    fields: [
+      {
+        name: 'name',
+        label: t('dialog.name'),
+        required: true,
+        autoFocus: true,
+        defaultValue: defaults.name,
+      },
+      {
+        name: 'query',
+        label: t('dialog.query'),
+        type: 'textarea',
+        defaultValue: defaults.query,
+        hint: t('dialog.smartHint'),
+      },
+    ],
+    confirmLabel: defaults.name ? t('dialog.save') : t('dialog.create'),
+  })
+  if (!values?.name?.trim()) return null
+  return { name: values.name.trim(), query: (values.query ?? '').trim() }
+}
+
+export async function newSmartCollection(): Promise<void> {
+  const store = useStore.getState()
+  const values = await askSmart(t('dialog.newSmart'))
+  if (!values) return
+  await withToast(() => store.createSmart(values.name, values.query), {
+    success: t('toast.created', { name: values.name }),
+    failure: t('toast.createFailed'),
+  })
+}
+
+export function smartMenu(smart: SmartCollection): MenuItem[] {
+  const store = useStore.getState()
+  return [
+    { label: t('menu.open'), onSelect: () => store.openSmart(smart.key) },
+    {},
+    {
+      label: t('menu.editSmart'),
+      onSelect: async () => {
+        const values = await askSmart(t('dialog.editSmart'), {
+          name: smart.name,
+          query: smart.query,
+        })
+        if (!values) return
+        await withToast(() => store.updateSmart(smart.key, values), {
+          success: t('toast.saved'),
+          failure: t('toast.renameFailed'),
+        })
+      },
+    },
+    {},
+    {
+      label: t('menu.deleteSmart'),
+      danger: true,
+      onSelect: async () => {
+        const ok = await confirmAction(t('dialog.deleteSmartTitle', { name: smart.name }), {
+          description: t('dialog.deleteSmartDesc'),
+          confirmLabel: t('dialog.delete'),
+          cancelLabel: t('dialog.cancel'),
           danger: true,
         })
         if (ok) {
-          await withToast(() => store.removeCollection(collection.key), {
-            success: '已删除收藏夹',
-            failure: '删除失败',
+          await withToast(() => store.removeSmart(smart.key), {
+            success: t('toast.deleted'),
+            failure: t('toast.deleteFailed'),
           })
         }
       },
@@ -182,51 +272,63 @@ export function libraryMenu(): MenuItem[] {
   const store = useStore.getState()
   return [
     {
-      label: '新建条目…',
+      label: t('menu.newItem'),
       onSelect: async () => {
         const values = await store.newItemDialog()
         if (values) {
           await withToast(() => store.createItem(values.itemType, values.title), {
-            success: `已创建「${values.title}」`,
-            failure: '创建失败',
+            success: t('toast.created', { name: values.title }),
+            failure: t('toast.createFailed'),
           })
         }
       },
     },
     {
-      label: '新建收藏夹…',
+      label: t('menu.newCollection'),
       onSelect: async () => {
-        const name = await promptFor('新建收藏夹', { label: '名称' })
+        const name = await promptFor(t('dialog.newCollection'), { label: t('dialog.name') })
         if (name) {
           await withToast(() => store.createCollection(name), {
-            success: `已创建「${name}」`,
-            failure: '创建失败',
+            success: t('toast.created', { name }),
+            failure: t('toast.createFailed'),
           })
         }
       },
     },
+    { label: t('sidebar.newSmart'), onSelect: newSmartCollection },
     {},
-    { label: '清除筛选与搜索', onSelect: store.clearFilters },
-    { label: '重建搜索索引', onSelect: () => withToast(store.reindex, { success: '索引已重建', failure: '重建失败' }) },
+    { label: t('menu.clearFilters'), onSelect: store.clearFilters },
+    {
+      label: t('menu.reindex'),
+      onSelect: () =>
+        withToast(store.reindex, {
+          success: t('toast.reindexed'),
+          failure: t('toast.reindexFailed'),
+        }),
+    },
   ]
 }
 
 export function trashMenu(): MenuItem[] {
   const store = useStore.getState()
   return [
-    { label: '打开回收站', onSelect: store.openTrash },
+    { label: t('menu.openTrash'), onSelect: store.openTrash },
     {},
     {
-      label: '清空回收站',
+      label: t('menu.emptyTrash'),
       danger: true,
       onSelect: async () => {
-        const ok = await confirmAction('清空回收站？', {
-          description: '回收站中的所有条目都会被永久删除。',
-          confirmLabel: '清空',
+        const ok = await confirmAction(t('dialog.emptyTrashTitle'), {
+          description: t('dialog.emptyTrashDesc'),
+          confirmLabel: t('menu.emptyTrash'),
+          cancelLabel: t('dialog.cancel'),
           danger: true,
         })
         if (ok) {
-          await withToast(store.emptyTrash, { success: '回收站已清空', failure: '清空失败' })
+          await withToast(store.emptyTrash, {
+            success: t('toast.emptied'),
+            failure: t('toast.emptyFailed'),
+          })
         }
       },
     },

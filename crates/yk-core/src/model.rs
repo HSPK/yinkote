@@ -297,6 +297,55 @@ pub struct CollectionPatch {
     pub sort_index: Option<f64>,
 }
 
+/// A saved query that behaves like a collection.
+///
+/// It deliberately stores the *search string* rather than a structured rule
+/// tree: users already know the query language from the search box, and reusing
+/// it means smart collections cannot drift away from what search actually does.
+#[derive(Clone, Debug, Serialize)]
+pub struct SmartCollection {
+    pub key: Key,
+    #[serde(rename = "libraryId")]
+    pub library_id: i64,
+    pub name: String,
+    pub query: String,
+    pub mode: String,
+    pub sort: String,
+    pub direction: String,
+    #[serde(rename = "sortIndex")]
+    pub sort_index: f64,
+    pub version: i64,
+    /// Filled in on demand; `None` when not evaluated.
+    #[serde(rename = "itemCount", skip_serializing_if = "Option::is_none")]
+    pub item_count: Option<i64>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct SmartCollectionDraft {
+    pub name: String,
+    #[serde(default)]
+    pub query: String,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default)]
+    pub sort: Option<String>,
+    #[serde(default)]
+    pub direction: Option<String>,
+    #[serde(default)]
+    pub key: Option<Key>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct SmartCollectionPatch {
+    pub name: Option<String>,
+    pub query: Option<String>,
+    pub mode: Option<String>,
+    pub sort: Option<String>,
+    pub direction: Option<String>,
+    #[serde(rename = "sortIndex")]
+    pub sort_index: Option<f64>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 pub struct Tag {
     pub name: String,

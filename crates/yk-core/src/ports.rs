@@ -87,6 +87,21 @@ pub trait CollectionRepository: Send + Sync {
 }
 
 #[async_trait]
+pub trait SmartCollectionRepository: Send + Sync {
+    async fn list(&self, library_id: i64) -> Result<Vec<SmartCollection>>;
+    async fn get(&self, library_id: i64, key: &Key) -> Result<SmartCollection>;
+    async fn create(&self, library_id: i64, draft: SmartCollectionDraft)
+        -> Result<SmartCollection>;
+    async fn update(
+        &self,
+        library_id: i64,
+        key: &Key,
+        patch: SmartCollectionPatch,
+    ) -> Result<SmartCollection>;
+    async fn delete(&self, library_id: i64, key: &Key) -> Result<u64>;
+}
+
+#[async_trait]
 pub trait TagRepository: Send + Sync {
     async fn list(&self, library_id: i64, prefix: Option<&str>, limit: u32) -> Result<Vec<Tag>>;
     async fn rename(&self, library_id: i64, from: &str, to: &str) -> Result<u64>;

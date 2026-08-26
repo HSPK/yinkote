@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 
 import { CommandPalette } from './components/CommandPalette'
-import { NavRail } from './components/NavRail'
 import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
 import { onNavigate, pageFromHash } from './lib/router'
@@ -115,7 +114,11 @@ export function App() {
   useGlobalKeys()
 
   if (!ready) {
-    return <div className="empty" style={{ paddingTop: '20vh' }}>正在连接 Yinkote 服务…</div>
+    return (
+      <div className="empty" style={{ paddingTop: '20vh' }}>
+        Connecting to Yinkote…
+      </div>
+    )
   }
 
   const Current = PAGES[page]
@@ -124,12 +127,9 @@ export function App() {
     <div className="app">
       <TopBar />
       {error && <div className="banner">{error}</div>}
-      <div className="shell">
-        <NavRail />
-        <main className="page-host">
-          <Current />
-        </main>
-      </div>
+      <main className="page-host">
+        <Current />
+      </main>
       <StatusBar />
       <CommandPalette />
       <OverlayHost />

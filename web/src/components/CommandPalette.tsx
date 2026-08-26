@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { rankMatches } from '../lib/fuzzy'
-import { PAGES, PAGE_LABELS, navigate } from '../lib/router'
+import { PAGES, navigate } from '../lib/router'
 import { useStore } from '../state/store'
 import { confirmAction, promptFor, withToast } from '../ui'
+import { useT } from '../i18n'
 
 interface Command {
   id: string
@@ -13,6 +14,7 @@ interface Command {
 }
 
 export function CommandPalette() {
+  const t = useT()
   const open = useStore((s) => s.paletteOpen)
   const toggle = useStore((s) => s.togglePalette)
   const store = useStore()
@@ -24,65 +26,73 @@ export function CommandPalette() {
     const list: Command[] = [
       {
         id: 'new',
-        label: '新建条目…',
+        label: t('menu.newItem'),
         hint: 'N',
         run: async () => {
           const values = await useStore.getState().newItemDialog()
           if (values) {
             await withToast(() => store.createItem(values.itemType, values.title), {
-              success: `已创建「${values.title}」`,
-              failure: '创建条目失败',
+              success: t('toast.created', { name: values.title }),
+              failure: t('toast.createFailed'),
             })
           }
         },
       },
       {
         id: 'new-collection',
-        label: '新建收藏夹…',
+        label: t('menu.newCollection'),
         run: async () => {
-          const name = await promptFor('新建收藏夹', { label: '名称' })
+          const name = await promptFor(t('dialog.newCollection'), { label: t('dialog.name') })
           if (name) {
             await withToast(() => store.createCollection(name), {
-              success: `已创建「${name}」`,
-              failure: '创建收藏夹失败',
+              success: t('toast.created', { name }),
+              failure: t('toast.createFailed'),
             })
           }
         },
       },
-      { id: 'library', label: '打开：我的文库', run: store.openLibrary },
-      { id: 'trash', label: '打开：回收站', run: store.openTrash },
+      
+      { id: 'trash', label: t('menu.openTrash'), run: store.openTrash },
       ...PAGES.map((id) => ({
         id: `page-${id}`,
-        label: `前往：${PAGE_LABELS[id].label}`,
+        label: t('palette.goto', { page: t(`nav.${id}`) }),
         run: () => navigate(id),
       })),
-      { id: 'clear', label: '清除筛选与搜索', run: store.clearFilters },
-      { id: 'reindex', label: '重建搜索索引', run: store.reindex },
-      { id: 'reload-plugins', label: '重新扫描插件', run: store.reloadPlugins },
+      { id: 'clear', label: t('menu.clearFilters'), run: store.clearFilters },
+      { id: 'reindex', label: t('menu.reindex'), run: store.reindex },
+      { id: 'reload-plugins', label: t('plugins.rescan'), run: store.reloadPlugins },
     ]
     if (store.selected.length) {
       list.unshift({
         id: 'trash-selected',
-        label: `移入回收站（${store.selected.length} 条）`,
+        label: `${t('menu.trash')}${t('menu.selection', { count: store.selected.length })}`,
         hint: 'Del',
         run: store.trashSelected,
       })
       if (store.view === 'trash') {
         list.unshift(
-          { id: 'restore', label: `还原（${store.selected.length} 条）`, run: store.restoreSelected },
+          {
+            id: 'restore',
+            label: `${t('menu.restore')}${t('menu.selection', { count: store.selected.length })}`,
+            run: store.restoreSelected,
+          },
           {
             id: 'destroy',
-            label: `永久删除（${store.selected.length} 条）`,
+            label: `${t('menu.destroy')}${t('menu.selection', { count: store.selected.length })}`,
             run: async () => {
-              const ok = await confirmAction(`永久删除 ${store.selected.length} 条？`, {
-                description: '此操作不可撤销，条目及其笔记、附件都会被移除。',
-                confirmLabel: '永久删除',
-                danger: true,
-              })
+              const ok = await confirmAction(
+                t('dialog.destroyTitle', { count: store.selected.length }),
+                {
+                  description: t('dialog.destroyDesc'),
+                  confirmLabel: t('menu.destroy'),
+                  cancelLabel: t('dialog.cancel'),
+                  danger: true,
+                },
+              )
               if (ok) {
                 await withToast(store.destroySelected, {
-                  success: '已永久删除',
-                  failure: '删除失败',
+                  success: t('toast.destroyed'),
+                  failure: t('toast.deleteFailed'),
                 })
               }
             },
@@ -92,13 +102,17 @@ export function CommandPalette() {
       for (const c of store.collections) {
         list.push({
           id: `add-${c.key}`,
-          label: `加入收藏夹：${c.name}`,
+          label: t('palette.addTo', { name: c.name }),
           run: () => store.addSelectedToCollection(c.key),
         })
       }
     }
     for (const m of ['hybrid', 'keyword', 'fuzzy', 'semantic'] as const) {
-      list.push({ id: `mode-${m}`, label: `搜索模式：${m}`, run: () => store.setMode(m) })
+      list.push({
+        id: `mode-${m}`,
+        label: t('palette.mode', { mode: t(`search.mode.${m}`) }),
+        run: () => store.setMode(m),
+      })
     }
     return list
   }, [store])
@@ -132,7 +146,7 @@ export function CommandPalette() {
         <input
           ref={inputRef}
           value={query}
-          placeholder="输入命令…"
+          placeholder={t('palette.placeholder')}
           spellCheck={false}
           onChange={(e) => {
             setQuery(e.target.value)
@@ -165,7 +179,7 @@ export function CommandPalette() {
               {c.hint && <span className="hint">{c.hint}</span>}
             </button>
           ))}
-          {visible.length === 0 && <div className="empty">无匹配命令</div>}
+          {visible.length === 0 && <div className="empty">{t('palette.noMatch')}</div>}
         </div>
       </div>
     </div>

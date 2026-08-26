@@ -14,6 +14,7 @@ import type {
   ServerInfo,
   Schema,
   SearchHit,
+  SmartCollection,
   SourceInfo,
   Stats,
   Tag,
@@ -141,6 +142,25 @@ export const api = {
       }),
     remove: (lib: number, key: string) =>
       request<{ deleted: number }>(`/libraries/${lib}/collections/${key}`, { method: 'DELETE' }),
+  },
+
+  smart: {
+    list: (lib: number, counts = false) =>
+      request<SmartCollection[]>(`/libraries/${lib}/smart-collections${counts ? '?counts=true' : ''}`),
+    create: (lib: number, body: { name: string; query: string; mode?: string }) =>
+      request<SmartCollection>(`/libraries/${lib}/smart-collections`, {
+        method: 'POST',
+        ...json(body),
+      }),
+    update: (lib: number, key: string, body: Partial<{ name: string; query: string; mode: string }>) =>
+      request<SmartCollection>(`/libraries/${lib}/smart-collections/${key}`, {
+        method: 'PATCH',
+        ...json(body),
+      }),
+    remove: (lib: number, key: string) =>
+      request<{ deleted: number }>(`/libraries/${lib}/smart-collections/${key}`, {
+        method: 'DELETE',
+      }),
   },
 
   tags: {

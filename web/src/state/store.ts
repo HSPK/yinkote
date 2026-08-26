@@ -7,7 +7,9 @@
 import { create } from 'zustand'
 
 import { api, connectEvents } from '../api/client'
+import { detectLocale, useI18n, type Locale } from '../i18n'
 import { pageFromHash, type Page } from '../lib/router'
+import { applyTheme, DEFAULT_THEME } from '../lib/theme'
 import { useOverlays } from '../ui/overlays'
 import type {
   Collection,
@@ -17,11 +19,12 @@ import type {
   Schema,
   SearchMode,
   ServerInfo,
+  SmartCollection,
   Stats,
   Tag,
 } from '../api/types'
 
-export type View = 'library' | 'trash' | 'collection'
+export type View = 'library' | 'trash' | 'collection' | 'smart'
 export type Panel = 'detail' | 'plugins' | 'stats'
 
 interface State {
@@ -39,11 +42,15 @@ interface State {
   page: Page
   /** Row height preference, persisted server-side under `ui.`. */
   density: string
+  theme: string
+  /** Hex accent override, or empty to use the theme's own. */
+  accent: string
 
   // navigation
   view: View
   collection: string | null
   collections: Collection[]
+  smartCollections: SmartCollection[]
   tags: Tag[]
   activeTags: string[]
   typeFilter: string[]
@@ -75,6 +82,10 @@ interface State {
   openLibrary: () => void
   openTrash: () => void
   openCollection: (key: string) => void
+  openSmart: (key: string) => void
+  createSmart: (name: string, query: string) => Promise<void>
+  updateSmart: (key: string, patch: { name?: string; query?: string }) => Promise<void>
+  removeSmart: (key: string) => Promise<void>
   toggleTag: (tag: string) => void
   clearFilters: () => void
   select: (key: string, additive?: boolean) => void
@@ -82,6 +93,8 @@ interface State {
   setPanel: (p: Panel) => void
   setPage: (p: Page) => void
   setDensity: (d: string) => void
+  setTheme: (id: string, accent?: string) => void
+  setLocale: (locale: Locale) => void
   optimize: () => Promise<void>
   togglePalette: (open?: boolean) => void
   patchItem: (key: string, patch: Record<string, unknown>) => Promise<void>
@@ -121,10 +134,13 @@ export const useStore = create<State>((set, get) => ({
   plugins: [],
   page: pageFromHash(),
   density: 'compact',
+  theme: DEFAULT_THEME,
+  accent: '',
 
   view: 'library',
   collection: null,
   collections: [],
+  smartCollections: [],
   tags: [],
   activeTags: [],
   typeFilter: [],
@@ -160,12 +176,19 @@ export const useStore = create<State>((set, get) => ({
         ready: true,
         error: null,
       })
-      if (typeof settings['ui.density'] === 'string') {
-        get().setDensity(settings['ui.density'])
-      }
-      if (typeof settings['ui.searchMode'] === 'string') {
-        set({ mode: settings['ui.searchMode'] as SearchMode })
-      }
+      // Restore preferences before the first paint of real content.
+      const saved = <T extends string>(key: string): T | undefined =>
+        typeof settings[key] === 'string' ? (settings[key] as T) : undefined
+
+      if (saved('ui.density')) get().setDensity(saved('ui.density')!)
+      if (saved('ui.searchMode')) set({ mode: saved<SearchMode>('ui.searchMode')! })
+
+      const theme = saved('ui.theme') ?? DEFAULT_THEME
+      const accent = saved('ui.accent') ?? ''
+      set({ theme, accent })
+      applyTheme(theme, accent)
+
+      useI18n.getState().setLocale(saved<Locale>('ui.locale') ?? detectLocale())
       await Promise.all([get().refresh(), get().reloadSidebar()])
 
       connectEvents((event) => {
@@ -223,8 +246,9 @@ export const useStore = create<State>((set, get) => ({
   async reloadSidebar() {
     const s = get()
     try {
-      const [collections, tags, stats, plugins] = await Promise.all([
+      const [collections, smartCollections, tags, stats, plugins] = await Promise.all([
         api.collections.list(s.library),
+        api.smart.list(s.library, true),
         api.tags.facets(s.library, {
           collection: s.view === 'collection' ? s.collection ?? undefined : undefined,
           trash: s.view === 'trash' ? 'only' : 'exclude',
@@ -233,7 +257,7 @@ export const useStore = create<State>((set, get) => ({
         api.stats(),
         api.plugins.list(),
       ])
-      set({ collections, tags, stats, plugins })
+      set({ collections, smartCollections, tags, stats, plugins })
     } catch {
       /* sidebar is decoration; never block the main view on it */
     }
@@ -274,6 +298,43 @@ export const useStore = create<State>((set, get) => ({
     set({ view: 'collection', collection: key, cursor: 0, selected: [] })
     void get().refresh()
     void get().reloadSidebar()
+  },
+
+  /** Opening a smart collection *is* running its query: the search box shows
+   *  exactly what is being matched, so the result is never mysterious. */
+  openSmart(key) {
+    const smart = get().smartCollections.find((s) => s.key === key)
+    if (!smart) return
+    set({
+      view: 'smart',
+      collection: key,
+      query: smart.query,
+      mode: smart.mode,
+      sort: smart.sort,
+      direction: smart.direction,
+      activeTags: [],
+      cursor: 0,
+      selected: [],
+    })
+    void get().refresh()
+  },
+
+  async createSmart(name, query) {
+    const created = await api.smart.create(get().library, { name, query })
+    await get().reloadSidebar()
+    get().openSmart(created.key)
+  },
+
+  async updateSmart(key, patch) {
+    await api.smart.update(get().library, key, patch)
+    await get().reloadSidebar()
+    if (get().view === 'smart' && get().collection === key) get().openSmart(key)
+  },
+
+  async removeSmart(key) {
+    await api.smart.remove(get().library, key)
+    if (get().view === 'smart' && get().collection === key) get().openLibrary()
+    await get().reloadSidebar()
   },
 
   toggleTag(tag) {
@@ -325,6 +386,18 @@ export const useStore = create<State>((set, get) => ({
       density === 'comfortable' ? '32px' : '26px',
     )
     void api.settings.put({ density })
+  },
+
+  setTheme(theme, accent) {
+    const next = accent ?? get().accent
+    set({ theme, accent: next })
+    applyTheme(theme, next)
+    void api.settings.put({ theme, accent: next })
+  },
+
+  setLocale(locale) {
+    useI18n.getState().setLocale(locale)
+    void api.settings.put({ locale })
   },
 
   async optimize() {

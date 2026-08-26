@@ -1,3 +1,4 @@
+import { useT } from '../i18n'
 import { Empty, Section } from '../ui'
 
 /** Conversation workspace.
@@ -6,15 +7,13 @@ import { Empty, Section } from '../ui'
  *  layout so the two can be developed independently.
  */
 export function ChatPage() {
+  const t = useT()
   return (
     <div className="page narrow">
-      <Section title="文库对话">
+      <Section title={t('chat.title')}>
         <Empty>
-          <p>对话式检索与问答尚未启用。</p>
-          <p className="muted">
-            届时可以直接问「这个收藏夹里的方法怎么分类」或「帮我找扩散模型做分子生成的近三年工作」，
-            答案会带可点击的条目引用。
-          </p>
+          <p>{t('chat.disabled')}</p>
+          <p className="muted">{t('chat.hint')}</p>
         </Empty>
       </Section>
     </div>

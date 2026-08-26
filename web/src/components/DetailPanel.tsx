@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { Item } from '../api/types'
 import { creatorName } from '../lib/format'
 import { useStore } from '../state/store'
+import { useT } from '../i18n'
 
 /** Fields worth a multi-line editor. */
 const LONG_FIELDS = new Set(['abstractNote', 'extra', 'note'])
@@ -52,6 +53,7 @@ function FieldEditor({ item, field, label }: { item: Item; field: string; label:
 }
 
 function TagEditor({ item }: { item: Item }) {
+  const t = useT()
   const patchItem = useStore((s) => s.patchItem)
   const [draft, setDraft] = useState('')
 
@@ -60,15 +62,19 @@ function TagEditor({ item }: { item: Item }) {
 
   return (
     <>
-      <dt>标签</dt>
+      <dt>{t('detail.tags')}</dt>
       <dd>
         <div className="chip-row">
-          {item.tags.map((t) => (
-            <span key={t.tag} className="chip" title={t.type === 1 ? '自动标签' : '手动标签'}>
-              {t.tag}
+          {item.tags.map((tag) => (
+            <span
+              key={tag.tag}
+              className="chip"
+              title={tag.type === 1 ? t('detail.tagAuto') : t('detail.tagManual')}
+            >
+              {tag.tag}
               <button
-                onClick={() => setTags(item.tags.filter((x) => x.tag !== t.tag))}
-                title="移除"
+                onClick={() => setTags(item.tags.filter((x) => x.tag !== tag.tag))}
+                title={t('detail.remove')}
               >
                 ×
               </button>
@@ -76,7 +82,7 @@ function TagEditor({ item }: { item: Item }) {
           ))}
           <input
             value={draft}
-            placeholder="+ 标签"
+            placeholder={t('detail.addTag')}
             spellCheck={false}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -95,6 +101,7 @@ function TagEditor({ item }: { item: Item }) {
 }
 
 export function DetailPanel() {
+  const t = useT()
   const schema = useStore((s) => s.schema)
   const items = useStore((s) => s.items)
   const selected = useStore((s) => s.selected)
@@ -107,9 +114,11 @@ export function DetailPanel() {
   if (!item) {
     return (
       <aside className="pane">
-        <div className="pane-header">详情</div>
+        <div className="pane-header">{t('detail.title')}</div>
         <div className="empty">
-          {selected.length > 1 ? `已选中 ${selected.length} 条` : '未选中条目'}
+          {selected.length > 1
+            ? t('detail.multiple', { count: selected.length })
+            : t('detail.none')}
         </div>
       </aside>
     )
@@ -121,17 +130,17 @@ export function DetailPanel() {
   return (
     <aside className="pane">
       <div className="pane-header">
-        详情
+        {t('detail.title')}
         <span className="spacer" />
         <span style={{ fontFamily: 'var(--mono)' }}>{item.key}</span>
         <span>v{item.version}</span>
       </div>
 
       <div className="detail">
-        <div className="detail-title">{String(item.title ?? '(无标题)')}</div>
+        <div className="detail-title">{String(item.title ?? t('detail.untitled'))}</div>
 
         <dl className="field-grid">
-          <dt>类型</dt>
+          <dt>{t('detail.type')}</dt>
           <dd>
             <select
               value={item.itemType}
@@ -147,14 +156,14 @@ export function DetailPanel() {
             </select>
           </dd>
 
-          <dt>作者</dt>
+          <dt>{t('detail.creators')}</dt>
           <dd>
             <div className="chip-row">
               {item.creators.map((c, i) => (
                 <span key={i} className="chip">
                   {creatorName(c)}
                   <button
-                    title="移除"
+                    title={t('detail.remove')}
                     onClick={() =>
                       void patchItem(item.key, {
                         creators: item.creators.filter((_, j) => j !== i),
@@ -166,7 +175,7 @@ export function DetailPanel() {
                 </span>
               ))}
               <input
-                placeholder="+ 作者"
+                placeholder={t('detail.addCreator')}
                 spellCheck={false}
                 onKeyDown={(e) => {
                   if (e.key !== 'Enter') return
@@ -198,7 +207,7 @@ export function DetailPanel() {
               />
             ))}
 
-          <dt>收藏夹</dt>
+          <dt>{t('detail.collections')}</dt>
           <dd>
             <div className="chip-row">
               {item.collections.map((k) => (
@@ -212,7 +221,7 @@ export function DetailPanel() {
                   if (e.target.value) void addSelectedToCollection(e.target.value)
                 }}
               >
-                <option value="">+ 加入…</option>
+                <option value="">{t('detail.addCollection')}</option>
                 {collections
                   .filter((c) => !item.collections.includes(c.key))
                   .map((c) => (

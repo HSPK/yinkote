@@ -5,6 +5,7 @@ mod items;
 mod plugins;
 mod scrape;
 mod search;
+mod smart;
 mod system;
 
 use axum::Router;
@@ -25,6 +26,7 @@ pub fn router() -> Router<App> {
         .merge(collections::router())
         .merge(search::router())
         .merge(scrape::router())
+        .merge(smart::router())
         .merge(plugins::router())
 }
 

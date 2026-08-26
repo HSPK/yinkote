@@ -11,7 +11,10 @@ pub type PooledConn = r2d2::PooledConnection<SqliteConnectionManager>;
 
 /// Ordered, forward-only migrations. The index in this slice *is* the target
 /// `user_version`, so never reorder or remove an entry.
-const MIGRATIONS: &[(&str, &str)] = &[("001_init", include_str!("../migrations/001_init.sql"))];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("001_init", include_str!("../migrations/001_init.sql")),
+    ("002_smart_collections", include_str!("../migrations/002_smart_collections.sql")),
+];
 
 /// Handle to the SQLite database.
 ///

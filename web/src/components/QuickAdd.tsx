@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 import { api } from '../api/client'
 import { useStore } from '../state/store'
 import { toast } from '../ui'
+import { useT } from '../i18n'
 
 /** Roughly what the server will recognise, so the hint can appear instantly
  *  without a round trip. Detection proper still happens server-side. */
@@ -24,6 +25,7 @@ function guessKind(text: string): string | null {
  * an Undo, which is faster than a modal for the common case where it is right.
  */
 export function QuickAdd() {
+  const t = useT()
   const library = useStore((s) => s.library)
   const collection = useStore((s) => s.collection)
   const view = useStore((s) => s.view)
@@ -50,22 +52,26 @@ export function QuickAdd() {
 
       if (result.created.length) {
         const first = result.created[0]!
-        const extra = result.created.length > 1 ? ` 等 ${result.created.length} 条` : ''
-        toast.success(`已添加：${String(first.title ?? '(无标题)')}${extra}`, undefined)
+        const title = String(first.title ?? t('detail.untitled'))
+        toast.success(
+          result.created.length > 1
+            ? t('quickAdd.addedMore', { title, count: result.created.length })
+            : t('quickAdd.added', { title }),
+        )
         useStore.setState({ selected: [first.key] })
         setText('')
       } else if (result.duplicates.length) {
         const dup = result.duplicates[0]!
-        toast.info('文库中已有该文献', dup.title)
+        toast.info(t('quickAdd.duplicate'), dup.title)
         useStore.setState({ selected: [dup.existingKey] })
         setText('')
       } else {
-        toast.error('没有解析到元数据')
+        toast.error(t('quickAdd.noMetadata'))
       }
 
       await Promise.all([refresh(), reloadSidebar()])
     } catch (error) {
-      toast.fromError('添加失败', error)
+      toast.fromError(t('quickAdd.failed'), error)
     } finally {
       setBusy(false)
       inputRef.current?.focus()
@@ -81,7 +87,7 @@ export function QuickAdd() {
         disabled={busy}
         spellCheck={false}
         autoComplete="off"
-        placeholder="粘贴 DOI / arXiv / ISBN / 网址，回车添加"
+        placeholder={t('quickAdd.placeholder')}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') void submit()
@@ -100,7 +106,7 @@ export function QuickAdd() {
         }}
       />
       {kind && !busy && <span className="quick-add-kind">{kind}</span>}
-      {busy && <span className="quick-add-kind" data-busy="true">解析中…</span>}
+      {busy && <span className="quick-add-kind" data-busy="true">{t('quickAdd.resolving')}</span>}
     </div>
   )
 }
