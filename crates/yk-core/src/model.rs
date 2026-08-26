@@ -168,6 +168,11 @@ impl Item {
             "series",
             "extra",
             "note",
+            // A highlight is the single most searched-for thing in a library
+            // people actually read: "where did I see that phrase?" only works
+            // if the passage itself is indexed.
+            "annotationText",
+            "annotationComment",
         ] {
             if let Some(v) = self.field(key) {
                 s.push_str(v);
@@ -520,5 +525,38 @@ mod patch_tests {
     fn an_absent_parent_leaves_the_parent_untouched() {
         let p: CollectionPatch = serde_json::from_str(r#"{"name":"x"}"#).unwrap();
         assert_eq!(p.parent_key, None);
+    }
+}
+
+#[cfg(test)]
+mod search_text_tests {
+    use super::*;
+
+    fn with(item_type: &str, fields: &[(&str, &str)]) -> Item {
+        let mut draft = ItemDraft::new(item_type);
+        for (k, v) in fields {
+            draft = draft.with_field(k, *v);
+        }
+        draft.into_item(Key::generate(), 1, 1)
+    }
+
+    #[test]
+    fn a_highlight_is_findable_by_its_own_words() {
+        let text = with(
+            "annotation",
+            &[("annotationText", "attention is all you need"), ("annotationComment", "check this")],
+        )
+        .search_text();
+
+        assert!(text.contains("attention is all you need"));
+        assert!(text.contains("check this"));
+    }
+
+    #[test]
+    fn ordinary_metadata_is_still_indexed() {
+        let text = with("journalArticle", &[("title", "Diffusion"), ("abstractNote", "We review")])
+            .search_text();
+        assert!(text.contains("Diffusion"));
+        assert!(text.contains("We review"));
     }
 }

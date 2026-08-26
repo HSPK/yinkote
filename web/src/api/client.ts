@@ -196,6 +196,13 @@ export const api = {
 
   agent: () => request<AgentStatus>('/agent'),
 
+  /** Summarise an item into a note child. */
+  summarise: (lib: number, key: string, focus?: string) =>
+    request<{ note: Item; model: string; truncated: boolean }>(
+      `/libraries/${lib}/items/${key}/summarise`,
+      { method: 'POST', ...json({ focus }) },
+    ),
+
   files: {
     /** A browser-loadable address, not a fetch: the viewer streams it itself. */
     url: (lib: number, key: string) => `${BASE}/libraries/${lib}/files/${key}`,

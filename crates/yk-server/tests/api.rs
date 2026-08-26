@@ -501,3 +501,53 @@ async fn an_empty_question_is_rejected_before_anything_is_stored() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(c.get(&format!("{base}/{key}/messages")).await.as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn annotations_are_ordinary_child_items() {
+    // The schema drives the item types, so highlighting a PDF needs no new
+    // storage, no new endpoint and no migration — only a new type in the JSON.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let paper = c.post(&format!("/libraries/{lib}/items"), json!([article("Host paper")])).await
+        ["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let attachment = c
+        .post(
+            &format!("/libraries/{lib}/items"),
+            json!([{ "itemType": "attachment", "parentKey": paper, "filename": "p.pdf" }]),
+        )
+        .await["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let made = c
+        .post(
+            &format!("/libraries/{lib}/items"),
+            json!([{
+                "itemType": "annotation",
+                "parentKey": attachment,
+                "annotationType": "highlight",
+                "annotationText": "attention is all you need",
+                "annotationColor": "amber",
+                "annotationPage": "3",
+                "annotationPosition": "{\"rects\":[[10,20,30,40]]}",
+            }]),
+        )
+        .await;
+    assert_eq!(made["created"][0]["annotationText"], "attention is all you need");
+
+    let children = c.get(&format!("/libraries/{lib}/items/{attachment}/children")).await;
+    assert_eq!(children.as_array().unwrap().len(), 1);
+
+    // Annotations must not clutter the item list; they belong to their file.
+    let top = c.get(&format!("/libraries/{lib}/items?topLevel=true")).await;
+    assert_eq!(top["total"], 1, "only the paper is top level");
+
+    // …but their text is searchable, which is the point of storing it.
+    let hits = c.get(&format!("/libraries/{lib}/search?q=attention")).await;
+    assert!(!hits["hits"].as_array().unwrap().is_empty());
+}

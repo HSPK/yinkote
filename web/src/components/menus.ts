@@ -39,6 +39,14 @@ export function itemMenu(item: Item): MenuItem[] {
           failure: t('reader.fetchFailed'),
         }),
     },
+    {
+      label: t('summary.generate'),
+      onSelect: () =>
+        withToast(() => store.summarise(item.key), {
+          success: t('summary.done'),
+          failure: t('summary.failed'),
+        }),
+    },
     {},
     {
       label: t('menu.openDetail'),

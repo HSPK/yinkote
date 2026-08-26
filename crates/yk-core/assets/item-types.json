@@ -1,152 +1,788 @@
 {
-  "version": 1,
-  "baseFields": ["title", "abstractNote", "date", "language", "shortTitle", "url", "accessDate", "rights", "extra"],
+  "version": 2,
+  "baseFields": [
+    "title",
+    "abstractNote",
+    "date",
+    "language",
+    "shortTitle",
+    "url",
+    "accessDate",
+    "rights",
+    "extra"
+  ],
   "fields": {
-    "title": { "type": "text", "label": "标题", "labelEn": "Title" },
-    "abstractNote": { "type": "long", "label": "摘要", "labelEn": "Abstract" },
-    "date": { "type": "date", "label": "日期", "labelEn": "Date" },
-    "language": { "type": "text", "label": "语言", "labelEn": "Language" },
-    "shortTitle": { "type": "text", "label": "短标题", "labelEn": "Short Title" },
-    "url": { "type": "url", "label": "网址", "labelEn": "URL" },
-    "accessDate": { "type": "date", "label": "访问日期", "labelEn": "Accessed" },
-    "rights": { "type": "text", "label": "权利", "labelEn": "Rights" },
-    "extra": { "type": "long", "label": "其他", "labelEn": "Extra" },
-    "publicationTitle": { "type": "text", "label": "期刊", "labelEn": "Publication" },
-    "journalAbbreviation": { "type": "text", "label": "期刊缩写", "labelEn": "Journal Abbr" },
-    "volume": { "type": "text", "label": "卷", "labelEn": "Volume" },
-    "issue": { "type": "text", "label": "期", "labelEn": "Issue" },
-    "pages": { "type": "text", "label": "页码", "labelEn": "Pages" },
-    "series": { "type": "text", "label": "丛书", "labelEn": "Series" },
-    "seriesTitle": { "type": "text", "label": "丛书标题", "labelEn": "Series Title" },
-    "DOI": { "type": "text", "label": "DOI", "labelEn": "DOI" },
-    "ISSN": { "type": "text", "label": "ISSN", "labelEn": "ISSN" },
-    "ISBN": { "type": "text", "label": "ISBN", "labelEn": "ISBN" },
-    "PMID": { "type": "text", "label": "PMID", "labelEn": "PMID" },
-    "arXiv": { "type": "text", "label": "arXiv ID", "labelEn": "arXiv ID" },
-    "publisher": { "type": "text", "label": "出版社", "labelEn": "Publisher" },
-    "place": { "type": "text", "label": "地点", "labelEn": "Place" },
-    "edition": { "type": "text", "label": "版本", "labelEn": "Edition" },
-    "numPages": { "type": "text", "label": "页数", "labelEn": "# of Pages" },
-    "bookTitle": { "type": "text", "label": "书名", "labelEn": "Book Title" },
-    "proceedingsTitle": { "type": "text", "label": "会议录", "labelEn": "Proceedings Title" },
-    "conferenceName": { "type": "text", "label": "会议名称", "labelEn": "Conference Name" },
-    "institution": { "type": "text", "label": "机构", "labelEn": "Institution" },
-    "university": { "type": "text", "label": "学校", "labelEn": "University" },
-    "thesisType": { "type": "text", "label": "学位类型", "labelEn": "Type" },
-    "reportNumber": { "type": "text", "label": "报告编号", "labelEn": "Report Number" },
-    "reportType": { "type": "text", "label": "报告类型", "labelEn": "Report Type" },
-    "websiteTitle": { "type": "text", "label": "网站名", "labelEn": "Website Title" },
-    "websiteType": { "type": "text", "label": "网站类型", "labelEn": "Website Type" },
-    "repository": { "type": "text", "label": "仓库", "labelEn": "Repository" },
-    "archiveID": { "type": "text", "label": "存档编号", "labelEn": "Archive ID" },
-    "libraryCatalog": { "type": "text", "label": "馆藏目录", "labelEn": "Library Catalog" },
-    "callNumber": { "type": "text", "label": "索书号", "labelEn": "Call Number" },
-    "patentNumber": { "type": "text", "label": "专利号", "labelEn": "Patent Number" },
-    "assignee": { "type": "text", "label": "受让人", "labelEn": "Assignee" },
-    "code": { "type": "text", "label": "法规/代码", "labelEn": "Code" },
-    "note": { "type": "long", "label": "笔记", "labelEn": "Note" },
-    "filename": { "type": "text", "label": "文件名", "labelEn": "Filename" },
-    "contentType": { "type": "text", "label": "内容类型", "labelEn": "Content Type" },
-    "linkMode": { "type": "text", "label": "链接模式", "labelEn": "Link Mode" },
-    "medium": { "type": "text", "label": "介质", "labelEn": "Medium" },
-    "runningTime": { "type": "text", "label": "时长", "labelEn": "Running Time" },
-    "versionNumber": { "type": "text", "label": "版本号", "labelEn": "Version" },
-    "programmingLanguage": { "type": "text", "label": "编程语言", "labelEn": "Language" }
+    "title": {
+      "type": "text",
+      "label": "标题",
+      "labelEn": "Title"
+    },
+    "abstractNote": {
+      "type": "long",
+      "label": "摘要",
+      "labelEn": "Abstract"
+    },
+    "date": {
+      "type": "date",
+      "label": "日期",
+      "labelEn": "Date"
+    },
+    "language": {
+      "type": "text",
+      "label": "语言",
+      "labelEn": "Language"
+    },
+    "shortTitle": {
+      "type": "text",
+      "label": "短标题",
+      "labelEn": "Short Title"
+    },
+    "url": {
+      "type": "url",
+      "label": "网址",
+      "labelEn": "URL"
+    },
+    "accessDate": {
+      "type": "date",
+      "label": "访问日期",
+      "labelEn": "Accessed"
+    },
+    "rights": {
+      "type": "text",
+      "label": "权利",
+      "labelEn": "Rights"
+    },
+    "extra": {
+      "type": "long",
+      "label": "其他",
+      "labelEn": "Extra"
+    },
+    "publicationTitle": {
+      "type": "text",
+      "label": "期刊",
+      "labelEn": "Publication"
+    },
+    "journalAbbreviation": {
+      "type": "text",
+      "label": "期刊缩写",
+      "labelEn": "Journal Abbr"
+    },
+    "volume": {
+      "type": "text",
+      "label": "卷",
+      "labelEn": "Volume"
+    },
+    "issue": {
+      "type": "text",
+      "label": "期",
+      "labelEn": "Issue"
+    },
+    "pages": {
+      "type": "text",
+      "label": "页码",
+      "labelEn": "Pages"
+    },
+    "series": {
+      "type": "text",
+      "label": "丛书",
+      "labelEn": "Series"
+    },
+    "seriesTitle": {
+      "type": "text",
+      "label": "丛书标题",
+      "labelEn": "Series Title"
+    },
+    "DOI": {
+      "type": "text",
+      "label": "DOI",
+      "labelEn": "DOI"
+    },
+    "ISSN": {
+      "type": "text",
+      "label": "ISSN",
+      "labelEn": "ISSN"
+    },
+    "ISBN": {
+      "type": "text",
+      "label": "ISBN",
+      "labelEn": "ISBN"
+    },
+    "PMID": {
+      "type": "text",
+      "label": "PMID",
+      "labelEn": "PMID"
+    },
+    "arXiv": {
+      "type": "text",
+      "label": "arXiv ID",
+      "labelEn": "arXiv ID"
+    },
+    "publisher": {
+      "type": "text",
+      "label": "出版社",
+      "labelEn": "Publisher"
+    },
+    "place": {
+      "type": "text",
+      "label": "地点",
+      "labelEn": "Place"
+    },
+    "edition": {
+      "type": "text",
+      "label": "版本",
+      "labelEn": "Edition"
+    },
+    "numPages": {
+      "type": "text",
+      "label": "页数",
+      "labelEn": "# of Pages"
+    },
+    "bookTitle": {
+      "type": "text",
+      "label": "书名",
+      "labelEn": "Book Title"
+    },
+    "proceedingsTitle": {
+      "type": "text",
+      "label": "会议录",
+      "labelEn": "Proceedings Title"
+    },
+    "conferenceName": {
+      "type": "text",
+      "label": "会议名称",
+      "labelEn": "Conference Name"
+    },
+    "institution": {
+      "type": "text",
+      "label": "机构",
+      "labelEn": "Institution"
+    },
+    "university": {
+      "type": "text",
+      "label": "学校",
+      "labelEn": "University"
+    },
+    "thesisType": {
+      "type": "text",
+      "label": "学位类型",
+      "labelEn": "Type"
+    },
+    "reportNumber": {
+      "type": "text",
+      "label": "报告编号",
+      "labelEn": "Report Number"
+    },
+    "reportType": {
+      "type": "text",
+      "label": "报告类型",
+      "labelEn": "Report Type"
+    },
+    "websiteTitle": {
+      "type": "text",
+      "label": "网站名",
+      "labelEn": "Website Title"
+    },
+    "websiteType": {
+      "type": "text",
+      "label": "网站类型",
+      "labelEn": "Website Type"
+    },
+    "repository": {
+      "type": "text",
+      "label": "仓库",
+      "labelEn": "Repository"
+    },
+    "archiveID": {
+      "type": "text",
+      "label": "存档编号",
+      "labelEn": "Archive ID"
+    },
+    "libraryCatalog": {
+      "type": "text",
+      "label": "馆藏目录",
+      "labelEn": "Library Catalog"
+    },
+    "callNumber": {
+      "type": "text",
+      "label": "索书号",
+      "labelEn": "Call Number"
+    },
+    "patentNumber": {
+      "type": "text",
+      "label": "专利号",
+      "labelEn": "Patent Number"
+    },
+    "assignee": {
+      "type": "text",
+      "label": "受让人",
+      "labelEn": "Assignee"
+    },
+    "code": {
+      "type": "text",
+      "label": "法规/代码",
+      "labelEn": "Code"
+    },
+    "note": {
+      "type": "long",
+      "label": "笔记",
+      "labelEn": "Note"
+    },
+    "filename": {
+      "type": "text",
+      "label": "文件名",
+      "labelEn": "Filename"
+    },
+    "contentType": {
+      "type": "text",
+      "label": "内容类型",
+      "labelEn": "Content Type"
+    },
+    "linkMode": {
+      "type": "text",
+      "label": "链接模式",
+      "labelEn": "Link Mode"
+    },
+    "medium": {
+      "type": "text",
+      "label": "介质",
+      "labelEn": "Medium"
+    },
+    "runningTime": {
+      "type": "text",
+      "label": "时长",
+      "labelEn": "Running Time"
+    },
+    "versionNumber": {
+      "type": "text",
+      "label": "版本号",
+      "labelEn": "Version"
+    },
+    "programmingLanguage": {
+      "type": "text",
+      "label": "编程语言",
+      "labelEn": "Language"
+    },
+    "annotationType": {
+      "type": "text",
+      "label": "标注类型",
+      "labelEn": "Annotation type"
+    },
+    "annotationText": {
+      "type": "long",
+      "label": "选中文字",
+      "labelEn": "Selected text"
+    },
+    "annotationComment": {
+      "type": "long",
+      "label": "批注",
+      "labelEn": "Comment"
+    },
+    "annotationColor": {
+      "type": "text",
+      "label": "颜色",
+      "labelEn": "Colour"
+    },
+    "annotationPage": {
+      "type": "text",
+      "label": "页码",
+      "labelEn": "Page"
+    },
+    "annotationPosition": {
+      "type": "long",
+      "label": "位置",
+      "labelEn": "Position"
+    }
   },
   "itemTypes": [
     {
-      "type": "journalArticle", "label": "期刊论文", "labelEn": "Journal Article", "csl": "article-journal",
-      "fields": ["title", "abstractNote", "publicationTitle", "journalAbbreviation", "volume", "issue", "pages", "date", "series", "seriesTitle", "language", "DOI", "ISSN", "shortTitle", "url", "accessDate", "libraryCatalog", "callNumber", "rights", "extra"],
-      "creatorTypes": ["author", "editor", "translator", "reviewedAuthor", "contributor"]
+      "type": "journalArticle",
+      "label": "期刊论文",
+      "labelEn": "Journal Article",
+      "csl": "article-journal",
+      "fields": [
+        "title",
+        "abstractNote",
+        "publicationTitle",
+        "journalAbbreviation",
+        "volume",
+        "issue",
+        "pages",
+        "date",
+        "series",
+        "seriesTitle",
+        "language",
+        "DOI",
+        "ISSN",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "libraryCatalog",
+        "callNumber",
+        "rights",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "editor",
+        "translator",
+        "reviewedAuthor",
+        "contributor"
+      ]
     },
     {
-      "type": "conferencePaper", "label": "会议论文", "labelEn": "Conference Paper", "csl": "paper-conference",
-      "fields": ["title", "abstractNote", "proceedingsTitle", "conferenceName", "place", "publisher", "volume", "pages", "series", "date", "language", "DOI", "ISBN", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["author", "editor", "translator", "contributor"]
+      "type": "conferencePaper",
+      "label": "会议论文",
+      "labelEn": "Conference Paper",
+      "csl": "paper-conference",
+      "fields": [
+        "title",
+        "abstractNote",
+        "proceedingsTitle",
+        "conferenceName",
+        "place",
+        "publisher",
+        "volume",
+        "pages",
+        "series",
+        "date",
+        "language",
+        "DOI",
+        "ISBN",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "editor",
+        "translator",
+        "contributor"
+      ]
     },
     {
-      "type": "preprint", "label": "预印本", "labelEn": "Preprint", "csl": "article",
-      "fields": ["title", "abstractNote", "repository", "archiveID", "arXiv", "date", "language", "DOI", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["author", "contributor"]
+      "type": "preprint",
+      "label": "预印本",
+      "labelEn": "Preprint",
+      "csl": "article",
+      "fields": [
+        "title",
+        "abstractNote",
+        "repository",
+        "archiveID",
+        "arXiv",
+        "date",
+        "language",
+        "DOI",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "contributor"
+      ]
     },
     {
-      "type": "book", "label": "图书", "labelEn": "Book", "csl": "book",
-      "fields": ["title", "abstractNote", "series", "seriesTitle", "volume", "edition", "place", "publisher", "date", "numPages", "language", "ISBN", "shortTitle", "url", "accessDate", "libraryCatalog", "callNumber", "rights", "extra"],
-      "creatorTypes": ["author", "editor", "translator", "contributor", "seriesEditor"]
+      "type": "book",
+      "label": "图书",
+      "labelEn": "Book",
+      "csl": "book",
+      "fields": [
+        "title",
+        "abstractNote",
+        "series",
+        "seriesTitle",
+        "volume",
+        "edition",
+        "place",
+        "publisher",
+        "date",
+        "numPages",
+        "language",
+        "ISBN",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "libraryCatalog",
+        "callNumber",
+        "rights",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "editor",
+        "translator",
+        "contributor",
+        "seriesEditor"
+      ]
     },
     {
-      "type": "bookSection", "label": "图书章节", "labelEn": "Book Section", "csl": "chapter",
-      "fields": ["title", "abstractNote", "bookTitle", "series", "volume", "edition", "place", "publisher", "date", "pages", "language", "ISBN", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["author", "bookAuthor", "editor", "translator", "contributor"]
+      "type": "bookSection",
+      "label": "图书章节",
+      "labelEn": "Book Section",
+      "csl": "chapter",
+      "fields": [
+        "title",
+        "abstractNote",
+        "bookTitle",
+        "series",
+        "volume",
+        "edition",
+        "place",
+        "publisher",
+        "date",
+        "pages",
+        "language",
+        "ISBN",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "bookAuthor",
+        "editor",
+        "translator",
+        "contributor"
+      ]
     },
     {
-      "type": "thesis", "label": "学位论文", "labelEn": "Thesis", "csl": "thesis",
-      "fields": ["title", "abstractNote", "thesisType", "university", "place", "date", "numPages", "language", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["author", "contributor"]
+      "type": "thesis",
+      "label": "学位论文",
+      "labelEn": "Thesis",
+      "csl": "thesis",
+      "fields": [
+        "title",
+        "abstractNote",
+        "thesisType",
+        "university",
+        "place",
+        "date",
+        "numPages",
+        "language",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "contributor"
+      ]
     },
     {
-      "type": "report", "label": "报告", "labelEn": "Report", "csl": "report",
-      "fields": ["title", "abstractNote", "reportNumber", "reportType", "institution", "place", "date", "pages", "language", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["author", "contributor", "translator"]
+      "type": "report",
+      "label": "报告",
+      "labelEn": "Report",
+      "csl": "report",
+      "fields": [
+        "title",
+        "abstractNote",
+        "reportNumber",
+        "reportType",
+        "institution",
+        "place",
+        "date",
+        "pages",
+        "language",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "contributor",
+        "translator"
+      ]
     },
     {
-      "type": "webpage", "label": "网页", "labelEn": "Web Page", "csl": "webpage",
-      "fields": ["title", "abstractNote", "websiteTitle", "websiteType", "date", "language", "shortTitle", "url", "accessDate", "rights", "extra"],
-      "creatorTypes": ["author", "contributor", "translator"]
+      "type": "webpage",
+      "label": "网页",
+      "labelEn": "Web Page",
+      "csl": "webpage",
+      "fields": [
+        "title",
+        "abstractNote",
+        "websiteTitle",
+        "websiteType",
+        "date",
+        "language",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "rights",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "contributor",
+        "translator"
+      ]
     },
     {
-      "type": "manuscript", "label": "手稿", "labelEn": "Manuscript", "csl": "manuscript",
-      "fields": ["title", "abstractNote", "medium", "place", "date", "numPages", "language", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["author", "contributor", "translator"]
+      "type": "manuscript",
+      "label": "手稿",
+      "labelEn": "Manuscript",
+      "csl": "manuscript",
+      "fields": [
+        "title",
+        "abstractNote",
+        "medium",
+        "place",
+        "date",
+        "numPages",
+        "language",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "contributor",
+        "translator"
+      ]
     },
     {
-      "type": "patent", "label": "专利", "labelEn": "Patent", "csl": "patent",
-      "fields": ["title", "abstractNote", "place", "assignee", "patentNumber", "date", "language", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["inventor", "attorneyAgent", "contributor"]
+      "type": "patent",
+      "label": "专利",
+      "labelEn": "Patent",
+      "csl": "patent",
+      "fields": [
+        "title",
+        "abstractNote",
+        "place",
+        "assignee",
+        "patentNumber",
+        "date",
+        "language",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "inventor",
+        "attorneyAgent",
+        "contributor"
+      ]
     },
     {
-      "type": "standard", "label": "标准", "labelEn": "Standard", "csl": "standard",
-      "fields": ["title", "abstractNote", "code", "publisher", "date", "language", "DOI", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["author", "contributor"]
+      "type": "standard",
+      "label": "标准",
+      "labelEn": "Standard",
+      "csl": "standard",
+      "fields": [
+        "title",
+        "abstractNote",
+        "code",
+        "publisher",
+        "date",
+        "language",
+        "DOI",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "contributor"
+      ]
     },
     {
-      "type": "dataset", "label": "数据集", "labelEn": "Dataset", "csl": "dataset",
-      "fields": ["title", "abstractNote", "repository", "archiveID", "versionNumber", "date", "language", "DOI", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["author", "contributor"]
+      "type": "dataset",
+      "label": "数据集",
+      "labelEn": "Dataset",
+      "csl": "dataset",
+      "fields": [
+        "title",
+        "abstractNote",
+        "repository",
+        "archiveID",
+        "versionNumber",
+        "date",
+        "language",
+        "DOI",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "contributor"
+      ]
     },
     {
-      "type": "computerProgram", "label": "软件", "labelEn": "Software", "csl": "software",
-      "fields": ["title", "abstractNote", "versionNumber", "date", "place", "publisher", "programmingLanguage", "ISBN", "shortTitle", "url", "accessDate", "rights", "extra"],
-      "creatorTypes": ["programmer", "contributor"]
+      "type": "computerProgram",
+      "label": "软件",
+      "labelEn": "Software",
+      "csl": "software",
+      "fields": [
+        "title",
+        "abstractNote",
+        "versionNumber",
+        "date",
+        "place",
+        "publisher",
+        "programmingLanguage",
+        "ISBN",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "rights",
+        "extra"
+      ],
+      "creatorTypes": [
+        "programmer",
+        "contributor"
+      ]
     },
     {
-      "type": "presentation", "label": "演讲", "labelEn": "Presentation", "csl": "speech",
-      "fields": ["title", "abstractNote", "medium", "place", "date", "language", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["presenter", "contributor"]
+      "type": "presentation",
+      "label": "演讲",
+      "labelEn": "Presentation",
+      "csl": "speech",
+      "fields": [
+        "title",
+        "abstractNote",
+        "medium",
+        "place",
+        "date",
+        "language",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "presenter",
+        "contributor"
+      ]
     },
     {
-      "type": "magazineArticle", "label": "杂志文章", "labelEn": "Magazine Article", "csl": "article-magazine",
-      "fields": ["title", "abstractNote", "publicationTitle", "volume", "issue", "date", "pages", "language", "ISSN", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["author", "contributor", "translator"]
+      "type": "magazineArticle",
+      "label": "杂志文章",
+      "labelEn": "Magazine Article",
+      "csl": "article-magazine",
+      "fields": [
+        "title",
+        "abstractNote",
+        "publicationTitle",
+        "volume",
+        "issue",
+        "date",
+        "pages",
+        "language",
+        "ISSN",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "contributor",
+        "translator"
+      ]
     },
     {
-      "type": "newspaperArticle", "label": "报纸文章", "labelEn": "Newspaper Article", "csl": "article-newspaper",
-      "fields": ["title", "abstractNote", "publicationTitle", "place", "edition", "date", "pages", "language", "ISSN", "shortTitle", "url", "accessDate", "extra"],
-      "creatorTypes": ["author", "contributor", "translator"]
+      "type": "newspaperArticle",
+      "label": "报纸文章",
+      "labelEn": "Newspaper Article",
+      "csl": "article-newspaper",
+      "fields": [
+        "title",
+        "abstractNote",
+        "publicationTitle",
+        "place",
+        "edition",
+        "date",
+        "pages",
+        "language",
+        "ISSN",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "contributor",
+        "translator"
+      ]
     },
     {
-      "type": "document", "label": "文档", "labelEn": "Document", "csl": "document",
-      "fields": ["title", "abstractNote", "publisher", "date", "language", "shortTitle", "url", "accessDate", "rights", "extra"],
-      "creatorTypes": ["author", "contributor", "editor", "translator"]
+      "type": "document",
+      "label": "文档",
+      "labelEn": "Document",
+      "csl": "document",
+      "fields": [
+        "title",
+        "abstractNote",
+        "publisher",
+        "date",
+        "language",
+        "shortTitle",
+        "url",
+        "accessDate",
+        "rights",
+        "extra"
+      ],
+      "creatorTypes": [
+        "author",
+        "contributor",
+        "editor",
+        "translator"
+      ]
     },
     {
-      "type": "note", "label": "笔记", "labelEn": "Note", "csl": "document", "internal": true,
-      "fields": ["note"],
+      "type": "note",
+      "label": "笔记",
+      "labelEn": "Note",
+      "csl": "document",
+      "internal": true,
+      "fields": [
+        "note"
+      ],
       "creatorTypes": []
     },
     {
-      "type": "attachment", "label": "附件", "labelEn": "Attachment", "csl": "document", "internal": true,
-      "fields": ["title", "filename", "contentType", "linkMode", "url", "accessDate", "note"],
+      "type": "attachment",
+      "label": "附件",
+      "labelEn": "Attachment",
+      "csl": "document",
+      "internal": true,
+      "fields": [
+        "title",
+        "filename",
+        "contentType",
+        "linkMode",
+        "url",
+        "accessDate",
+        "note"
+      ],
+      "creatorTypes": []
+    },
+    {
+      "type": "annotation",
+      "label": "标注",
+      "labelEn": "Annotation",
+      "csl": "document",
+      "internal": true,
+      "fields": [
+        "annotationType",
+        "annotationText",
+        "annotationComment",
+        "annotationColor",
+        "annotationPage",
+        "annotationPosition"
+      ],
       "creatorTypes": []
     }
   ]

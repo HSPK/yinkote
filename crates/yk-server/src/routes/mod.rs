@@ -9,6 +9,7 @@ mod plugins;
 mod scrape;
 mod search;
 mod smart;
+mod summarise;
 mod system;
 
 use axum::Router;
@@ -33,6 +34,7 @@ pub fn router() -> Router<App> {
         .merge(search::router())
         .merge(scrape::router())
         .merge(smart::router())
+        .merge(summarise::router())
         .merge(plugins::router())
 }
 

@@ -149,6 +149,7 @@ interface State {
   activateTab: (id: string) => void
   openReader: (itemKey: string) => void
   fetchPdf: (itemKey: string, url?: string) => Promise<void>
+  summarise: (itemKey: string) => Promise<void>
   openCollectionEditor: (key: string | null) => void
   saveCollection: (key: string | null, values: CollectionValues) => Promise<void>
   setLayout: (patch: Partial<{ sidebar: number; detail: number }>, commit?: boolean) => void
@@ -558,6 +559,12 @@ export const useStore = create<State>((set, get) => ({
       title: String(title ?? itemKey),
       target: itemKey,
     })
+  },
+
+  /** Ask the model for a summary; it lands as a note under the item. */
+  async summarise(itemKey) {
+    await api.summarise(get().library, itemKey)
+    await get().refresh()
   },
 
   /** Download the item's PDF and attach it, then show it. */

@@ -1634,4 +1634,113 @@ select.ctl { padding: 4px 6px; }
   border-color: var(--line-2);
 }
 
-.reader-frame { flex: 1; width: 100%; min-height: 0; border: 0; background: var(--bg); }
+/* ─── pdf reader ─────────────────────────────────────────────────────────── */
+
+.reader-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 8px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.reader-bar .spacer { flex: 1; }
+.reader-zoom { font: 10px/1 var(--mono); color: var(--fg-mute); min-width: 32px; text-align: center; }
+
+.reader-body { flex: 1; display: flex; min-height: 0; }
+.reader-pages { flex: 1; min-width: 0; overflow: auto; padding: 12px; background: var(--bg); }
+
+.reader-notes {
+  flex: none;
+  width: 260px;
+  overflow: auto;
+  border-left: 1px solid var(--line);
+  background: var(--bg-1);
+}
+
+.note-card {
+  display: block;
+  width: 100%;
+  padding: 6px 9px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid var(--line-2);
+}
+
+.note-card:hover { background: var(--bg-2); }
+.note-card[data-colour='amber'] { border-left-color: var(--c-amber); }
+.note-card[data-colour='green'] { border-left-color: var(--c-green); }
+.note-card[data-colour='blue'] { border-left-color: var(--c-blue); }
+.note-card[data-colour='violet'] { border-left-color: var(--c-violet); }
+.note-card[data-colour='red'] { border-left-color: var(--c-red); }
+
+.note-page { display: block; font: 10px/1.6 var(--mono); color: var(--fg-mute); }
+.note-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-dim);
+}
+
+.pdf-page {
+  position: relative;
+  margin: 0 auto 12px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 45%);
+}
+
+.pdf-page canvas { display: block; }
+
+.pdf-number {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font: 9px/1 var(--mono);
+  color: rgb(0 0 0 / 35%);
+}
+
+/* Highlights sit above the picture and below the text, so a highlighted
+   passage can still be selected and highlighted again. */
+.pdf-highlights { position: absolute; inset: 0; pointer-events: none; }
+
+.pdf-highlight {
+  position: absolute;
+  pointer-events: auto;
+  mix-blend-mode: multiply;
+  cursor: pointer;
+}
+
+.pdf-highlight[data-colour='amber'] { background: rgb(255 214 102 / 55%); }
+.pdf-highlight[data-colour='green'] { background: rgb(134 226 154 / 55%); }
+.pdf-highlight[data-colour='blue'] { background: rgb(134 190 250 / 55%); }
+.pdf-highlight[data-colour='violet'] { background: rgb(198 166 246 / 55%); }
+.pdf-highlight[data-colour='red'] { background: rgb(250 150 142 / 55%); }
+
+/* pdf.js positions transparent spans over the canvas; without them a page is a
+   picture with no text to select. */
+.pdf-text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0.25;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+}
+
+.pdf-text span,
+.pdf-text br {
+  position: absolute;
+  white-space: pre;
+  color: transparent;
+  cursor: text;
+  transform-origin: 0 0;
+}
+
+.pdf-text ::selection { background: rgb(77 163 255 / 45%); }
