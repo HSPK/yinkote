@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { rankMatches } from '../lib/fuzzy'
+import { PAGES, PAGE_LABELS, navigate } from '../lib/router'
 import { useStore } from '../state/store'
 import { confirmAction, promptFor, withToast } from '../ui'
 
@@ -50,9 +51,11 @@ export function CommandPalette() {
       },
       { id: 'library', label: '打开：我的文库', run: store.openLibrary },
       { id: 'trash', label: '打开：回收站', run: store.openTrash },
-      { id: 'panel-detail', label: '面板：详情', run: () => store.setPanel('detail') },
-      { id: 'panel-plugins', label: '面板：插件', run: () => store.setPanel('plugins') },
-      { id: 'panel-stats', label: '面板：运行状态', run: () => store.setPanel('stats') },
+      ...PAGES.map((id) => ({
+        id: `page-${id}`,
+        label: `前往：${PAGE_LABELS[id].label}`,
+        run: () => navigate(id),
+      })),
       { id: 'clear', label: '清除筛选与搜索', run: store.clearFilters },
       { id: 'reindex', label: '重建搜索索引', run: store.reindex },
       { id: 'reload-plugins', label: '重新扫描插件', run: store.reloadPlugins },

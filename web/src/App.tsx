@@ -1,13 +1,15 @@
 import { useEffect } from 'react'
 
 import { CommandPalette } from './components/CommandPalette'
-import { DetailPanel } from './components/DetailPanel'
-import { ItemTable } from './components/ItemTable'
-import { PluginPanel } from './components/PluginPanel'
-import { Sidebar } from './components/Sidebar'
-import { StatsPanel } from './components/StatsPanel'
+import { NavRail } from './components/NavRail'
 import { StatusBar } from './components/StatusBar'
 import { TopBar } from './components/TopBar'
+import { onNavigate, pageFromHash } from './lib/router'
+import { ChatPage } from './pages/ChatPage'
+import { LibraryPage } from './pages/LibraryPage'
+import { PluginsPage } from './pages/PluginsPage'
+import { SettingsPage } from './pages/SettingsPage'
+import { StatusPage } from './pages/StatusPage'
 import { useStore } from './state/store'
 import { OverlayHost } from './ui'
 
@@ -85,15 +87,30 @@ function useGlobalKeys() {
   }, [store])
 }
 
+const PAGES = {
+  library: LibraryPage,
+  chat: ChatPage,
+  plugins: PluginsPage,
+  status: StatusPage,
+  settings: SettingsPage,
+}
+
 export function App() {
   const ready = useStore((s) => s.ready)
   const error = useStore((s) => s.error)
-  const panel = useStore((s) => s.panel)
+  const page = useStore((s) => s.page)
+  const setPage = useStore((s) => s.setPage)
   const bootstrap = useStore((s) => s.bootstrap)
 
   useEffect(() => {
     void bootstrap()
   }, [bootstrap])
+
+  // The hash is the source of truth, so Back and deep links both work.
+  useEffect(() => {
+    setPage(pageFromHash())
+    return onNavigate(setPage)
+  }, [setPage])
 
   useGlobalKeys()
 
@@ -101,16 +118,17 @@ export function App() {
     return <div className="empty" style={{ paddingTop: '20vh' }}>正在连接 Yinkote 服务…</div>
   }
 
+  const Current = PAGES[page]
+
   return (
     <div className="app">
       <TopBar />
       {error && <div className="banner">{error}</div>}
-      <div className="workspace">
-        <Sidebar />
-        <ItemTable />
-        {panel === 'detail' && <DetailPanel />}
-        {panel === 'plugins' && <PluginPanel />}
-        {panel === 'stats' && <StatsPanel />}
+      <div className="shell">
+        <NavRail />
+        <main className="page-host">
+          <Current />
+        </main>
       </div>
       <StatusBar />
       <CommandPalette />

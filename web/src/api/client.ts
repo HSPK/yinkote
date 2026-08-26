@@ -11,6 +11,7 @@ import type {
   PluginStatus,
   QuickAddResponse,
   ResolveResponse,
+  ServerInfo,
   Schema,
   SearchHit,
   SourceInfo,
@@ -80,7 +81,7 @@ export function buildQuery(query: ListQuery): string {
 const json = (body: unknown): RequestInit => ({ body: JSON.stringify(body) })
 
 export const api = {
-  ping: () => request<{ ok: boolean; version: string; defaultLibrary: number }>('/ping'),
+  ping: () => request<ServerInfo>('/ping'),
   schema: () => request<Schema>('/schema'),
   stats: () => request<Stats>('/stats'),
   libraries: () => request<{ id: number; name: string; version: number }[]>('/libraries'),
@@ -176,6 +177,12 @@ export const api = {
     reload: () => request<PluginStatus[]>('/plugins/reload', { method: 'POST' }),
     call: (id: string, method: string, params: unknown) =>
       request<unknown>(`/plugins/${id}/call`, { method: 'POST', ...json({ method, params }) }),
+  },
+
+  settings: {
+    get: () => request<Record<string, unknown>>('/settings'),
+    put: (values: Record<string, unknown>) =>
+      request<{ ok: boolean }>('/settings', { method: 'PUT', ...json(values) }),
   },
 
   maintenance: {

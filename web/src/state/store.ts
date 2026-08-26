@@ -7,6 +7,7 @@
 import { create } from 'zustand'
 
 import { api, connectEvents } from '../api/client'
+import { pageFromHash, type Page } from '../lib/router'
 import { useOverlays } from '../ui/overlays'
 import type {
   Collection,
@@ -15,6 +16,7 @@ import type {
   PluginStatus,
   Schema,
   SearchMode,
+  ServerInfo,
   Stats,
   Tag,
 } from '../api/types'
@@ -30,7 +32,13 @@ interface State {
   library: number
   schema: Schema | null
   stats: Stats | null
+  server: ServerInfo | null
   plugins: PluginStatus[]
+
+  /** Which top-level page is showing; mirrors location.hash. */
+  page: Page
+  /** Row height preference, persisted server-side under `ui.`. */
+  density: string
 
   // navigation
   view: View
@@ -72,6 +80,9 @@ interface State {
   select: (key: string, additive?: boolean) => void
   moveCursor: (delta: number) => void
   setPanel: (p: Panel) => void
+  setPage: (p: Page) => void
+  setDensity: (d: string) => void
+  optimize: () => Promise<void>
   togglePalette: (open?: boolean) => void
   patchItem: (key: string, patch: Record<string, unknown>) => Promise<void>
   trashSelected: () => Promise<void>
@@ -106,7 +117,10 @@ export const useStore = create<State>((set, get) => ({
   library: 1,
   schema: null,
   stats: null,
+  server: null,
   plugins: [],
+  page: pageFromHash(),
+  density: 'compact',
 
   view: 'library',
   collection: null,
@@ -132,9 +146,26 @@ export const useStore = create<State>((set, get) => ({
 
   async bootstrap() {
     try {
-      const ping = await api.ping()
-      const [schema, collections] = await Promise.all([api.schema(), api.collections.list(ping.defaultLibrary)])
-      set({ library: ping.defaultLibrary, schema, collections, ready: true, error: null })
+      const server = await api.ping()
+      const [schema, collections, settings] = await Promise.all([
+        api.schema(),
+        api.collections.list(server.defaultLibrary),
+        api.settings.get().catch(() => ({}) as Record<string, unknown>),
+      ])
+      set({
+        library: server.defaultLibrary,
+        server,
+        schema,
+        collections,
+        ready: true,
+        error: null,
+      })
+      if (typeof settings['ui.density'] === 'string') {
+        get().setDensity(settings['ui.density'])
+      }
+      if (typeof settings['ui.searchMode'] === 'string') {
+        set({ mode: settings['ui.searchMode'] as SearchMode })
+      }
       await Promise.all([get().refresh(), get().reloadSidebar()])
 
       connectEvents((event) => {
@@ -216,6 +247,7 @@ export const useStore = create<State>((set, get) => ({
 
   setMode(mode) {
     set({ mode })
+    void api.settings.put({ searchMode: mode })
     void get().refresh()
   },
 
@@ -280,6 +312,23 @@ export const useStore = create<State>((set, get) => ({
 
   setPanel(panel) {
     set({ panel })
+  },
+
+  setPage(page) {
+    set({ page })
+  },
+
+  setDensity(density) {
+    set({ density })
+    document.documentElement.style.setProperty(
+      '--row-h',
+      density === 'comfortable' ? '32px' : '26px',
+    )
+    void api.settings.put({ density })
+  },
+
+  async optimize() {
+    await api.maintenance.optimize()
   },
 
   togglePalette(open) {

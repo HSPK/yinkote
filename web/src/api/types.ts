@@ -169,3 +169,16 @@ export interface SourceInfo {
   label: string
   supports: string[]
 }
+
+export interface ServerInfo {
+  ok: boolean
+  service: string
+  version: string
+  apiVersion: number
+  pluginApiVersion: number
+  uptimeSecs: number
+  defaultLibrary: number
+  dataDir: string
+  pluginDirs: string[]
+  bind: string
+}

@@ -77,9 +77,13 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="empty">{children}</div>
 }
 
-export function Badge({ tone, children }: { tone?: string; children: ReactNode }) {
+export function Badge({
+  tone,
+  children,
+  ...props
+}: React.HTMLAttributes<HTMLSpanElement> & { tone?: string; children: ReactNode }) {
   return (
-    <span className="badge" data-tone={tone}>
+    <span {...props} className={`badge ${props.className ?? ''}`.trim()} data-tone={tone}>
       {children}
     </span>
   )

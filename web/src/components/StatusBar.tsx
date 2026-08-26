@@ -28,11 +28,9 @@ export function StatusBar() {
       {error && <span className="err" title={error}>⚠ {error}</span>}
       {stats && <span>向量 {stats.search.embedded}/{stats.search.documents}</span>}
 
-      {(['detail', 'plugins', 'stats'] as const).map((p) => (
-        <button key={p} className="toolbtn" data-active={panel === p} onClick={() => setPanel(p)}>
-          {p === 'detail' ? '详情' : p === 'plugins' ? '插件' : '状态'}
-        </button>
-      ))}
+      <button className="toolbtn" data-active={panel === 'detail'} onClick={() => setPanel('detail')}>
+        详情面板
+      </button>
     </footer>
   )
 }
