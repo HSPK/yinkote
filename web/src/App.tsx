@@ -114,7 +114,7 @@ export function App() {
   if (!ready) {
     return (
       <div className="empty" style={{ paddingTop: '20vh' }}>
-        Connecting to Yinkote…
+        {t('app.connecting')}
       </div>
     )
   }

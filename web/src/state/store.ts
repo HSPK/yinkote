@@ -7,7 +7,7 @@
 import { create } from 'zustand'
 
 import { api, connectEvents } from '../api/client'
-import { detectLocale, useI18n, type Locale } from '../i18n'
+import { detectLocale, schemaLabel, t, useI18n, type Locale } from '../i18n'
 import { applyTheme, DEFAULT_THEME } from '../lib/theme'
 import { useOverlays } from '../ui/overlays'
 import type {
@@ -572,24 +572,27 @@ export const useStore = create<State>((set, get) => ({
   async newItemDialog() {
     const types = (get().schema?.itemTypes ?? []).filter((t) => !t.internal)
     const values = await useOverlays.getState().ask({
-      title: '新建条目',
+      title: t('dialog.newItem'),
       fields: [
         {
           name: 'title',
-          label: '标题',
+          label: t('table.title'),
           required: true,
           autoFocus: true,
-          placeholder: '文献标题',
+          placeholder: t('dialog.itemTitle'),
         },
         {
           name: 'itemType',
-          label: '类型',
+          label: t('table.type'),
           type: 'select',
           defaultValue: 'journalArticle',
-          options: types.map((t) => ({ value: t.type, label: t.label })),
+          options: types.map((d) => ({
+            value: d.type,
+            label: schemaLabel(d, useI18n.getState().locale, d.type),
+          })),
         },
       ],
-      confirmLabel: '创建',
+      confirmLabel: t('dialog.create'),
     })
     if (!values?.title?.trim()) return null
     return {

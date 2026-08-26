@@ -32,7 +32,7 @@ export function ChatView() {
     )
   }
 
-  const title = conversations.find((c) => c.key === conversation)?.title ?? ''
+  const title = conversations.find((c) => c.key === conversation)?.title || t('chat.untitled')
 
   const submit = async () => {
     const text = draft.trim()

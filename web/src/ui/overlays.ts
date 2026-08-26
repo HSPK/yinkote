@@ -8,6 +8,8 @@
  */
 import { create } from 'zustand'
 
+import { t } from '../i18n'
+
 // ─── dialogs ────────────────────────────────────────────────────────────────
 
 export interface DialogField {
@@ -158,8 +160,8 @@ export async function confirmAction(
 ): Promise<boolean> {
   const result = await useOverlays.getState().ask({
     title,
-    confirmLabel: '确定',
-    cancelLabel: '取消',
+    confirmLabel: t('dialog.confirm'),
+    cancelLabel: t('dialog.cancel'),
     ...spec,
   })
   return result !== null

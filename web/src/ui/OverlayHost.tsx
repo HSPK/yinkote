@@ -4,6 +4,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
+import { t } from '../i18n'
 import { Button } from './controls'
 import { useOverlays, type MenuItem } from './overlays'
 
@@ -104,10 +105,10 @@ function DialogHost() {
 
         <footer className="dialog-foot">
           <Button type="button" tone="ghost" onClick={() => resolve(null)}>
-            {dialog.cancelLabel ?? '取消'}
+            {dialog.cancelLabel ?? t('dialog.cancel')}
           </Button>
           <Button type="submit" tone={dialog.danger ? 'danger' : 'primary'} disabled={missing}>
-            {dialog.confirmLabel ?? '确定'}
+            {dialog.confirmLabel ?? t('dialog.confirm')}
           </Button>
         </footer>
       </form>
@@ -214,24 +215,24 @@ function ToastHost() {
   if (!toasts.length) return null
   return (
     <div className="toasts">
-      {toasts.map((t) => (
-        <div key={t.id} className="toast" data-tone={t.tone}>
+      {toasts.map((entry) => (
+        <div key={entry.id} className="toast" data-tone={entry.tone}>
           <div className="toast-body">
-            <span className="toast-message">{t.message}</span>
-            {t.detail && <span className="toast-detail">{t.detail}</span>}
+            <span className="toast-message">{entry.message}</span>
+            {entry.detail && <span className="toast-detail">{entry.detail}</span>}
           </div>
-          {t.action && (
+          {entry.action && (
             <button
               className="toast-action"
               onClick={() => {
-                dismiss(t.id)
-                t.action?.onSelect()
+                dismiss(entry.id)
+                entry.action?.onSelect()
               }}
             >
-              {t.action.label}
+              {entry.action.label}
             </button>
           )}
-          <button className="toast-close" onClick={() => dismiss(t.id)} title="关闭">
+          <button className="toast-close" onClick={() => dismiss(entry.id)} title={t('toast.dismiss')}>
             ×
           </button>
         </div>

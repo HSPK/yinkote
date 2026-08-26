@@ -159,7 +159,7 @@ export function PluginsPage() {
               <option value="">{t('plugins.choose')}</option>
               {plugins.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}（{p.id}）
+                  {p.name} ({p.id})
                 </option>
               ))}
             </select>

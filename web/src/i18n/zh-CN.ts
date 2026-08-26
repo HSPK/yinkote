@@ -42,7 +42,7 @@ export const zhCN = {
   'sidebar.newSmart': '新建智能收藏夹',
 
   'table.title': '标题',
-  'table.creator': '作者',
+  'table.author': '作者',
   'table.year': '年',
   'table.type': '类型',
   'table.tags': '标签',
@@ -56,12 +56,12 @@ export const zhCN = {
   'detail.multiple': '已选中 {count} 条',
   'detail.untitled': '(无标题)',
   'detail.type': '类型',
-  'detail.creators': '作者',
+  'detail.authors': '作者',
   'detail.tags': '标签',
   'detail.collections': '收藏夹',
   'detail.addCollection': '+ 加入…',
   'detail.addTag': '+ 标签',
-  'detail.addCreator': '+ 作者',
+  'detail.addAuthor': '+ 作者',
   'detail.tagManual': '手动标签',
   'detail.tagAuto': '自动标签',
   'detail.remove': '移除',
@@ -259,6 +259,9 @@ export const zhCN = {
   'chat.role.system': '系统',
   'menu.delete': '删除',
   'toast.dropFailed': '拖放失败',
+  'dialog.itemTitle': '文献标题',
+  'toast.dismiss': '关闭',
+  'chat.untitled': '未命名对话',
 } as const
 
 export type MessageKey = keyof typeof zhCN

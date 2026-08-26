@@ -79,3 +79,45 @@ describe('t', () => {
     expect(t('status.selected', { count: 3 })).toBe('3 selected')
   })
 })
+
+describe('locale hygiene', () => {
+  const CJK = /[\u3400-\u4dbf\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/
+
+  it('keeps the English catalogue free of Chinese', () => {
+    const leaked = Object.entries(enUS).filter(([, value]) => CJK.test(value))
+    expect(leaked, `untranslated: ${leaked.map(([k]) => k).join(', ')}`).toEqual([])
+  })
+
+  it('names authors, not creators', () => {
+    // Zotero's term of art is "creator"; users say "author". The label follows
+    // the user, so a reintroduced "creator" is a regression, not a synonym.
+    const creators = Object.entries(enUS).filter(([, v]) => /creator/i.test(v))
+    expect(creators).toEqual([])
+  })
+
+  it('has no user-visible string hardcoded outside the catalogues', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs')
+    const { join } = await import('node:path')
+
+    const walk = (dir: string): string[] =>
+      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+        const path = join(dir, e.name)
+        if (e.isDirectory()) return walk(path)
+        return /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [path] : []
+      })
+
+    const offenders = walk('src')
+      .filter((path) => !path.includes(join('src', 'i18n')))
+      .flatMap((path) =>
+        readFileSync(path, 'utf8')
+          .split('\n')
+          .map((line, i) => ({ where: `${path}:${i + 1}`, line }))
+          .filter(({ line }) => CJK.test(line)),
+      )
+
+    expect(
+      offenders,
+      `hardcoded text: ${offenders.map((o) => o.where).join(', ')}`,
+    ).toEqual([])
+  })
+})

@@ -236,7 +236,7 @@ impl Resolver for WebPage {
         "webpage"
     }
     fn label(&self) -> &'static str {
-        "网页元数据"
+        "Web Page"
     }
     fn supports(&self) -> &'static [&'static str] {
         &["url"]
@@ -299,5 +299,22 @@ mod tests {
         assert_eq!(urlencoding("10.1038/nature14539"), "10.1038/nature14539");
         assert_eq!(urlencoding("10.1002/(sici)1097"), "10.1002%2F%28sici%291097".replace("%2F", "/"));
         assert!(urlencoding("a b").contains("%20"));
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    #[test]
+    fn resolver_labels_are_language_neutral() {
+        // These reach the UI verbatim, which has no way to translate them, so
+        // they must read the same to every user: brand names or plain English.
+        for r in crate::ScrapeEngine::with_defaults().sources() {
+            assert!(
+                r.label.is_ascii() && !r.label.is_empty(),
+                "resolver {} has a non-neutral label {:?}",
+                r.id,
+                r.label
+            );
+        }
     }
 }

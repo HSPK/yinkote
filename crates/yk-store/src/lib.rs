@@ -25,6 +25,13 @@ pub use smart::SqliteSmartCollectionRepository;
 use yk_core::ports::*;
 use yk_core::Result;
 
+/// The default library's name.
+///
+/// Deliberately language-neutral: the sidebar renders its own translated label,
+/// so a name baked into the database in one language would only ever leak into
+/// exports and API responses read by the other.
+pub const DEFAULT_LIBRARY_NAME: &str = "My Library";
+
 /// Composition root for persistence. Cloning is cheap.
 #[derive(Clone)]
 pub struct Store {
@@ -45,7 +52,7 @@ pub struct Store {
 impl Store {
     pub fn open(path: Option<&Path>) -> Result<Self> {
         let db = Db::open(path)?;
-        let default_library = SqliteLibraryRepository::ensure_default(&db, "我的文库")?;
+        let default_library = SqliteLibraryRepository::ensure_default(&db, DEFAULT_LIBRARY_NAME)?;
         let items_impl = SqliteItemRepository::new(db.clone());
         let libraries: Arc<dyn LibraryRepository> =
             Arc::new(SqliteLibraryRepository::new(db.clone()));

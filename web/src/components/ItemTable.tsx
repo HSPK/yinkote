@@ -7,13 +7,13 @@ import { useStore } from '../state/store'
 import { beginDrag, endDrag } from '../lib/dnd'
 import { contextMenu } from '../ui'
 import { itemMenu } from './menus'
-import { useT } from '../i18n'
+import { useSchemaLabel, useT } from '../i18n'
 
 /** Column definitions. `id` keys the persisted widths, so renaming a label or
  *  switching language never disturbs a user's layout. */
 const COLUMNS = [
   { id: 'title', field: 'title', key: 'table.title', width: 0, min: 160 },
-  { id: 'creator', field: 'creator', key: 'table.creator', width: 150, min: 80 },
+  { id: 'author', field: 'creator', key: 'table.author', width: 150, min: 80 },
   { id: 'year', field: 'year', key: 'table.year', width: 48, min: 40 },
   { id: 'type', field: 'itemType', key: 'table.type', width: 108, min: 64 },
   { id: 'tags', field: '', key: 'table.tags', width: 132, min: 64 },
@@ -49,7 +49,8 @@ function Row({ item, selected, cursor, style, grid }: {
   const t = useT()
   const select = useStore((s) => s.select)
   const selection = useStore((s) => s.selected)
-  const typeLabel = useStore((s) => s.schema?.itemTypes.find((t) => t.type === item.itemType)?.label)
+  const label = useSchemaLabel()
+  const typeDef = useStore((s) => s.schema?.itemTypes.find((d) => d.type === item.itemType))
   const snippet = item.match?.snippet
 
   return (
@@ -85,7 +86,7 @@ function Row({ item, selected, cursor, style, grid }: {
       </div>
       <div className="cell dim">{creatorSummary(item)}</div>
       <div className="cell num">{year(item)}</div>
-      <div className="cell dim">{typeLabel ?? item.itemType}</div>
+      <div className="cell dim">{label(typeDef, item.itemType)}</div>
       <div className="cell dim" title={item.tags.map((t) => t.tag).join(', ')}>
         {item.tags.map((t) => t.tag).join(' · ')}
       </div>

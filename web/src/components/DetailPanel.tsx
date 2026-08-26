@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { Item } from '../api/types'
 import { creatorName } from '../lib/format'
 import { useStore } from '../state/store'
-import { useT } from '../i18n'
+import { useSchemaLabel, useT } from '../i18n'
 
 /** Fields worth a multi-line editor. */
 const LONG_FIELDS = new Set(['abstractNote', 'extra', 'note'])
@@ -102,6 +102,7 @@ function TagEditor({ item }: { item: Item }) {
 
 export function DetailPanel() {
   const t = useT()
+  const label = useSchemaLabel()
   const schema = useStore((s) => s.schema)
   const items = useStore((s) => s.items)
   const selected = useStore((s) => s.selected)
@@ -147,16 +148,16 @@ export function DetailPanel() {
               onChange={(e) => void patchItem(item.key, { itemType: e.target.value })}
             >
               {schema?.itemTypes
-                .filter((t) => !t.internal)
-                .map((t) => (
-                  <option key={t.type} value={t.type}>
-                    {t.label}
+                .filter((d) => !d.internal)
+                .map((d) => (
+                  <option key={d.type} value={d.type}>
+                    {label(d, d.type)}
                   </option>
                 ))}
             </select>
           </dd>
 
-          <dt>{t('detail.creators')}</dt>
+          <dt>{t('detail.authors')}</dt>
           <dd>
             <div className="chip-row">
               {item.creators.map((c, i) => (
@@ -175,7 +176,7 @@ export function DetailPanel() {
                 </span>
               ))}
               <input
-                placeholder={t('detail.addCreator')}
+                placeholder={t('detail.addAuthor')}
                 spellCheck={false}
                 onKeyDown={(e) => {
                   if (e.key !== 'Enter') return
@@ -203,7 +204,7 @@ export function DetailPanel() {
                 key={f}
                 item={item}
                 field={f}
-                label={schema?.fields[f]?.label ?? f}
+                label={label(schema?.fields[f], f)}
               />
             ))}
 

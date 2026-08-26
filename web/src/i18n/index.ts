@@ -65,4 +65,27 @@ export function useT(): (key: MessageKey, vars?: Vars) => string {
   return (key, vars) => format(MESSAGES[locale][key], vars)
 }
 
+/** Anything the server labels in both languages. */
+export interface Labelled {
+  label: string
+  labelEn: string
+}
+
+/** Pick the right side of a server-supplied label pair.
+ *
+ *  Item types and field names come from the schema, not from these catalogues,
+ *  so they need translating too — otherwise English mode shows a fully English
+ *  chrome wrapped around Chinese type names.
+ */
+export function schemaLabel(def: Labelled | undefined, locale: Locale, fallback = ''): string {
+  if (!def) return fallback
+  return (locale === 'en-US' ? def.labelEn : def.label) || def.label || fallback
+}
+
+/** `schemaLabel` bound to the current locale, for use inside React. */
+export function useSchemaLabel(): (def: Labelled | undefined, fallback?: string) => string {
+  const locale = useI18n((s) => s.locale)
+  return (def, fallback = '') => schemaLabel(def, locale, fallback)
+}
+
 export type { MessageKey }

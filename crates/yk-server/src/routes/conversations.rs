@@ -58,8 +58,10 @@ async fn create(
     Path(lib): Path<i64>,
     Json(body): Json<CreateBody>,
 ) -> ApiResult<Json<Conversation>> {
-    // An untitled thread is normal: the first message usually names it.
-    let title = body.title.as_deref().map(str::trim).filter(|t| !t.is_empty()).unwrap_or("新对话");
+    // An untitled thread is normal — the first message usually names it. The
+    // placeholder is left to the client, which is the only side that knows
+    // which language the user reads.
+    let title = body.title.as_deref().unwrap_or_default();
     Ok(Json(app.store().conversations.create(lib, title, body.scope.as_deref()).await?))
 }
 

@@ -245,16 +245,16 @@ export function Sidebar() {
                 label: t('menu.delete'),
                 danger: true,
                 run: async () => {
-                  if (await confirmAction(t('chat.confirmDelete', { name: c.title }))) {
+                  if (await confirmAction(t('chat.confirmDelete', { name: c.title || t('chat.untitled') }))) {
                     await removeConversation(c.key)
                   }
                 },
               },
             ])}
-            title={c.title}
+            title={c.title || t('chat.untitled')}
           >
             <Icon.Chat className="glyph" />
-            <span className="label">{c.title}</span>
+            <span className="label">{c.title || t('chat.untitled')}</span>
             <span className="count">{c.messageCount || ''}</span>
           </button>
         ))}
