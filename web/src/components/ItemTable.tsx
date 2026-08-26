@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { BadgeValue, Item, MatchSource } from '../api/types'
 import { useSchemaLabel, useT } from '../i18n'
@@ -16,6 +16,7 @@ import { beginDrag, endDrag } from '../lib/dnd'
 import { creatorSummary, shortDate, snippetParts, year } from '../lib/format'
 import { useStore } from '../state/store'
 import { Icon, contextMenu, type MenuItem } from '../ui'
+import { ColumnPicker } from './ColumnPicker'
 import { itemMenu } from './menus'
 
 const MAX_WIDTH = 640
@@ -182,9 +183,9 @@ export function ItemTable() {
   const widths = useStore((s) => s.columnWidths)
   const setColumnWidth = useStore((s) => s.setColumnWidth)
   const setColumnOrder = useStore((s) => s.setColumnOrder)
-  const resetColumns = useStore((s) => s.resetColumns)
   const detailOpen = useStore((s) => s.detailOpen)
   const toggleDetail = useStore((s) => s.toggleDetail)
+  const [picking, setPicking] = useState(false)
 
   const available = useMemo(() => allColumns(badgeDefs.map((b) => badgeColumn(b))), [badgeDefs])
   const columns = useMemo(() => visibleColumns(order, available), [order, available])
@@ -196,23 +197,21 @@ export function ItemTable() {
       ? (badgeDefs.find((b) => `badge:${b.pluginId}:${b.id}` === c.id)?.label ?? c.badge)
       : t(c.labelKey)
 
-  const columnMenu = (): MenuItem[] => [
-    { label: t('table.columnsHint'), disabled: true },
-    ...available.map((c) => ({
-      label: headerLabel(c),
-      checked: order.includes(c.id),
-      onSelect: () => setColumnOrder(toggleColumn(order, c.id, available)),
-    })),
-    {},
-    { label: t('table.resetColumns'), onSelect: resetColumns },
-  ]
+  // Reads the live order at click time: a menu's items are captured when it
+  // opens, so anything acting on `order` from the closure would be stale.
+  const reorder = (id: string, delta: number) =>
+    setColumnOrder(moveColumn(useStore.getState().columnOrder, id, delta))
 
   const headerMenu = (c: ColumnDef): MenuItem[] => [
-    { label: t('table.moveLeft'), onSelect: () => setColumnOrder(moveColumn(order, c.id, -1)) },
-    { label: t('table.moveRight'), onSelect: () => setColumnOrder(moveColumn(order, c.id, 1)) },
+    { label: t('table.moveLeft'), onSelect: () => reorder(c.id, -1) },
+    { label: t('table.moveRight'), onSelect: () => reorder(c.id, 1) },
     {},
-    ...columnMenu(),
+    { label: t('table.hideColumn'), onSelect: () => setColumnOrder(hideColumn(c.id)) },
+    { label: t('table.columns'), onSelect: () => setPicking(true) },
   ]
+
+  const hideColumn = (id: string) =>
+    toggleColumn(useStore.getState().columnOrder, id, available)
 
   // Resizing tracks the pointer on the window so the drag survives leaving the
   // 5px grip, which is otherwise almost impossible to stay inside.
@@ -262,11 +261,7 @@ export function ItemTable() {
 
   return (
     <section className="pane main table-pane">
-      <div
-        className="table-head"
-        style={{ gridTemplateColumns: grid }}
-        onContextMenu={contextMenu(columnMenu)}
-      >
+      <div className="table-head" style={{ gridTemplateColumns: grid }}>
         {columns.map((c) => (
           <div key={c.id} className="head-cell" onContextMenu={contextMenu(() => headerMenu(c))}>
             <button
@@ -318,9 +313,23 @@ export function ItemTable() {
         {t('table.count', { shown: items.length, total })}
         <span className="spacer" />
         {loading || loadingMore ? t('table.loading') : ''}
-        <button className="icon-btn" title={t('table.columns')} onClick={contextMenu(columnMenu)}>
-          <Icon.Columns />
-        </button>
+        <span className="column-anchor">
+          <button
+            className="icon-btn"
+            data-active={picking}
+            title={t('table.columns')}
+            onClick={() => setPicking((p) => !p)}
+          >
+            <Icon.Columns />
+          </button>
+          {picking && (
+            <ColumnPicker
+              available={available}
+              label={headerLabel}
+              onClose={() => setPicking(false)}
+            />
+          )}
+        </span>
         <button
           className="icon-btn"
           data-active={detailOpen}

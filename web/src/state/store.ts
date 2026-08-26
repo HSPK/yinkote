@@ -109,6 +109,7 @@ interface State {
   reloadSidebar: () => Promise<void>
   setQuery: (q: string) => void
   setSort: (field: string) => void
+  navigate: (patch: Partial<State>) => void
   openLibrary: () => void
   openTrash: () => void
   openCollection: (key: string) => void
@@ -164,6 +165,10 @@ interface State {
 }
 
 const PAGE = 200
+
+/** What a view falls back to when it has no opinion of its own. */
+const DEFAULT_SORT = 'dateModified'
+const DEFAULT_DIRECTION = 'desc' as const
 /** Long enough to avoid a request per keystroke, short enough to feel live. */
 const DEBOUNCE_MS = 140
 
@@ -204,8 +209,8 @@ export const useStore = create<State>((set, get) => ({
 
   query: '',
   mode: 'keyword',
-  sort: 'dateModified',
-  direction: 'desc',
+  sort: DEFAULT_SORT,
+  direction: DEFAULT_DIRECTION,
 
   items: [],
   total: 0,
@@ -389,22 +394,36 @@ export const useStore = create<State>((set, get) => ({
     void get().refresh()
   },
 
-  openLibrary() {
-    set({ view: 'library', collection: null, cursor: 0, selected: [] })
+  /** Move to a view, discarding whatever the previous one owned.
+   *
+   *  A smart collection sets the query, mode and sort — they *are* the smart
+   *  collection. Leaving it must put them back, or the next view silently
+   *  inherits a filter the user never typed and cannot see the origin of. */
+  navigate(patch) {
+    set({
+      query: '',
+      mode: inferMode(''),
+      sort: DEFAULT_SORT,
+      direction: DEFAULT_DIRECTION,
+      activeTags: [],
+      cursor: 0,
+      selected: [],
+      ...patch,
+    })
     void get().refresh()
     void get().reloadSidebar()
+  },
+
+  openLibrary() {
+    get().navigate({ view: 'library', collection: null })
   },
 
   openTrash() {
-    set({ view: 'trash', collection: null, cursor: 0, selected: [] })
-    void get().refresh()
-    void get().reloadSidebar()
+    get().navigate({ view: 'trash', collection: null })
   },
 
   openCollection(key) {
-    set({ view: 'collection', collection: key, cursor: 0, selected: [] })
-    void get().refresh()
-    void get().reloadSidebar()
+    get().navigate({ view: 'collection', collection: key })
   },
 
   /** Opening a smart collection *is* running its query: the search box shows
@@ -412,18 +431,14 @@ export const useStore = create<State>((set, get) => ({
   openSmart(key) {
     const smart = get().smartCollections.find((s) => s.key === key)
     if (!smart) return
-    set({
+    get().navigate({
       view: 'smart',
       collection: key,
       query: smart.query,
       mode: smart.mode,
       sort: smart.sort,
       direction: smart.direction,
-      activeTags: [],
-      cursor: 0,
-      selected: [],
     })
-    void get().refresh()
   },
 
   async createSmart(name, query) {

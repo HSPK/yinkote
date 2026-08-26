@@ -363,4 +363,5 @@ export const enUS: Record<MessageKey, string> = {
   'collections.items': 'Items',
   'collections.rule': 'Rule',
   'collections.none': 'No matching collections',
+  'table.hideColumn': 'Hide this column',
 }

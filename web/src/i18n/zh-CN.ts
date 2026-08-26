@@ -359,6 +359,7 @@ export const zhCN = {
   'collections.items': '条目',
   'collections.rule': '规则',
   'collections.none': '没有匹配的收藏夹',
+  'table.hideColumn': '隐藏此列',
 } as const
 
 export type MessageKey = keyof typeof zhCN

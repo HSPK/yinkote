@@ -69,6 +69,20 @@ describe('columns', () => {
     expect(next).toEqual(['title', 'year', 'modified'])
   })
 
+  it('accumulates across repeated toggles, as a picker does', () => {
+    // The regression this documents: the picker fed each toggle the order it
+    // captured when it opened, so turning on a second badge column quietly
+    // turned the first one off again.
+    const cas = badgeColumn({ id: 'cas', label: 'CAS', pluginId: 'metrics' })
+    const all = allColumns([badge, cas])
+
+    let order = toggleColumn(DEFAULT_VISIBLE, badge.id, all)
+    order = toggleColumn(order, cas.id, all)
+
+    expect(order).toContain(badge.id)
+    expect(order).toContain(cas.id)
+  })
+
   it('removes a column that was shown', () => {
     expect(toggleColumn(['title', 'year'], 'year', allColumns())).toEqual(['title'])
   })
