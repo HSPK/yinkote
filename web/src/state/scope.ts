@@ -35,8 +35,8 @@ export interface Scope {
 }
 
 /** What a view falls back to when it has no opinion of its own. */
-export const DEFAULT_SORT = 'dateModified'
-export const DEFAULT_DIRECTION = 'desc' as const
+const DEFAULT_SORT = 'dateModified'
+const DEFAULT_DIRECTION = 'desc' as const
 
 export function emptyScope(patch: Partial<Scope> = {}): Scope {
   return {

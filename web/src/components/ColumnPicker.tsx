@@ -1,9 +1,9 @@
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 
 import { useT } from '../i18n'
 import { moveColumn, toggleColumn, type ColumnDef } from '../lib/columns'
 import { useStore } from '../state/store'
-import { Button, Icon } from '../ui'
+import { Button, Icon, useDismissable } from '../ui'
 
 export interface ColumnPickerProps {
   available: ColumnDef[]
@@ -27,23 +27,8 @@ export function ColumnPicker({ available, label, onClose }: ColumnPickerProps) {
   const resetColumns = useStore((s) => s.resetColumns)
   const root = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) onClose()
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-      }
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey, true)
-    }
-  }, [onClose])
+  useDismissable(root, true, onClose)
+
 
   // Shown columns first, in their display order, then the rest to pick from.
   const shown = order.filter((id) => available.some((c) => c.id === id))

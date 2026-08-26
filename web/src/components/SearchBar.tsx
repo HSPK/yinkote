@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../i18n'
 import { rankMatches } from '../lib/fuzzy'
 import {
-  addToken,
   completeTag,
   modeReason,
   negateToken,
@@ -228,10 +227,4 @@ function ItemSearch() {
       )}
     </div>
   )
-}
-
-/** Add a tag filter to the current query, used by the sidebar and menus. */
-export function filterByTag(tag: string): void {
-  const { query, setQuery } = useStore.getState()
-  setQuery(addToken(query, { field: 'tag', value: tag, source: '' }))
 }

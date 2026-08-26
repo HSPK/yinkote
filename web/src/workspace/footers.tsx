@@ -14,6 +14,23 @@ import { Icon } from '../ui'
  * a table's chrome sitting under a PDF was describing something the reader
  * could not see.
  */
+/** Shows and hides the detail pane. Shared by every surface that has one. */
+function DetailToggle() {
+  const t = useT()
+  const detailOpen = useStore((s) => s.detailOpen)
+  const toggleDetail = useStore((s) => s.toggleDetail)
+  return (
+    <button
+      className="icon-btn"
+      data-active={detailOpen}
+      title={detailOpen ? t('detail.hide') : t('detail.show')}
+      onClick={() => toggleDetail()}
+    >
+      <Icon.Panel size={12} />
+    </button>
+  )
+}
+
 export function LibraryFooter() {
   const t = useT()
   const items = useStore((s) => s.items)
@@ -21,8 +38,6 @@ export function LibraryFooter() {
   const loading = useStore((s) => s.loading)
   const loadingMore = useStore((s) => s.loadingMore)
   const badgeDefs = useStore((s) => s.badgeDefs)
-  const detailOpen = useStore((s) => s.detailOpen)
-  const toggleDetail = useStore((s) => s.toggleDetail)
   const [picking, setPicking] = useState(false)
 
   const available = allColumns(badgeDefs.map((b) => badgeColumn(b)))
@@ -54,14 +69,7 @@ export function LibraryFooter() {
           />
         )}
       </span>
-      <button
-        className="icon-btn"
-        data-active={detailOpen}
-        title={detailOpen ? t('detail.hide') : t('detail.show')}
-        onClick={() => toggleDetail()}
-      >
-        <Icon.Panel size={12} />
-      </button>
+      <DetailToggle />
     </>
   )
 }
@@ -91,20 +99,10 @@ export function ChatFooter() {
 }
 
 export function ReaderFooter() {
-  const t = useT()
-  const detailOpen = useStore((s) => s.detailOpen)
-  const toggleDetail = useStore((s) => s.toggleDetail)
   return (
     <>
       <span className="spacer" />
-      <button
-        className="icon-btn"
-        data-active={detailOpen}
-        title={detailOpen ? t('detail.hide') : t('detail.show')}
-        onClick={() => toggleDetail()}
-      >
-        <Icon.Panel size={12} />
-      </button>
+      <DetailToggle />
     </>
   )
 }

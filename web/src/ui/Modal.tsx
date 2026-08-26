@@ -4,9 +4,10 @@
  *  they do not deserve to displace the library. A modal keeps the workbench
  *  visible behind them and costs one Escape to leave.
  */
-import { useEffect, type ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 
 import { Icon } from './Icon'
+import { useDismissable } from './useDismissable'
 
 export interface ModalProps {
   title: string
@@ -21,25 +22,12 @@ export interface ModalProps {
 }
 
 export function Modal({ title, onClose, width = 'wide', scroll = true, children }: ModalProps) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  const panel = useRef<HTMLDivElement>(null)
+  useDismissable(panel, true, onClose)
 
   return (
-    <div className="overlay" onMouseDown={onClose}>
-      <div
-        className="modal"
-        data-width={width}
-        data-fill={!scroll || undefined}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+    <div className="overlay">
+      <div className="modal" ref={panel} data-width={width} data-fill={!scroll || undefined}>
         <header className="modal-head">
           <span>{title}</span>
           <button className="modal-close" onClick={onClose} title="Esc">

@@ -8,7 +8,8 @@ import type { DragPayload } from '../lib/dnd'
 import { buildTree } from '../lib/tree'
 import { useStore } from '../state/store'
 import { Icon, contextMenu, confirmAction, promptFor, withToast } from '../ui'
-import { collectionMenu, libraryMenu, newCollection, smartMenu, trashMenu } from './menus' 
+import { newCollection } from './actions'
+import { collectionMenu, libraryMenu, smartMenu, trashMenu } from './menus' 
 import { useT } from '../i18n'
 
 /** How many rows each sidebar group shows before offering the rest elsewhere. */
@@ -108,7 +109,7 @@ export function Sidebar() {
       <div className="nav-group">
         <div className="nav-title">
           {t('sidebar.collections')}
-          <button title={t('collection.new')} onClick={() => newCollection()}>
+          <button title={t('collection.new')} onClick={() => void newCollection().run()}>
             <Icon.Plus size={11} />
           </button>
         </div>

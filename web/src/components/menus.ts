@@ -8,6 +8,14 @@ import type { Collection, Item, SmartCollection } from '../api/types'
 import { t } from '../i18n'
 import { useStore } from '../state/store'
 import { confirmAction, promptFor, toast, withToast, type MenuItem } from '../ui'
+import {
+  asMenuItem,
+  clearFilters,
+  destroySelected,
+  newCollection,
+  newItem,
+  reindex,
+} from './actions'
 
 export function itemMenu(item: Item): MenuItem[] {
   const store = useStore.getState()
@@ -114,25 +122,8 @@ export function itemMenu(item: Item): MenuItem[] {
               }),
           },
           {
+            ...asMenuItem(destroySelected(selected.length)),
             label: `${t('menu.destroy')}${suffix}`,
-            danger: true,
-            onSelect: async () => {
-              const ok = await confirmAction(
-                t('dialog.destroyTitle', { count: selected.length }),
-                {
-                  description: t('dialog.destroyDesc'),
-                  confirmLabel: t('menu.destroy'),
-                  cancelLabel: t('dialog.cancel'),
-                  danger: true,
-                },
-              )
-              if (ok) {
-                await withToast(store.destroySelected, {
-                  success: t('toast.destroyed'),
-                  failure: t('toast.deleteFailed'),
-                })
-              }
-            },
           },
         ]
       : [
@@ -196,10 +187,6 @@ export function collectionMenu(collection: Collection): MenuItem[] {
   ]
 }
 
-export function newCollection(): void {
-  useStore.getState().openCollectionEditor('new')
-}
-
 export function smartMenu(smart: SmartCollection): MenuItem[] {
   const store = useStore.getState()
   return [
@@ -229,43 +216,12 @@ export function smartMenu(smart: SmartCollection): MenuItem[] {
 }
 
 export function libraryMenu(): MenuItem[] {
-  const store = useStore.getState()
   return [
-    {
-      label: t('menu.newItem'),
-      onSelect: async () => {
-        const values = await store.newItemDialog()
-        if (values) {
-          await withToast(() => store.createItem(values.itemType, values.title), {
-            success: t('toast.created', { name: values.title }),
-            failure: t('toast.createFailed'),
-          })
-        }
-      },
-    },
-    {
-      label: t('menu.newCollection'),
-      onSelect: async () => {
-        const name = await promptFor(t('dialog.newCollection'), { label: t('dialog.name') })
-        if (name) {
-          await withToast(() => store.createCollection(name), {
-            success: t('toast.created', { name }),
-            failure: t('toast.createFailed'),
-          })
-        }
-      },
-    },
-    { label: t('collection.new'), onSelect: newCollection },
+    asMenuItem(newItem()),
+    asMenuItem(newCollection()),
     {},
-    { label: t('menu.clearFilters'), onSelect: store.clearFilters },
-    {
-      label: t('menu.reindex'),
-      onSelect: () =>
-        withToast(store.reindex, {
-          success: t('toast.reindexed'),
-          failure: t('toast.reindexFailed'),
-        }),
-    },
+    asMenuItem(clearFilters()),
+    asMenuItem(reindex()),
   ]
 }
 

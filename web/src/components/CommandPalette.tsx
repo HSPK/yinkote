@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { rankMatches } from '../lib/fuzzy'
 import { tabId } from '../lib/tabs'
+import { globalActions } from './actions'
 import { useStore } from '../state/store'
-import { confirmAction, promptFor, withToast } from '../ui'
+import { confirmAction, withToast } from '../ui'
 import { useT } from '../i18n'
 
 interface Command {
@@ -24,35 +25,7 @@ export function CommandPalette() {
 
   const commands = useMemo<Command[]>(() => {
     const list: Command[] = [
-      {
-        id: 'new',
-        label: t('menu.newItem'),
-        hint: 'N',
-        run: async () => {
-          const values = await useStore.getState().newItemDialog()
-          if (values) {
-            await withToast(() => store.createItem(values.itemType, values.title), {
-              success: t('toast.created', { name: values.title }),
-              failure: t('toast.createFailed'),
-            })
-          }
-        },
-      },
-      {
-        id: 'new-collection',
-        label: t('menu.newCollection'),
-        run: async () => {
-          const name = await promptFor(t('dialog.newCollection'), { label: t('dialog.name') })
-          if (name) {
-            await withToast(() => store.createCollection(name), {
-              success: t('toast.created', { name }),
-              failure: t('toast.createFailed'),
-            })
-          }
-        },
-      },
-      
-      { id: 'trash', label: t('menu.openTrash'), run: store.openTrash },
+      ...globalActions(),
       ...(['collections', 'plugins', 'status'] as const).map((kind) => ({
         id: `tab-${kind}`,
         label: t('palette.goto', { page: t(`nav.${kind}`) }),

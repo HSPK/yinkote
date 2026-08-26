@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useT } from '../i18n'
 import { isHexColour } from '../lib/theme'
-import { Button, Icon } from '../ui'
+import { Button, Icon, useDismissable } from '../ui'
 
 /** A spread of accents that read well against every bundled theme. */
 const PRESETS = [
@@ -38,26 +38,8 @@ export function AccentPicker({ value, onChange }: AccentPickerProps) {
 
   useEffect(() => setDraft(value), [value])
 
-  // Dismiss on a click anywhere else, or on Escape — the two things every
-  // popover is expected to do and the native dialog does neither of.
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: MouseEvent) => {
-      if (!root.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey, true)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey, true)
-    }
-  }, [open])
+  useDismissable(root, open, () => setOpen(false))
+
 
   const commit = (accent: string) => {
     onChange(accent)
