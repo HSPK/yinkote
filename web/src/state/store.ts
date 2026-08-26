@@ -143,6 +143,7 @@ interface State extends Scope {
   openReader: (itemKey: string, keep?: boolean) => void
   fetchPdf: (itemKey: string, url?: string) => Promise<void>
   summarise: (itemKey: string) => Promise<void>
+  askAbout: (itemKey: string) => Promise<void>
   openCollectionEditor: (key: string | null) => void
   saveCollection: (key: string | null, values: CollectionValues) => Promise<void>
   setLayout: (patch: Partial<{ sidebar: number; detail: number }>, commit?: boolean) => void
@@ -579,6 +580,23 @@ export const useStore = create<State>((set, get) => ({
       target: itemKey,
       preview: !keep,
     })
+  },
+
+  /** Start a conversation about one item, seeded with what it is.
+   *
+   *  The agent could look the item up itself, but it would first have to guess
+   *  which one was meant — and the caller already knows. */
+  async askAbout(itemKey) {
+    const item = get().items.find((i) => i.key === itemKey)
+    if (!item) return
+    const title = String(item.title ?? itemKey)
+
+    const created = await api.conversations.create(get().library, { title })
+    set({ conversations: [created, ...get().conversations] })
+    await get().openConversation(created.key)
+    await get().sendMessage(
+      `About the item "${title}" (key ${itemKey}) in my library. Use get_item to read it first.`,
+    )
   },
 
   /** Ask the model for a summary; it lands as a note under the item. */

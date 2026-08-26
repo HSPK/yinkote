@@ -142,6 +142,7 @@ export function App() {
   const tab = tabs.find((t) => t.id === activeTab) ?? tabs[0]
   const current = tab ? { tab, def: TABS[tab.kind] } : null
   const showDetail = current?.def.withDetail ?? false
+  const Detail = current?.def.Detail ?? DetailPanel
 
   return (
     <div className="app">
@@ -177,7 +178,7 @@ export function App() {
               onCommit={(detail) => setLayout({ detail }, true)}
             />
             <div className="pane detail-pane" style={{ width: layout.detail }}>
-              <DetailPanel />
+              <Detail />
             </div>
           </>
         )}

@@ -1767,3 +1767,44 @@ select.ctl { padding: 4px 6px; }
 /* The picker opens upwards from the status bar, which is the bottom of the
    window; opening downwards would put it off screen. */
 .statusbar .column-pop { bottom: calc(100% + 6px); }
+
+
+.browser-body .row[data-selected='true'] { background: var(--accent-dim); color: #fff; }
+.browser-body .row[data-selected='true'] .glyph,
+.browser-body .row[data-selected='true'] .cell.dim { color: inherit; }
+
+.detail-title[data-colour] { display: flex; align-items: center; gap: 7px; }
+.detail-title[data-colour='red'] .glyph { color: var(--c-red); }
+.detail-title[data-colour='amber'] .glyph { color: var(--c-amber); }
+.detail-title[data-colour='green'] .glyph { color: var(--c-green); }
+.detail-title[data-colour='blue'] .glyph { color: var(--c-blue); }
+.detail-title[data-colour='violet'] .glyph { color: var(--c-violet); }
+
+
+/* ─── find in document ───────────────────────────────────────────────────── */
+
+.find-nav { display: flex; align-items: center; gap: 3px; font: 10px/1 var(--mono); }
+
+.pdf-text [data-found] { background: rgb(255 213 0 / 45%); border-radius: 1px; }
+.pdf-text [data-found][data-current='true'] { background: rgb(255 122 0 / 70%); }
+
+
+/* ─── chat detail ────────────────────────────────────────────────────────── */
+
+.bubble-model { margin-left: 6px; color: var(--fg-mute); text-transform: none; letter-spacing: 0; }
+
+.bubble-note {
+  margin-top: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  color: var(--fg-dim);
+  border-left: 2px solid var(--c-amber);
+  background: var(--bg-2);
+}
+
+.steps { margin-top: 5px; font: 11px/1.6 var(--mono); }
+.steps summary { color: var(--fg-mute); cursor: pointer; }
+.steps summary:hover { color: var(--fg-dim); }
+.step { display: flex; gap: 6px; padding: 2px 0 2px 12px; }
+.step code { color: var(--accent); }
+.step .dim { color: var(--fg-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

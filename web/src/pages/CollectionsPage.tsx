@@ -36,6 +36,8 @@ export function CollectionsPage() {
   const openSmart = useStore((s) => s.openSmart)
   const openCollectionEditor = useStore((s) => s.openCollectionEditor)
   const openTab = useStore((s) => s.openTab)
+  const collection = useStore((s) => s.collection)
+  const setCollection = (key: string) => useStore.setState({ collection: key })
 
   const filter = useStore((s) => s.filter)
   const [sort, setSort] = useState<SortKey>('name')
@@ -126,7 +128,10 @@ export function CollectionsPage() {
               key={entry.key}
               className="row browser-grid"
               data-colour={collectionColour(entry.color)}
-              onClick={() => open(entry)}
+              data-selected={collection === entry.key}
+              // A click inspects; opening a tab is a deliberate second gesture,
+              // so browsing the list does not keep changing what is in front.
+              onClick={() => setCollection(entry.key)}
               onDoubleClick={() => open(entry, true)}
               onContextMenu={contextMenu(() =>
                 entry.smart && source && 'query' in source

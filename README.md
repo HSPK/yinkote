@@ -133,6 +133,7 @@ plugins/       示例插件（见 plugins/README.md）
 | [12-libraries-and-projects](docs/12-libraries-and-projects.md) | 智能文献库、论文项目库 |
 | [13-knowledge-graph](docs/13-knowledge-graph.md) | 文献关系图谱 |
 | [14-storage-layout](docs/14-storage-layout.md) | 存储布局、路径模板、Zotero 导入 |
+| [15-development-philosophy](docs/15-development-philosophy.md) | **开发哲学：持续重构、测试、边界诚实** |
 | [plugins/README](plugins/README.md) | **插件开发指南与协议规范** |
 
 ## 路线（尚未实现）

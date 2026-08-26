@@ -15,6 +15,7 @@ import {
 import { useStore } from '../state/store'
 import { Empty, Icon, contextMenu, toast } from '../ui'
 import { PdfPage } from './PdfPage'
+import { useFind } from './useFind'
 import { usePdf } from './usePdf'
 
 /**
@@ -36,6 +37,10 @@ export function ReaderView({ target }: { target?: string }) {
 
   const file = current ? api.files.url(library, current) : null
   const { doc, pages, error } = usePdf(file)
+
+  // The toolbar's search box is find-in-document while a reader is in front.
+  const filter = useStore((s) => s.filter)
+  const find = useFind(scrollRef, filter, `${doc?.fingerprints?.[0] ?? ''}:${zoom}`)
 
   useEffect(() => {
     if (!target) return
@@ -126,6 +131,30 @@ export function ReaderView({ target }: { target?: string }) {
         </div>
 
         <span className="spacer" />
+
+        {filter && (
+          <span className="find-nav">
+            <span className="dim">
+              {find.total ? t('search.matches', { index: find.index, total: find.total }) : t('search.noMatches')}
+            </span>
+            <button
+              className="icon-btn"
+              title={t('search.previous')}
+              disabled={!find.total}
+              onClick={() => find.go(-1)}
+            >
+              <Icon.ChevronUp size={11} />
+            </button>
+            <button
+              className="icon-btn"
+              title={t('search.next')}
+              disabled={!find.total}
+              onClick={() => find.go(1)}
+            >
+              <Icon.ChevronDown size={11} />
+            </button>
+          </span>
+        )}
 
         <button
           className="icon-btn"

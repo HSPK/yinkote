@@ -399,6 +399,10 @@ export const zhCN = {
   'search.previous': '上一个',
   'search.matches': '{index} / {total}',
   'search.noMatches': '无匹配',
+  'collections.selectOne': '选择一个收藏夹查看详情',
+  'chat.steps': '{count} 次工具调用',
+  'chat.truncated': '已达步数上限，回答可能不完整',
+  'chat.askAbout': '就这篇提问',
 } as const
 
 export type MessageKey = keyof typeof zhCN

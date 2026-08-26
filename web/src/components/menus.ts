@@ -40,6 +40,11 @@ export function itemMenu(item: Item): MenuItem[] {
         }),
     },
     {
+      label: t('chat.askAbout'),
+      onSelect: () =>
+        withToast(() => store.askAbout(item.key), { failure: t('summary.failed') }),
+    },
+    {
       label: t('summary.generate'),
       onSelect: () =>
         withToast(() => store.summarise(item.key), {

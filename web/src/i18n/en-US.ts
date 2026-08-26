@@ -403,4 +403,8 @@ export const enUS: Record<MessageKey, string> = {
   'search.previous': 'Previous',
   'search.matches': '{index} / {total}',
   'search.noMatches': 'No matches',
+  'collections.selectOne': 'Select a collection to see its details',
+  'chat.steps': '{count} tool calls',
+  'chat.truncated': 'Stopped at the step limit; this answer may be incomplete',
+  'chat.askAbout': 'Ask about this',
 }

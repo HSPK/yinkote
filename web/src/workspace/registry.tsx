@@ -9,6 +9,7 @@ import { PluginsPage } from '../pages/PluginsPage'
 import { ReaderView } from '../pages/ReaderView'
 import { StatusPage } from '../pages/StatusPage'
 import type { IconName } from '../ui'
+import { CollectionDetail } from '../components/CollectionDetail'
 import { ChatFooter, CollectionsFooter, LibraryFooter, ReaderFooter } from './footers'
 
 export interface TabDefinition {
@@ -20,6 +21,8 @@ export interface TabDefinition {
   withDetail?: boolean
   /** What this surface contributes to the status bar. */
   Footer?: ComponentType
+  /** What the detail pane shows here; the item inspector when unset. */
+  Detail?: ComponentType
   /** What the toolbar's search box does here. */
   search?: 'items' | 'collections' | 'find' | 'none'
 }
@@ -46,6 +49,7 @@ export const TABS: Record<TabKind, TabDefinition> = {
     labelKey: 'nav.collections',
     withDetail: true,
     Footer: CollectionsFooter,
+    Detail: CollectionDetail,
     search: 'collections',
   },
   chat: { Body: ChatView, icon: 'Chat', labelKey: 'sidebar.chat', Footer: ChatFooter, search: 'none' },
