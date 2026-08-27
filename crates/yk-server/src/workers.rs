@@ -13,8 +13,45 @@ pub fn spawn(app: App) {
     embedding_worker(app.clone());
     checkpoint_worker(app.clone());
     download_worker(app.clone());
+    warm_facets(app.clone());
     startup_hook(app);
 }
+
+/// Compute the tag facets once, before anybody asks for them.
+///
+/// The facet cache serves nothing stale when it is empty — with no previous
+/// answer to show, correctness is the only option — so the first request after
+/// a start pays the full count: 227 ms on a hundred-thousand-item library,
+/// against 0.7 ms warm. That request is the sidebar, which is to say it is the
+/// first thing a user sees.
+///
+/// The work happens either way. Doing it before it is asked for costs nothing
+/// and removes the only perceptible pause in a cold start.
+fn warm_facets(app: App) {
+    tokio::spawn(async move {
+        // After the listener is up: a user who opens the page instantly
+        // should not queue behind this, and the cache fills either way.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        // Built the way the route builds it, not from `ItemFilter::default()`.
+        // The cache key includes every field, and the route defaults
+        // `recursive` to *true* while the type defaults it to false — a warm
+        // filter written by hand filled a slot nobody ever asks for, and the
+        // first real request still paid the full count.
+        let Ok(filter) = crate::routes::ListParams::default().filter(app.services.default_library)
+        else {
+            return;
+        };
+        match app.store().tags.facets(&filter, FACET_WARM_LIMIT).await {
+            Ok(tags) => tracing::debug!(tags = tags.len(), "facet cache warmed"),
+            Err(error) => tracing::debug!(%error, "could not warm the facet cache"),
+        }
+    });
+}
+
+/// How many facets to warm. The sidebar asks for sixty; warming the same
+/// number is what makes the first real request a hit rather than a near-miss.
+const FACET_WARM_LIMIT: u32 = 60;
 
 /// Share of the time the embedding worker may spend holding the write lock.
 ///

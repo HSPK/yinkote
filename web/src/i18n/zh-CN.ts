@@ -459,6 +459,7 @@ export const zhCN = {
   'detail.noteGenerated': '摘要',
   'toast.reindexing': '正在重建搜索索引…',
   'toast.optimizing': '正在压缩数据库…',
+  'files.renaming': '正在重命名…',
   'tabs.emptyTitle': '没有打开的标签页',
   'tabs.emptyHint': '打开文献库，或从左侧选择任意内容。',
   'tabs.openLibrary': '打开文献库',

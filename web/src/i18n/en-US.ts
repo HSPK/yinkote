@@ -463,6 +463,7 @@ export const enUS: Record<MessageKey, string> = {
   'detail.noteGenerated': 'summary',
   'toast.reindexing': 'Rebuilding the search index…',
   'toast.optimizing': 'Compacting the database…',
+  'files.renaming': 'Renaming…',
   'tabs.emptyTitle': 'No tab open',
   'tabs.emptyHint': 'Open your library, or pick anything from the sidebar.',
   'tabs.openLibrary': 'Open library',

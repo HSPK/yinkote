@@ -92,8 +92,11 @@ export function FilesPage() {
           <Button disabled={busy} onClick={() => void look()}>
             {t('files.preview')}
           </Button>
+          {/* The label says what is happening, not just that the button is
+              off. A greyed-out button with its usual name explains nothing —
+              renaming every file in a library is not instant. */}
           <Button tone="primary" disabled={busy || !plan?.total} onClick={() => void apply()}>
-            {t('files.rename')}
+            {busy ? t('files.renaming') : t('files.rename')}
           </Button>
         </span>
       </div>
