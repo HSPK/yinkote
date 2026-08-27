@@ -191,11 +191,18 @@ check "connector session" "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$C
                              -H 'Content-Type: application/json' -d '{"sessionID":"smoke"}' | grep -x 200)"
 
 echo "▸ graph"
+# A tag unique to this run. Sharing one across runs meant the suite's own
+# accumulated history eventually crossed the "this tag is too common to mean
+# anything" threshold — 54 items after twenty-odd runs against a 50 floor — and
+# the check started failing while the product was behaving exactly as designed.
+#
+# A smoke test that accumulates state ends up testing the accumulation.
+GTAG="graph-smoke-$RANDOM$RANDOM"
 GA=$(j -X POST "$BASE/libraries/$LIB/items" \
-       -d '[{"itemType":"journalArticle","title":"Graph focus","tags":[{"tag":"graph-smoke"}]}]' \
+       -d "[{\"itemType\":\"journalArticle\",\"title\":\"Graph focus\",\"tags\":[{\"tag\":\"$GTAG\"}]}]" \
        | jq -r '.created[0].key')
 j -X POST "$BASE/libraries/$LIB/items" \
-  -d '[{"itemType":"journalArticle","title":"Graph neighbour","tags":[{"tag":"graph-smoke"}]}]' >/dev/null
+  -d "[{\"itemType\":\"journalArticle\",\"title\":\"Graph neighbour\",\"tags\":[{\"tag\":\"$GTAG\"}]}]" >/dev/null
 # The focus is always in the picture, and exactly once.
 check "graph focus"       "$(j "$BASE/libraries/$LIB/graph/$GA" \
                              | jq -r '[.nodes[] | select(.focus == true)] | length | select(. == 1)')"

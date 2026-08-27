@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useT } from '../i18n'
 import type { Message, RunState, RunStep } from '../api/types'
+import { Markdown } from '../lib/markdown'
 import { useStore } from '../state/store'
 import { Empty, Icon } from '../ui'
 
@@ -86,7 +87,11 @@ function Turn({ message }: { message: Message }) {
       </div>
 
       {meta?.trace && <Steps steps={meta.trace} />}
-      {message.content && <div className="bubble-body">{message.content}</div>}
+      {message.content && (
+        <div className="bubble-body">
+          <Markdown source={message.content} />
+        </div>
+      )}
       {meta?.stopped && <div className="bubble-note">{t('chat.stopped')}</div>}
       {meta?.truncated && !meta.stopped && (
         <div className="bubble-note">{t('chat.truncated')}</div>
@@ -129,7 +134,11 @@ function LiveTurn({ run, onCancel }: { run: RunState; onCancel: () => void }) {
           </div>
         </div>
       )}
-      {run.partial && <div className="bubble-body">{run.partial}</div>}
+      {run.partial && (
+        <div className="bubble-body">
+          <Markdown source={run.partial} />
+        </div>
+      )}
       {!run.steps?.length && !run.partial && !run.partialReasoning && (
         <div className="turn-text dim">{t('chat.thinkingNow')}</div>
       )}

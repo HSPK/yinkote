@@ -129,11 +129,10 @@ async fn run_turn(app: App, lib: i64, key: yk_core::Key, run: std::sync::Arc<cra
         Err(e) => return run.fail(e.to_string()),
     };
 
-    run.finish(turn.reply.clone(), turn.truncated, turn.stopped);
-
-    // The steps are persisted from the run rather than rebuilt from the
-    // transcript, so a turn watched live and one read back tomorrow are the
-    // same thing rather than two renderings that can drift.
+    // Stored *before* the run is marked finished. The client drops the live
+    // turn the moment it sees `running: false` and shows the stored message
+    // instead; doing it the other way round leaves a frame with neither, which
+    // reads as a flicker at the end of every answer.
     let state = run.snapshot();
     let stored = app
         .store()
@@ -143,7 +142,7 @@ async fn run_turn(app: App, lib: i64, key: yk_core::Key, run: std::sync::Arc<cra
             &key,
             MessageDraft {
                 role: "assistant".into(),
-                content: turn.reply,
+                content: turn.reply.clone(),
                 meta: Some(json!({
                     "model": agent.model(),
                     "truncated": turn.truncated,
@@ -157,6 +156,8 @@ async fn run_turn(app: App, lib: i64, key: yk_core::Key, run: std::sync::Arc<cra
     if let Err(e) = stored {
         tracing::warn!(error = %e, "could not store the agent's answer");
     }
+
+    run.finish(turn.reply, turn.truncated, turn.stopped);
     app.runs.forget_finished(key.as_str());
 }
 

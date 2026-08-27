@@ -227,7 +227,13 @@ impl Progress for RunProgress {
                 self.run.push(Step::Thinking { content: thinking.to_string() });
             }
         }
-        if !message.content.trim().is_empty() {
+
+        // A message with no tool calls *is* the answer, and the answer is
+        // stored beside the trace rather than inside it. Recording it here too
+        // printed every reply twice — once as a step on the way, once as the
+        // thing arrived at. Only remarks made on the way to an answer belong
+        // in the trace.
+        if !message.tool_calls.is_empty() && !message.content.trim().is_empty() {
             self.run.push(Step::Text { content: message.content.clone() });
         }
     }
@@ -253,4 +259,84 @@ impl Progress for RunProgress {
 /// The steps as they should be persisted with the finished answer.
 pub fn steps_json(state: &RunState) -> Value {
     json!(state.steps)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use yk_core::event::EventBus;
+
+    fn progress() -> RunProgress {
+        let events = EventBus::new(16);
+        let runs = Runs::default();
+        let run = runs.start(&events, 1, "K1", "why?").unwrap();
+        RunProgress { run, writers: vec!["trash_items"] }
+    }
+
+    fn assistant(content: &str, calls: Vec<ToolCall>) -> ChatMessage {
+        ChatMessage {
+            role: "assistant".into(),
+            content: content.into(),
+            tool_calls: calls,
+            ..Default::default()
+        }
+    }
+
+    fn call() -> ToolCall {
+        ToolCall {
+            id: "c1".into(),
+            name: "search_library".into(),
+            arguments: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn the_answer_is_not_also_a_step() {
+        let p = progress();
+        p.said(&assistant("Hello! How can I help with your library?", Vec::new()));
+
+        // A message with no tool calls *is* the answer, and the answer is kept
+        // beside the trace. Recording it here too printed every reply twice —
+        // once on the way, once as the thing arrived at. A user reported it as
+        // "it shows twice", which is exactly what it was.
+        assert!(p.run.snapshot().steps.is_empty());
+    }
+
+    #[test]
+    fn a_remark_on_the_way_to_an_answer_is_a_step() {
+        let p = progress();
+        p.said(&assistant("Let me look that up.", vec![call()]));
+
+        let steps = p.run.snapshot().steps;
+        assert_eq!(steps.len(), 1);
+        assert!(matches!(&steps[0], Step::Text { content } if content == "Let me look that up."));
+    }
+
+    #[test]
+    fn reasoning_is_kept_even_for_the_final_message() {
+        let p = progress();
+        let mut message = assistant("Three papers.", Vec::new());
+        message.reasoning = Some("They asked about attention.".into());
+        p.said(&message);
+
+        // Working is not the answer, so it belongs in the trace even when the
+        // answer beside it does not.
+        let steps = p.run.snapshot().steps;
+        assert_eq!(steps.len(), 1);
+        assert!(matches!(&steps[0], Step::Thinking { .. }));
+    }
+
+    #[test]
+    fn a_finished_step_clears_what_was_arriving() {
+        let p = progress();
+        p.delta("content", "Let me ");
+        p.delta("content", "look.");
+        assert_eq!(p.run.snapshot().partial, "Let me look.");
+
+        p.said(&assistant("Let me look.", vec![call()]));
+
+        // The same words must not be on screen twice: once as what is arriving
+        // and once as the step it arrived as.
+        assert!(p.run.snapshot().partial.is_empty());
+    }
 }
