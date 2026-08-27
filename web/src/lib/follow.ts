@@ -27,3 +27,30 @@ export function shouldFollow(previous: Tail | null, next: Tail): boolean {
   // bottom moved even though nothing was added.
   return next.steps > previous.steps
 }
+
+/** Whether a scroll request should be acted on now.
+ *
+ *  `scrollTo` is a *request* — "put this row in view" — and not a description
+ *  of where the list currently is. The difference matters the moment a list
+ *  loads more rows: the request has not changed, but the row count has, and an
+ *  effect that watches the count will re-scroll on every page loaded.
+ *
+ *  That is what made the library jump to the top each time it fetched another
+ *  page. The table passes the keyboard cursor as its request, and for anyone
+ *  who has not used the keyboard the cursor is row zero, so every append
+ *  scrolled the reader back to the first row of a list they were scrolling
+ *  down.
+ *
+ *  A request still has to survive arriving before the rows do — restoring a
+ *  position on first load asks for a row that does not exist yet — so an
+ *  unhonoured request is held until there is something to scroll to.
+ */
+export function shouldScroll(
+  request: number | undefined,
+  honoured: number | null,
+  rowCount: number,
+): boolean {
+  if (request === undefined || rowCount === 0) return false
+  // Already done for this request; the list merely got longer.
+  return honoured !== request
+}

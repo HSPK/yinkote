@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { shouldFollow } from './follow'
+import { shouldFollow, shouldScroll } from './follow'
 
 describe('following the tail', () => {
   it('starts at the bottom, where the reading is', () => {
@@ -34,5 +34,30 @@ describe('following the tail', () => {
 
   it('has nowhere to go in an empty thread', () => {
     expect(shouldFollow(null, { id: undefined, steps: 0 })).toBe(false)
+  })
+})
+
+describe('shouldScroll', () => {
+  it('honours a request once and not again when the list grows', () => {
+    // The library fetches another page while the reader is half way down. The
+    // request has not changed; only the row count has.
+    expect(shouldScroll(0, null, 100)).toBe(true)
+    expect(shouldScroll(0, 0, 200)).toBe(false)
+    expect(shouldScroll(0, 0, 300)).toBe(false)
+  })
+
+  it('honours a genuinely new request', () => {
+    expect(shouldScroll(42, 0, 200)).toBe(true)
+  })
+
+  it('waits for rows before scrolling to one', () => {
+    // A restored position asks for a row that has not loaded yet; the request
+    // must survive until it can be met.
+    expect(shouldScroll(30, null, 0)).toBe(false)
+    expect(shouldScroll(30, null, 100)).toBe(true)
+  })
+
+  it('does nothing when nothing was asked for', () => {
+    expect(shouldScroll(undefined, null, 100)).toBe(false)
   })
 })

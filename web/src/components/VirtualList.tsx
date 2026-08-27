@@ -15,6 +15,8 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useRef, type ReactNode } from 'react'
 
+import { shouldScroll } from '../lib/follow'
+
 export interface VirtualListProps<T> {
   rows: T[]
   /** Stable identity per row; a list keyed by index re-renders everything. */
@@ -82,8 +84,14 @@ export function VirtualList<T>({
       : undefined,
   })
 
+  // What has already been scrolled to, so that growing the list does not
+  // re-run a request that was honoured pages ago. See `shouldScroll`.
+  const honoured = useRef<number | null>(null)
   useEffect(() => {
-    if (rows.length && scrollTo !== undefined) virtual.scrollToIndex(scrollTo, { align: 'auto' })
+    if (scrollTo === undefined) return
+    if (!shouldScroll(scrollTo, honoured.current, rows.length)) return
+    honoured.current = scrollTo
+    virtual.scrollToIndex(scrollTo, { align: 'auto' })
   }, [scrollTo, rows.length, virtual])
 
   // Driven by the virtualiser rather than a scroll handler, so it also fires

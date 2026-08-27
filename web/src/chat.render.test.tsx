@@ -554,6 +554,10 @@ describe('scoping a conversation', () => {
     const select = container.querySelector('.chat-scope select') as HTMLSelectElement
     expect(select).not.toBeNull()
     expect(select.textContent).toContain('Diffusion')
+    // The shared control, not a hand-rolled one: a bare `<select>` draws the
+    // browser's white popup in a dark interface, which is how this shipped
+    // twice.
+    expect(select.classList.contains('ctl')).toBe(true)
 
     await act(async () => {
       select.value = 'COLL0001'

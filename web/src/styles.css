@@ -740,6 +740,17 @@ button { cursor: pointer; }
 textarea.ctl { resize: vertical; line-height: 1.5; }
 select.ctl { padding: 4px 6px; }
 
+/* The popup a native `<select>` opens is painted from the control's own
+   background, so a select with `background: none` gets the browser's default
+   white list however dark the page is — `color-scheme: dark` does not save it
+   once the background has been authored away. Colouring the options directly
+   is the only rule that reaches inside the popup, and it belongs here rather
+   than beside any one select, because it is true of all of them. */
+option {
+  background: var(--bg-1);
+  color: var(--fg);
+}
+
 .btn {
   padding: 4px 12px;
   font: 12px/1.6 var(--sans);
@@ -2332,9 +2343,12 @@ select.ctl { padding: 4px 6px; }
    scoped to is part of the question. */
 .chat-scope { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--fg-mute); }
 .chat-scope select {
+  width: auto;
   max-width: 150px;
   padding: 0 2px;
-  background: none;
+  /* Transparent to the strip it sits in, not "no background": see the `option`
+     rule above for why the difference is visible when the list opens. */
+  background: transparent;
   border: 0;
   color: var(--fg-dim);
   font-size: 10px;
