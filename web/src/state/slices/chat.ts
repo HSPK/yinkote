@@ -31,7 +31,7 @@ export interface ChatSlice {
   newConversation: () => Promise<void>
   renameConversation: (key: string, title: string) => Promise<void>
   removeConversation: (key: string) => Promise<void>
-  sendMessage: (text: string) => Promise<void>
+  sendMessage: (text: string, mentions?: string[]) => Promise<void>
   askAbout: (itemKey: string) => Promise<void>
   summarise: (itemKey: string) => Promise<void>
 }
@@ -123,7 +123,7 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
    *
    *  Either way the question is persisted: a transcript that loses what was
    *  typed because a model was unreachable would be worse than no transcript. */
-  async sendMessage(text) {
+  async sendMessage(text, mentions = []) {
     const s = get()
     const body = text.trim()
     if (!body || !s.conversation || s.asking) return
@@ -132,6 +132,7 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
       id: -Date.now(),
       role: 'user',
       content: body,
+      mentions,
       createdAt: Date.now(),
     }
     set({ messages: [...s.messages, optimistic], asking: true })
@@ -143,7 +144,7 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
         // Returns as soon as the turn exists; the answer arrives on the event
         // bus. Awaiting it here would tie a half-minute of work to one request
         // and lose it on a reload.
-        await api.conversations.ask(s.library, s.conversation, body)
+        await api.conversations.ask(s.library, s.conversation, body, mentions)
         const run = await api.conversations.run(s.library, s.conversation).catch(() => null)
         if (run) get().applyRun(s.conversation, run)
       } else {

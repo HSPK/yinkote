@@ -114,6 +114,13 @@ pub trait ConversationRepository: Send + Sync {
         key: &Key,
         draft: MessageDraft,
     ) -> Result<Message>;
+
+    /// The conversations that mention a paper, most recent first.
+    ///
+    /// Asked from the paper, not from the chat: standing on something you are
+    /// reading, "what did I already work out about this" is a question the
+    /// library should be able to answer.
+    async fn mentioning(&self, library_id: i64, item: &Key) -> Result<Vec<Conversation>>;
 }
 
 #[async_trait]

@@ -370,6 +370,50 @@ async fn reindex_rebuilds_search_from_the_items_table() {
 }
 
 #[tokio::test]
+async fn a_paper_knows_which_conversations_named_it() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let created = c
+        .post(
+            &format!("/libraries/{lib}/items"),
+            json!([{ "itemType": "journalArticle", "title": "Attention" }]),
+        )
+        .await;
+    let item = created["created"][0]["key"].as_str().unwrap().to_string();
+
+    let convo = c
+        .post(&format!("/libraries/{lib}/conversations"), json!({ "title": "About it" }))
+        .await;
+    let key = convo["key"].as_str().unwrap().to_string();
+
+    c.post(
+        &format!("/libraries/{lib}/conversations/{key}/messages"),
+        json!({ "role": "user", "content": "what does @this argue?", "mentions": [item] }),
+    )
+    .await;
+
+    // Reading the thread back has to return what was named, or the client
+    // cannot render the chip it let the user attach.
+    let messages = c.get(&format!("/libraries/{lib}/conversations/{key}/messages")).await;
+    assert_eq!(messages[0]["mentions"][0], item.as_str());
+
+    // And the reverse lookup, which is what the detail panel asks.
+    let about = c.get(&format!("/libraries/{lib}/items/{item}/conversations")).await;
+    assert_eq!(about["conversations"][0]["key"], key.as_str());
+
+    let other = c
+        .post(
+            &format!("/libraries/{lib}/items"),
+            json!([{ "itemType": "journalArticle", "title": "Unrelated" }]),
+        )
+        .await;
+    let other = other["created"][0]["key"].as_str().unwrap();
+    let none = c.get(&format!("/libraries/{lib}/items/{other}/conversations")).await;
+    assert!(none["conversations"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn conversations_keep_their_transcript_and_recency_order() {
     let (c, app) = Client::new().await;
     let lib = app.services.default_library;

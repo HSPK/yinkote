@@ -2184,3 +2184,65 @@ select.ctl { padding: 4px 6px; }
 .no-tab-body { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .no-tab-title { font-size: 13px; color: var(--fg); margin: 0; }
 .no-tab-body .dim { margin: 0; font-size: 11px; }
+
+
+/* ─── naming a paper in a question ───────────────────────────────────────── */
+
+.chat-input { position: relative; }
+
+/* Above the box, because the box is at the bottom of the pane and a list
+   dropping below it would be off screen. */
+.mention-popup {
+  position: absolute;
+  bottom: 100%;
+  left: 8px;
+  right: 8px;
+  z-index: 20;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 -4px 16px rgb(0 0 0 / 35%);
+}
+
+.mention-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.mention-row[data-active='true'] { background: var(--bg-3); }
+.mention-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mention-meta { flex: none; font-size: 10px; }
+.mention-empty { padding: 6px 8px; font-size: 11px; }
+
+.mention-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 8px 0; font-size: 10px; }
+.mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 1px 5px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  color: var(--fg);
+  font-size: 10px;
+  cursor: pointer;
+}
+.mention-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.bubble-mentions { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.bubble-mention {
+  padding: 0 4px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  font-size: 10px;
+  color: var(--fg-dim);
+}

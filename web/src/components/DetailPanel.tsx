@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import type { Item } from '../api/types'
+import { api } from '../api/client'
+import type { Conversation, Item } from '../api/types'
 import { creatorName } from '../lib/format'
 import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
@@ -245,8 +246,63 @@ export function DetailPanel() {
               </select>
             </div>
           </dd>
+
+          <ItemConversations itemKey={item.key} />
         </dl>
       </div>
     </aside>
+  )
+}
+
+/** What has already been asked about this paper.
+ *
+ *  Asked from the paper rather than from the chat list: standing on something
+ *  you are reading, "what did I already work out about this" is a question the
+ *  library should answer without making you remember which thread it was in.
+ */
+function ItemConversations({ itemKey }: { itemKey: string }) {
+  const t = useT()
+  const library = useStore((s) => s.library)
+  const openConversation = useStore((s) => s.openConversation)
+  const askAbout = useStore((s) => s.askAbout)
+  const [found, setFound] = useState<Conversation[]>([])
+
+  useEffect(() => {
+    let live = true
+    void api.conversations
+      .aboutItem(library, itemKey)
+      .then((r) => {
+        if (live) setFound(r.conversations)
+      })
+      .catch(() => {
+        if (live) setFound([])
+      })
+    return () => {
+      live = false
+    }
+  }, [library, itemKey])
+
+  return (
+    <>
+      <dt>{t('item.conversations')}</dt>
+      <dd>
+        <div className="chip-row">
+          {found.map((c) => (
+            <button
+              key={c.key}
+              className="chip"
+              onClick={() => void openConversation(c.key)}
+              title={c.title}
+            >
+              {c.title || c.key}
+            </button>
+          ))}
+          {!found.length && <span className="dim">{t('item.conversationsNone')}</span>}
+          <button className="chip" onClick={() => void askAbout(itemKey)}>
+            {t('item.askAboutThis')}
+          </button>
+        </div>
+      </dd>
+    </>
   )
 }

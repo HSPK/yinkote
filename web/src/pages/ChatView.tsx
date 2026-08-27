@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { useT } from '../i18n'
-import type { Message, RunState, RunStep } from '../api/types'
+import type { Item, Message, RunState, RunStep } from '../api/types'
+import { MentionPicker, mentionQuery, stripMention } from '../components/MentionPicker'
 import { Markdown } from '../lib/markdown'
 import { useStore } from '../state/store'
 import { Empty, Icon } from '../ui'
@@ -73,6 +74,17 @@ function Steps({ steps }: { steps?: RunStep[] }) {
   )
 }
 
+/** A named paper, shown by title once the list has it. */
+function MentionRef({ itemKey }: { itemKey: string }) {
+  const openReader = useStore((s) => s.openReader)
+  const title = useStore((s) => s.items.find((i) => i.key === itemKey)?.title)
+  return (
+    <button className="bubble-mention" onClick={() => openReader(itemKey)}>
+      {title || itemKey}
+    </button>
+  )
+}
+
 function Turn({ message }: { message: Message }) {
   const t = useT()
   const meta = message.meta as
@@ -85,6 +97,16 @@ function Turn({ message }: { message: Message }) {
         {t(`chat.role.${message.role}`)}
         {meta?.model && <span className="bubble-model">{meta.model}</span>}
       </div>
+
+      {/* What the question was about, kept visible on the message. Reading a
+          thread back, "this one" in the prose is meaningless without it. */}
+      {!!message.mentions?.length && (
+        <div className="bubble-mentions">
+          {message.mentions.map((key) => (
+            <MentionRef key={key} itemKey={key} />
+          ))}
+        </div>
+      )}
 
       {meta?.trace && <Steps steps={meta.trace} />}
       {message.content && (
@@ -154,6 +176,12 @@ export function ChatView() {
   const sendMessage = useStore((s) => s.sendMessage)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  // Papers named with `@`, kept beside the text rather than inside it: the
+  // assistant is told which item was meant instead of searching for a title
+  // the user may have half-typed.
+  const [mentions, setMentions] = useState<Item[]>([])
+  const [mention, setMention] = useState<{ query: string; caret: number } | null>(null)
+  const box = useRef<HTMLTextAreaElement>(null)
   // Whether a turn is going is the *server's* fact, not this component's: it
   // survives a reload, and a second tab watching the same conversation must
   // agree with the first.
@@ -181,11 +209,24 @@ export function ChatView() {
     if (!text || busy) return
     setSending(true)
     setDraft('')
+    const named = mentions.map((m) => m.key)
+    setMentions([])
+    setMention(null)
     try {
-      await sendMessage(text)
+      await sendMessage(text, named)
     } finally {
       setSending(false)
     }
+  }
+
+  const pick = (item: Item) => {
+    const caret = mention?.caret ?? draft.length
+    setDraft(stripMention(draft, caret))
+    setMentions((current) =>
+      current.some((m) => m.key === item.key) ? current : [...current, item],
+    )
+    setMention(null)
+    box.current?.focus()
   }
 
   return (
@@ -203,13 +244,43 @@ export function ChatView() {
       </div>
 
       <div className="chat-input">
+        {mentions.length > 0 && (
+          <div className="mention-chips">
+            <span className="dim">{t('chat.mentioned')}</span>
+            {mentions.map((m) => (
+              <button
+                key={m.key}
+                className="mention-chip"
+                title={t('chat.removeMention')}
+                onClick={() => setMentions((c) => c.filter((x) => x.key !== m.key))}
+              >
+                <span className="mention-chip-label">{m.title || m.key}</span>
+                <Icon.Close size={8} />
+              </button>
+            ))}
+          </div>
+        )}
+        {mention && (
+          <MentionPicker
+            query={mention.query}
+            onPick={pick}
+            onDismiss={() => setMention(null)}
+          />
+        )}
         <textarea
+          ref={box}
           value={draft}
           rows={2}
-          placeholder={t('chat.placeholder')}
-          onChange={(e) => setDraft(e.target.value)}
+          placeholder={t('chat.mentionHint')}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            const caret = e.target.selectionStart ?? e.target.value.length
+            const query = mentionQuery(e.target.value, caret)
+            setMention(query === null ? null : { query, caret })
+          }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            // While the picker is open it owns Enter; see MentionPicker.
+            if (e.key === 'Enter' && !e.shiftKey && !mention) {
               e.preventDefault()
               void submit()
             }

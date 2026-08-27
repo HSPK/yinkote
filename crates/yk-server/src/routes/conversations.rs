@@ -29,6 +29,17 @@ pub fn router() -> Router<App> {
         .route("/agent", get(status))
         .route("/libraries/:lib/conversations/:key/run", get(run_state))
         .route("/libraries/:lib/conversations/:key/cancel", post(cancel_run))
+        .route("/libraries/:lib/items/:key/conversations", get(about_item))
+}
+
+/// What has already been asked about one paper.
+async fn about_item(
+    State(app): State<App>,
+    Path((lib, k)): Path<(i64, String)>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let item = key(&k)?;
+    let found = app.store().conversations.mentioning(lib, &item).await?;
+    Ok(Json(json!({ "conversations": found })))
 }
 
 /// Whether asking is possible, so the UI can explain itself rather than
@@ -56,6 +67,12 @@ async fn status(State(app): State<App>) -> Json<serde_json::Value> {
 #[derive(Deserialize)]
 struct AskBody {
     content: String,
+    /// Papers the user named with `@`. They are put in front of the model as
+    /// facts rather than left for it to search for: the user has already said
+    /// which ones they mean, and making it guess again wastes a step and
+    /// sometimes finds a different paper.
+    #[serde(default)]
+    mentions: Vec<yk_core::Key>,
 }
 
 /// Record the question and start the turn.
@@ -83,7 +100,7 @@ async fn ask(
         .append(
             lib,
             &key,
-            MessageDraft { role: "user".into(), content: question.clone(), meta: None },
+            MessageDraft { role: "user".into(), content: question.clone(), meta: None, mentions: body.mentions.clone() },
         )
         .await?;
 
@@ -110,14 +127,94 @@ async fn ask(
     Ok(Json(json!({ "started": true })))
 }
 
+/// The conversation's own context: what it is about, and which papers it names.
+///
+/// Returns `None` when there is nothing to say, so an ordinary chat pays
+/// nothing for the feature.
+async fn turn_context(app: &App, lib: i64, key: &yk_core::Key) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+
+    if let Ok(conversation) = app.store().conversations.get(lib, key).await {
+        if let Some(scope) = conversation.scope.as_deref().filter(|s| !s.is_empty()) {
+            if let Ok(collection) = scope.parse() {
+                if let Ok(found) = app.store().collections.get(lib, &collection).await {
+                    parts.push(format!(
+                        "This conversation is about the collection \"{}\" ({} items). Unless \
+                         the user says otherwise, search inside it by passing collection: \
+                         \"{}\" to search_library.",
+                        found.name, found.item_count, scope
+                    ));
+                }
+            }
+        }
+    }
+
+    let mentioned = mentioned_items(app, lib, key).await;
+    if !mentioned.is_empty() {
+        let listed = mentioned
+            .iter()
+            .map(|item| {
+                serde_json::to_string(&crate::agent::summarise(item)).unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        parts.push(format!(
+            "The user has referred to these papers by name. Treat them as the subject unless \
+             they say otherwise; you do not need to search for them again:\n{listed}"
+        ));
+    }
+
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n\n"))
+    }
+}
+
+/// Every paper named in the conversation so far, newest mention winning.
+async fn mentioned_items(app: &App, lib: i64, key: &yk_core::Key) -> Vec<yk_core::model::Item> {
+    let Ok(messages) = app.store().conversations.messages(lib, key).await else {
+        return Vec::new();
+    };
+    let mut keys: Vec<yk_core::Key> = Vec::new();
+    for message in messages.iter().rev() {
+        for k in &message.mentions {
+            if !keys.contains(k) {
+                keys.push(k.clone());
+            }
+        }
+        // A conversation that has ranged over forty papers is not asking about
+        // forty papers; the recent ones are the ones in play.
+        if keys.len() >= MENTION_CONTEXT {
+            break;
+        }
+    }
+    keys.truncate(MENTION_CONTEXT);
+    app.store().items.get_many(lib, &keys).await.unwrap_or_default()
+}
+
+/// How many named papers to put in front of the model.
+const MENTION_CONTEXT: usize = 8;
+
 /// Run the turn to its end, whatever happens to whoever asked for it.
 async fn run_turn(app: App, lib: i64, key: yk_core::Key, run: std::sync::Arc<crate::runs::Run>) {
     let Some(agent) = app.agent() else { return };
 
-    let history = match app.store().conversations.messages(lib, &key).await {
-        Ok(messages) => messages.iter().map(to_chat).collect(),
-        Err(e) => return run.fail(e.to_string()),
-    };
+    let mut history: Vec<yk_ai::ChatMessage> =
+        match app.store().conversations.messages(lib, &key).await {
+            Ok(messages) => messages.iter().map(to_chat).collect(),
+            Err(e) => return run.fail(e.to_string()),
+        };
+
+    // What this conversation is standing on, put in front of the model rather
+    // than left for it to work out. A scoped conversation is scoped because
+    // the user said so, and a paper they named with `@` is one they have
+    // already chosen — making the model search for it again spends a step to
+    // arrive somewhere it was already told about, and sometimes arrives at a
+    // different paper.
+    if let Some(context) = turn_context(&app, lib, &key).await {
+        history.insert(0, yk_ai::ChatMessage::new("system", &context));
+    }
 
     let progress = crate::runs::RunProgress {
         run: run.clone(),
@@ -149,6 +246,7 @@ async fn run_turn(app: App, lib: i64, key: yk_core::Key, run: std::sync::Arc<cra
                     "stopped": turn.stopped,
                     "trace": crate::runs::steps_json(&state),
                 })),
+                mentions: Vec::new(),
             },
         )
         .await;

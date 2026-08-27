@@ -428,6 +428,9 @@ pub struct Message {
     pub content: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
+    /// Papers this message named with `@`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<Key>,
     #[serde(rename = "createdAt")]
     pub created_at: i64,
 }
@@ -438,6 +441,13 @@ pub struct MessageDraft {
     pub content: String,
     #[serde(default)]
     pub meta: Option<Value>,
+    /// Papers this message is about, named by the user with `@`.
+    ///
+    /// Carried separately from the text rather than parsed back out of it:
+    /// the client already knows exactly which item was picked, and re-deriving
+    /// it from prose would mean guessing at a title the user may have edited.
+    #[serde(default)]
+    pub mentions: Vec<Key>,
 }
 
 #[derive(Clone, Debug, Serialize)]

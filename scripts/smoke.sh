@@ -399,6 +399,19 @@ check "transcript"       "$(j "$BASE/libraries/$LIB/conversations/$CONV/messages
 check "conversation list" "$(j "$BASE/libraries/$LIB/conversations" | jq -r '.[0].messageCount')"
 check "conversation drop" "$(j -X DELETE "$BASE/libraries/$LIB/conversations/$CONV" | jq -r .deleted)"
 
+echo "▸ mentions"
+MITEM=$(j -X POST "$BASE/libraries/$LIB/items" \
+          -d '[{"itemType":"journalArticle","title":"Mention smoke"}]' | jq -r '.created[0].key')
+MCONV=$(j -X POST "$BASE/libraries/$LIB/conversations" -d '{"title":"Mention smoke"}' | jq -r .key)
+j -X POST "$BASE/libraries/$LIB/conversations/$MCONV/messages" \
+  -d "{\"role\":\"user\",\"content\":\"about this\",\"mentions\":[\"$MITEM\"]}" > /dev/null
+# A mention has to survive the round trip, or the chip cannot be drawn.
+check "mention stored"   "$(j "$BASE/libraries/$LIB/conversations/$MCONV/messages" \
+                             | jq -r --arg k "$MITEM" '.[0].mentions | map(select(. == $k)) | length | select(. == 1)')"
+# The reverse lookup is what the detail panel asks.
+check "paper knows its threads" "$(j "$BASE/libraries/$LIB/items/$MITEM/conversations" \
+                             | jq -r --arg c "$MCONV" '.conversations | map(select(.key == $c)) | length | select(. == 1)')"
+
 echo "▸ trash"
 check "trash"            "$(j -X DELETE "$BASE/libraries/$LIB/items" -d "{\"keys\":[\"$KEY\"]}" | jq -r .trashed)"
 check "trash view"       "$(j "$BASE/libraries/$LIB/items?trash=only" | jq -r .total)"

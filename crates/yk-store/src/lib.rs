@@ -459,7 +459,7 @@ mod tests {
                 .append(
                     lib,
                     &convo.key,
-                    MessageDraft { role: role.into(), content: content.into(), meta: None },
+                    MessageDraft { role: role.into(), content: content.into(), meta: None, mentions: Vec::new() },
                 )
                 .await
                 .unwrap();
@@ -469,6 +469,90 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, "user", "insertion order is preserved");
         assert_eq!(s.conversations.get(lib, &convo.key).await.unwrap().message_count, 2);
+    }
+
+    #[tokio::test]
+    async fn a_paper_can_be_asked_what_was_said_about_it() {
+        let s = store();
+        let lib = s.default_library;
+        let paper = s.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+        let other = s.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+
+        let convo = s.conversations.create(lib, "about it", None).await.unwrap();
+        s.conversations
+            .append(
+                lib,
+                &convo.key,
+                MessageDraft {
+                    role: "user".into(),
+                    content: "what does this argue?".into(),
+                    meta: None,
+                    mentions: vec![paper.key.clone()],
+                },
+            )
+            .await
+            .unwrap();
+
+        let found = s.conversations.mentioning(lib, &paper.key).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].key, convo.key);
+
+        // And a paper nobody asked about has no history, rather than
+        // inheriting the conversation's.
+        assert!(s.conversations.mentioning(lib, &other.key).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_conversation_that_names_a_paper_twice_is_still_one_conversation() {
+        let s = store();
+        let lib = s.default_library;
+        let paper = s.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+        let convo = s.conversations.create(lib, "repeat", None).await.unwrap();
+
+        for _ in 0..3 {
+            s.conversations
+                .append(
+                    lib,
+                    &convo.key,
+                    MessageDraft {
+                        role: "user".into(),
+                        content: "again".into(),
+                        meta: None,
+                        mentions: vec![paper.key.clone()],
+                    },
+                )
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(s.conversations.mentioning(lib, &paper.key).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn mentions_come_back_with_the_thread() {
+        let s = store();
+        let lib = s.default_library;
+        let paper = s.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+        let convo = s.conversations.create(lib, "t", None).await.unwrap();
+
+        s.conversations
+            .append(
+                lib,
+                &convo.key,
+                MessageDraft {
+                    role: "user".into(),
+                    content: "about @this".into(),
+                    meta: None,
+                    mentions: vec![paper.key.clone()],
+                },
+            )
+            .await
+            .unwrap();
+
+        // The client renders the mention as a chip, so reading a thread has to
+        // return what was named — not just record it for the reverse lookup.
+        let messages = s.conversations.messages(lib, &convo.key).await.unwrap();
+        assert_eq!(messages[0].mentions, vec![paper.key]);
     }
 
     #[tokio::test]
@@ -482,7 +566,7 @@ mod tests {
             .append(
                 lib,
                 &older.key,
-                MessageDraft { role: "user".into(), content: "ping".into(), meta: None },
+                MessageDraft { role: "user".into(), content: "ping".into(), meta: None, mentions: Vec::new() },
             )
             .await
             .unwrap();
@@ -501,7 +585,7 @@ mod tests {
             .append(
                 lib,
                 &convo.key,
-                MessageDraft { role: "user".into(), content: "x".into(), meta: None },
+                MessageDraft { role: "user".into(), content: "x".into(), meta: None, mentions: Vec::new() },
             )
             .await
             .unwrap();
@@ -527,7 +611,7 @@ mod tests {
             .append(
                 lib,
                 &convo.key,
-                MessageDraft { role: "hacker".into(), content: "x".into(), meta: None },
+                MessageDraft { role: "hacker".into(), content: "x".into(), meta: None, mentions: Vec::new() },
             )
             .await
             .unwrap_err();

@@ -35,6 +35,7 @@ fn map_message(r: &rusqlite::Row<'_>) -> rusqlite::Result<Message> {
         role: r.get(1)?,
         content: r.get(2)?,
         meta: meta.and_then(|m| serde_json::from_str(&m).ok()),
+        mentions: Vec::new(),
         created_at: r.get(4)?,
     })
 }
@@ -176,12 +177,32 @@ impl ConversationRepository for SqliteConversationRepository {
                          WHERE conversation_id=?1 ORDER BY id",
                     )
                     .map_err(sql_err)?;
-                let out = stmt
+                let mut out = stmt
                     .query_map(params![id], map_message)
                     .map_err(sql_err)?
                     .collect::<rusqlite::Result<Vec<_>>>()
-                    .map_err(sql_err);
-                out
+                    .map_err(sql_err)?;
+
+                // One query for the whole thread rather than one per message:
+                // a conversation is read on every keystroke of a live turn.
+                let mut mentions = c
+                    .prepare_cached(
+                        "SELECT mm.message_id, mm.item_key FROM message_mentions mm \
+                         JOIN messages m ON m.id = mm.message_id \
+                         WHERE m.conversation_id = ?1",
+                    )
+                    .map_err(sql_err)?;
+                let mut rows = mentions.query(params![id]).map_err(sql_err)?;
+                while let Some(row) = rows.next().map_err(sql_err)? {
+                    let message_id: i64 = row.get(0).map_err(sql_err)?;
+                    let raw: String = row.get(1).map_err(sql_err)?;
+                    if let (Some(message), Ok(item)) =
+                        (out.iter_mut().find(|m| m.id == message_id), Key::parse(&raw))
+                    {
+                        message.mentions.push(item);
+                    }
+                }
+                Ok(out)
             })
             .await
     }
@@ -204,6 +225,20 @@ impl ConversationRepository for SqliteConversationRepository {
                 )
                 .map_err(sql_err)?;
                 let message_id = tx.last_insert_rowid();
+
+                // Written with the message, not after it. A mention index that
+                // is maintained separately can disagree with the conversation
+                // it describes, and the disagreement is invisible until
+                // somebody notices a paper missing from its own history.
+                for key in &draft.mentions {
+                    tx.execute(
+                        "INSERT INTO message_mentions(message_id, item_key) VALUES (?1,?2)
+                         ON CONFLICT DO NOTHING",
+                        params![message_id, key.as_str()],
+                    )
+                    .map_err(sql_err)?;
+                }
+
                 // Recency ordering in the sidebar depends on this.
                 tx.execute(
                     "UPDATE conversations SET updated_at=?1 WHERE id=?2",
@@ -217,8 +252,31 @@ impl ConversationRepository for SqliteConversationRepository {
                     role: draft.role,
                     content: draft.content,
                     meta: draft.meta,
+                    mentions: draft.mentions,
                     created_at: now,
                 })
+            })
+            .await
+    }
+
+    async fn mentioning(&self, library_id: i64, item: &Key) -> Result<Vec<Conversation>> {
+        let item = item.to_string();
+        self.db
+            .call(move |c| {
+                // EXISTS rather than a join: a conversation that mentions the
+                // same paper in nine messages is still one conversation, and
+                // de-duplicating afterwards is work that need not happen.
+                let sql = format!(
+                    "{SELECT} WHERE c.library_id = ?1 AND EXISTS (                        SELECT 1 FROM messages m                        JOIN message_mentions mm ON mm.message_id = m.id                        WHERE m.conversation_id = c.id AND mm.item_key = ?2)                      ORDER BY c.updated_at DESC LIMIT 50"
+                );
+                let rows = c
+                    .prepare_cached(&sql)
+                    .map_err(sql_err)?
+                    .query_map(params![library_id, item], map)
+                    .map_err(sql_err)?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(sql_err)?;
+                Ok(rows)
             })
             .await
     }

@@ -105,6 +105,10 @@ impl Tool for SearchLibrary {
                         "type": "integer",
                         "description": "How many results, 1-20. Defaults to 8.",
                     },
+                    "collection": {
+                        "type": "string",
+                        "description": "Restrict the search to one collection, by key.",
+                    },
                 },
                 "required": ["query"],
             }),
@@ -114,6 +118,15 @@ impl Tool for SearchLibrary {
     async fn call(&self, library_id: i64, arguments: Value) -> Result<Value> {
         let query = yk_agent::required_str(&arguments, "query")?;
         let limit = arguments["limit"].as_u64().unwrap_or(8).clamp(1, 20) as u32;
+        // A wrong key would otherwise silently widen the search back to the
+        // whole library, which looks like the filter working and finding more.
+        let collection = match arguments["collection"].as_str().filter(|s| !s.is_empty()) {
+            Some(raw) => Some(
+                raw.parse()
+                    .map_err(|_| Error::invalid(format!("'{raw}' is not a collection key")))?,
+            ),
+            None => None,
+        };
 
         let hits = self
             .search
@@ -122,7 +135,14 @@ impl Tool for SearchLibrary {
                 // Hybrid because the agent's queries are prose, not operators;
                 // it has no way to know which retrieval mode suits its question.
                 mode: SearchMode::Hybrid,
-                filter: ItemFilter { library_id, ..Default::default() },
+                filter: ItemFilter {
+                    library_id,
+                    collection,
+                    // Sub-collections count: a user who scopes a chat to
+                    // "Diffusion" means the pile, not just its top level.
+                    recursive: true,
+                    ..Default::default()
+                },
                 limit,
                 offset: 0,
                 highlight: false,

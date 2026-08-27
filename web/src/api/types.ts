@@ -219,6 +219,8 @@ export interface Message {
   role: 'user' | 'assistant' | 'tool' | 'system'
   content: string
   meta?: Record<string, unknown>
+  /** Item keys the message named with `@`. */
+  mentions?: string[]
   createdAt: number
 }
 

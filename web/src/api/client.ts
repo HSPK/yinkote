@@ -260,11 +260,14 @@ export const api = {
         method: 'POST',
         ...json(body),
       }),
-    ask: (lib: number, key: string, content: string) =>
+    ask: (lib: number, key: string, content: string, mentions: string[] = []) =>
       request<{ message: Message; truncated: boolean }>(
         `/libraries/${lib}/conversations/${key}/ask`,
-        { method: 'POST', ...json({ content }) },
+        { method: 'POST', ...json({ content, mentions }) },
       ),
+    /** What has already been asked about one paper. */
+    aboutItem: (lib: number, key: string) =>
+      request<{ conversations: Conversation[] }>(`/libraries/${lib}/items/${key}/conversations`),
   },
 
   agent: () => request<AgentStatus>('/agent'),
