@@ -73,6 +73,12 @@ async fn configure(
     if let Some(steps) = body.max_steps {
         config.agent.max_steps = steps.clamp(1, 64);
     }
+    if let Some(skills) = body.disabled_skills {
+        config.agent.disabled_skills = skills;
+    }
+    if let Some(tools) = body.disabled_tools {
+        config.agent.disabled_tools = tools;
+    }
 
     if blank(&config.agent.endpoint) || blank(&config.agent.model) {
         // Saying which half is missing; "not configured" sends people to the
@@ -104,6 +110,8 @@ struct AgentConfigBody {
     api_key: Option<String>,
     allow_commands: Option<bool>,
     max_steps: Option<usize>,
+    disabled_skills: Option<Vec<String>>,
+    disabled_tools: Option<Vec<String>>,
 }
 
 /// Whether asking is possible, so the UI can explain itself rather than
@@ -128,6 +136,18 @@ fn agent_status(app: &App) -> serde_json::Value {
         "hasApiKey": agent.api_key.as_deref().is_some_and(|k| !k.is_empty()),
         "allowCommands": agent.allow_commands,
         "maxSteps": agent.max_steps,
+        // What is installed and what is off, so the settings page can show
+        // both without a second request or a second source of truth.
+        "skills": crate::agent::skills::Skills::load_dir(&config.skills_dir())
+            .iter()
+            .map(|s| json!({
+                "name": s.name,
+                "description": s.description,
+                "enabled": agent.skill_enabled(&s.name),
+            }))
+            .collect::<Vec<_>>(),
+        "disabledTools": agent.disabled_tools,
+        "allTools": app.tool_catalogue(),
         // What it may do, so that "can it change my library?" is answerable
         // without reading the source.
         "tools": app.agent().map(|a| a.tool_names()).unwrap_or_default(),

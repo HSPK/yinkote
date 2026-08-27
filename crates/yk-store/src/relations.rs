@@ -32,7 +32,7 @@ pub const CITES: &str = "cites";
 /// index that actually answers the question is the whole difference, and
 /// nothing about the results changes, so only a plan assertion can catch its
 /// removal.
-pub(crate) const MISSING_SQL: &str = "SELECT c.target_key, c.label, c.year, c.doi, c.citations
+pub const MISSING_SQL: &str = "SELECT c.target_key, c.label, c.year, c.doi, c.citations
      FROM cited_works c
      WHERE NOT EXISTS (SELECT 1 FROM items o INDEXED BY idx_items_fingerprint
                        WHERE o.library_id = ?1 AND o.fingerprint = c.target_key
@@ -146,7 +146,7 @@ fn id_of(conn: &rusqlite::Connection, library_id: i64, key: &Key) -> Result<i64>
 /// four orders of magnitude apart, and invisible to every test that only
 /// checks the answer. Same fault as `MISSING_SQL`, same table, same column;
 /// there is a plan test for each.
-pub(crate) const CITES_SQL: &str =
+pub const CITES_SQL: &str =
     "SELECT r.position, r.target_key, r.target_label, r.target_year, i.key, r.target_doi
      FROM item_relations r
      LEFT JOIN items i INDEXED BY idx_items_fingerprint

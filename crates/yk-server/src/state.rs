@@ -81,6 +81,20 @@ impl AppState {
     pub fn config(&self) -> Config {
         self.config.read().clone()
     }
+
+    /// Every tool that could exist, whether or not it is switched on.
+    pub fn tool_catalogue(&self) -> Vec<String> {
+        let config = self.config();
+        let skills = std::sync::Arc::new(yk_agent::skills::Skills::load_dir(&config.skills_dir()));
+        let workspace = crate::agent::Workspace::new(config.workspace_dir()).ok();
+        crate::agent::tool_catalogue(
+            self.store(),
+            self.search(),
+            self.scrape(),
+            workspace.as_ref(),
+            &skills,
+        )
+    }
     pub fn uptime_secs(&self) -> u64 {
         self.started.elapsed().as_secs()
     }

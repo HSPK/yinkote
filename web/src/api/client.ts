@@ -288,6 +288,8 @@ export const api = {
     apiKey?: string
     allowCommands?: boolean
     maxSteps?: number
+    disabledSkills?: string[]
+    disabledTools?: string[]
   }) => request<AgentStatus>('/agent', { method: 'PUT', ...json(patch) }),
 
   import: {

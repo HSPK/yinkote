@@ -138,6 +138,20 @@ export function SettingsPage() {
             keywords: t('settings.keywords.model'),
             render: () => <ModelSettings agent={agent} onSave={configureAgent} />,
           },
+          {
+            id: 'skills',
+            label: t('settings.skills'),
+            hint: t('settings.skillsHint'),
+            keywords: t('settings.keywords.skills'),
+            render: () => <SkillToggles agent={agent} onSave={configureAgent} />,
+          },
+          {
+            id: 'tools',
+            label: t('settings.tools'),
+            hint: t('settings.toolsHint'),
+            keywords: t('settings.keywords.tools'),
+            render: () => <ToolToggles agent={agent} onSave={configureAgent} />,
+          },
         ],
       },
       {
@@ -478,6 +492,87 @@ function ModelSettings({
       {agent?.configured && (
         <p className="dim">{t('settings.modelTools', { count: agent.tools?.length ?? 0 })}</p>
       )}
+    </div>
+  )
+}
+
+/** Which skills the assistant is offered.
+ *
+ *  A deny list underneath: a skill dropped into the folder works without being
+ *  switched on anywhere, and turning one off is the exception worth recording.
+ */
+function SkillToggles({
+  agent,
+  onSave,
+}: {
+  agent: AgentStatus | null
+  onSave: (patch: { disabledSkills?: string[] }) => Promise<void>
+}) {
+  const t = useT()
+  const skills = agent?.skills ?? []
+
+  if (!skills.length) return <span className="ctl-static dim">{t('settings.skillsNone')}</span>
+
+  const toggle = (name: string, on: boolean) => {
+    const off = skills.filter((s) => (s.name === name ? !on : !s.enabled)).map((s) => s.name)
+    void onSave({ disabledSkills: off })
+  }
+
+  return (
+    <div className="toggle-list">
+      {skills.map((skill) => (
+        <label key={skill.name} className="toggle-row" title={skill.description}>
+          <input
+            type="checkbox"
+            checked={skill.enabled}
+            onChange={(e) => toggle(skill.name, e.target.checked)}
+          />
+          <span className="toggle-name">{skill.name}</span>
+          <span className="toggle-hint dim">{skill.description}</span>
+        </label>
+      ))}
+    </div>
+  )
+}
+
+/** Which tools the assistant is given.
+ *
+ *  The catalogue comes from the server, so a tool added later appears here
+ *  without anybody maintaining a second list. Writing tools are marked,
+ *  because "may it change my library?" is the question actually being asked.
+ */
+function ToolToggles({
+  agent,
+  onSave,
+}: {
+  agent: AgentStatus | null
+  onSave: (patch: { disabledTools?: string[] }) => Promise<void>
+}) {
+  const t = useT()
+  const all = agent?.allTools ?? []
+  const disabled = agent?.disabledTools ?? []
+  const writes = agent?.writes ?? []
+
+  if (!all.length) return <span className="ctl-static dim">{t('settings.toolsNone')}</span>
+
+  const toggle = (name: string, on: boolean) => {
+    const off = on ? disabled.filter((d) => d !== name) : [...disabled, name]
+    void onSave({ disabledTools: off })
+  }
+
+  return (
+    <div className="toggle-list tools">
+      {all.map((name) => (
+        <label key={name} className="toggle-row">
+          <input
+            type="checkbox"
+            checked={!disabled.includes(name)}
+            onChange={(e) => toggle(name, e.target.checked)}
+          />
+          <span className="toggle-name mono">{name}</span>
+          {writes.includes(name) && <Badge tone="warn">{t('settings.toolWrites')}</Badge>}
+        </label>
+      ))}
     </div>
   )
 }

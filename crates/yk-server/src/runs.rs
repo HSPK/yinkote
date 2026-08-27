@@ -49,6 +49,14 @@ pub enum Step {
 #[serde(rename_all = "camelCase")]
 pub struct RunState {
     pub running: bool,
+    /// When the turn started, in epoch milliseconds.
+    ///
+    /// Sent rather than an elapsed count, so a client that rejoins after a
+    /// reload shows the real age of the turn instead of restarting the clock —
+    /// and so the number keeps moving between announcements, which arrive only
+    /// every hundred milliseconds and stop entirely while the model thinks.
+    #[serde(rename = "startedAt")]
+    pub started_at: i64,
     /// The question that started it, so a rejoining client can show it.
     pub question: String,
     pub steps: Vec<Step>,
@@ -108,6 +116,7 @@ impl Runs {
             state: Mutex::new(RunState {
                 running: true,
                 question: question.to_string(),
+                started_at: yk_core::now_ms(),
                 ..Default::default()
             }),
             cancel: Cancel::default(),

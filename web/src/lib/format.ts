@@ -68,3 +68,26 @@ export function bytes(n: number): string {
   // One decimal below 10, none above: `4.2 MB` is useful, `412.7 KB` is noise.
   return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
 }
+
+/** How long something has been going, at the coarsest useful resolution.
+ *
+ *  A turn that has been running for two seconds and one that has been running
+ *  for two minutes need different reassurance, so the unit follows the
+ *  magnitude: seconds while it is quick, minutes and seconds once it is not,
+ *  hours when something has clearly gone wrong. Seconds are dropped past an
+ *  hour, where they are noise.
+ *
+ *  Digits and unit letters rather than words, because this ticks once a second
+ *  beside a spinner and must not change width every time.
+ */
+export function elapsed(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '0s'
+  const total = Math.floor(ms / 1000)
+  const s = total % 60
+  const m = Math.floor(total / 60) % 60
+  const h = Math.floor(total / 3600)
+
+  if (h) return `${h}h ${String(m).padStart(2, '0')}m`
+  if (m) return `${m}m ${String(s).padStart(2, '0')}s`
+  return `${s}s`
+}

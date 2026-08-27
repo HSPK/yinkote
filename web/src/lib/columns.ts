@@ -86,6 +86,22 @@ export function gridTemplate(columns: ColumnDef[], widths: Record<string, number
     .join(' ')
 }
 
+/** How wide the columns want to be, in total.
+ *
+ *  The list needs this to know when the content is wider than the pane and a
+ *  sideways scrollbar is called for. Flexible columns contribute their minimum,
+ *  which is the width below which they would rather scroll than shrink.
+ */
+export function totalColumnWidth(
+  columns: ColumnDef[],
+  widths: Record<string, number>,
+): number {
+  return columns.reduce((sum, c) => {
+    const w = widths[c.id] ?? c.width
+    return sum + (w > 0 ? w : c.min)
+  }, 0)
+}
+
 /** Toggle a column's visibility, keeping the catalogue's order for new entries. */
 export function toggleColumn(order: string[], id: string, available: ColumnDef[]): string[] {
   if (order.includes(id)) {

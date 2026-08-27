@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useT } from '../i18n'
 import type { Item, Message, RunState, RunStep } from '../api/types'
 import { MentionPicker, mentionQuery, stripMention } from '../components/MentionPicker'
+import { elapsed } from '../lib/format'
 import { Markdown } from '../lib/markdown'
 import { useStore } from '../state/store'
 import { Empty, Icon } from '../ui'
@@ -130,6 +131,25 @@ function Turn({ message }: { message: Message }) {
  * message and this disappears, so there is never a window where the same turn
  * is on screen twice.
  */
+/** How long the turn has been going.
+ *
+ *  Ticked here rather than taken from the server: progress arrives only every
+ *  hundred milliseconds and stops altogether while the model is thinking,
+ *  which is exactly when somebody wants to know how long they have waited.
+ *  The server sends when it started, so a reload shows the real age instead
+ *  of restarting the clock.
+ */
+function Elapsed({ since }: { since?: number }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  if (!since) return null
+  return <span className="bubble-elapsed">{elapsed(now - since)}</span>
+}
+
 function LiveTurn({ run, onCancel }: { run: RunState; onCancel: () => void }) {
   const t = useT()
   return (
@@ -137,6 +157,7 @@ function LiveTurn({ run, onCancel }: { run: RunState; onCancel: () => void }) {
       <div className="bubble-role">
         {t('chat.role.assistant')}
         <span className="bubble-working">{t('chat.working')}</span>
+        <Elapsed since={run.startedAt} />
         <span className="spacer" />
         <button className="link" onClick={onCancel}>
           {t('chat.stop')}
@@ -181,6 +202,7 @@ export function ChatView() {
   // the user may have half-typed.
   const [mentions, setMentions] = useState<Item[]>([])
   const [mention, setMention] = useState<{ query: string; caret: number } | null>(null)
+  const [focused, setFocused] = useState(false)
   const box = useRef<HTMLTextAreaElement>(null)
   // Whether a turn is going is the *server's* fact, not this component's: it
   // survives a reload, and a second tab watching the same conversation must
@@ -237,22 +259,6 @@ export function ChatView() {
     <div className="pane main chat">
       <div className="chat-head">
         <span className="chat-title">{title}</span>
-        {/* What the conversation is standing on. A scoped chat searches
-            inside that collection, so it is stated rather than remembered. */}
-        <label className="chat-scope">
-          <span className="dim">{t('chat.scope')}</span>
-          <select
-            value={scope ?? ''}
-            onChange={(e) => void setConversationScope(e.target.value || null)}
-          >
-            <option value="">{t('chat.scopeAll')}</option>
-            {collections.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </label>
       </div>
 
       <div className="chat-log">
@@ -265,52 +271,93 @@ export function ChatView() {
         <div ref={tail} />
       </div>
 
+      {/* One control, not three stacked. What the question is about — the
+          papers named and the collection it is scoped to — belongs beside the
+          text being typed, because those are all part of the question. */}
       <div className="chat-input">
-        {mentions.length > 0 && (
-          <div className="mention-chips">
-            <span className="dim">{t('chat.mentioned')}</span>
-            {mentions.map((m) => (
-              <button
-                key={m.key}
-                className="mention-chip"
-                title={t('chat.removeMention')}
-                onClick={() => setMentions((c) => c.filter((x) => x.key !== m.key))}
-              >
-                <span className="mention-chip-label">{m.title || m.key}</span>
-                <Icon.Close size={8} />
-              </button>
-            ))}
-          </div>
-        )}
         {mention && (
-          <MentionPicker
-            query={mention.query}
-            onPick={pick}
-            onDismiss={() => setMention(null)}
-          />
+          <MentionPicker query={mention.query} onPick={pick} onDismiss={() => setMention(null)} />
         )}
-        <textarea
-          ref={box}
-          value={draft}
-          rows={2}
-          placeholder={t('chat.mentionHint')}
-          onChange={(e) => {
-            setDraft(e.target.value)
-            const caret = e.target.selectionStart ?? e.target.value.length
-            const query = mentionQuery(e.target.value, caret)
-            setMention(query === null ? null : { query, caret })
-          }}
-          onKeyDown={(e) => {
-            // While the picker is open it owns Enter; see MentionPicker.
-            if (e.key === 'Enter' && !e.shiftKey && !mention) {
-              e.preventDefault()
-              void submit()
-            }
-          }}
-        />
-        <button className="primary" disabled={!draft.trim() || busy} onClick={() => void submit()}>
-          {t('chat.send')}
-        </button>
+
+        <div className="composer" data-focused={focused || undefined}>
+          {mentions.length > 0 && (
+            <div className="composer-chips">
+              {mentions.map((m) => (
+                <button
+                  key={m.key}
+                  className="mention-chip"
+                  title={t('chat.removeMention')}
+                  onClick={() => setMentions((c) => c.filter((x) => x.key !== m.key))}
+                >
+                  <span className="mention-chip-label">{m.title || m.key}</span>
+                  <Icon.Close size={8} />
+                </button>
+              ))}
+            </div>
+          )}
+
+          <textarea
+            ref={box}
+            value={draft}
+            rows={2}
+            placeholder={t('chat.mentionHint')}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onChange={(e) => {
+              setDraft(e.target.value)
+              const caret = e.target.selectionStart ?? e.target.value.length
+              const query = mentionQuery(e.target.value, caret)
+              setMention(query === null ? null : { query, caret })
+            }}
+            onKeyDown={(e) => {
+              // While the picker is open it owns Enter; see MentionPicker.
+              if (e.key === 'Enter' && !e.shiftKey && !mention) {
+                e.preventDefault()
+                void submit()
+              }
+            }}
+          />
+
+          <div className="composer-bar">
+            <label className="chat-scope" title={t('chat.scope')}>
+              <Icon.Folder size={11} className="glyph" />
+              <select
+                value={scope ?? ''}
+                onChange={(e) => void setConversationScope(e.target.value || null)}
+              >
+                <option value="">{t('chat.scopeAll')}</option>
+                {collections.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button
+              className="composer-mention"
+              title={t('chat.mentionHint')}
+              onClick={() => {
+                const next = `${draft}${draft && !draft.endsWith(' ') ? ' ' : ''}@`
+                setDraft(next)
+                setMention({ query: '', caret: next.length })
+                box.current?.focus()
+              }}
+            >
+              @
+            </button>
+
+            <span className="spacer" />
+
+            <button
+              className="primary"
+              disabled={!draft.trim() || busy}
+              onClick={() => void submit()}
+            >
+              {t('chat.send')}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )

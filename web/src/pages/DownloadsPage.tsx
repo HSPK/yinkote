@@ -15,6 +15,30 @@ import { useT } from '../i18n'
 import { bytes as formatBytes } from '../lib/format'
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, toast } from '../ui'
+import { VirtualList } from '../components/VirtualList'
+
+/** Narrower than this the columns scroll sideways rather than crush. */
+const DOWNLOAD_COLUMNS = 880
+
+/** Whether two polls describe the same queue.
+ *
+ *  Compares only what is drawn. Bytes tick up while a file is downloading and
+ *  the row must follow, but an identical queue must not produce a new array —
+ *  that is a re-render of every row for no visible change.
+ */
+function sameQueue(a: Download[], b: Download[]): boolean {
+  if (a.length !== b.length) return false
+  return a.every((row, i) => {
+    const other = b[i]
+    return (
+      !!other &&
+      row.id === other.id &&
+      row.state === other.state &&
+      row.bytes === other.bytes &&
+      row.error === other.error
+    )
+  })
+}
 
 export function DownloadsPage() {
   const t = useT()
@@ -23,23 +47,34 @@ export function DownloadsPage() {
 
   const [rows, setRows] = useState<Download[]>([])
   const [loading, setLoading] = useState(true)
+  /** Whether anything is still moving; see the polling effect below. */
+  const [busy, setBusy] = useState(true)
 
   const load = useCallback(async () => {
     const found = await api.downloads.list(library).catch(() => null)
     if (found) {
-      setRows(found.downloads)
+      // Replaced only when something actually changed. A poll that hands back
+      // a fresh array every time re-renders every row for nothing, which is
+      // what made a settled queue feel busy.
+      setRows((current) => (sameQueue(current, found.downloads) ? current : found.downloads))
       setDownloadCount(found.waiting + found.failed)
+      setBusy(found.waiting > 0 || found.downloads.some((d) => d.state === 'running'))
     }
     setLoading(false)
   }, [library, setDownloadCount])
 
   useEffect(() => {
     void load()
-    // Polled while anything is outstanding. The worker takes one file at a
-    // time, so a second is far finer than the queue actually moves.
+  }, [load])
+
+  useEffect(() => {
+    // Polled only while something is outstanding. The worker takes one file at
+    // a time, so a second and a half is far finer than the queue moves — and a
+    // queue that has finished does not move at all.
+    if (!busy) return
     const timer = window.setInterval(() => void load(), 1500)
     return () => window.clearInterval(timer)
-  }, [load])
+  }, [busy, load])
 
   const act = async (what: 'retry' | 'remove', ids: number[]) => {
     try {
@@ -83,11 +118,14 @@ export function DownloadsPage() {
         </span>
       </div>
 
-      {!rows.length && <Empty>{t('downloads.none')}</Empty>}
-
-      <div className="browser-body">
-        {rows.map((row) => (
-          <div key={row.id} className="row browser-grid downloads-grid" data-state={row.state}>
+      <VirtualList
+        rows={rows}
+        keyOf={(row) => String(row.id)}
+        minWidth={DOWNLOAD_COLUMNS}
+        empty={<Empty>{t('downloads.none')}</Empty>}
+      >
+        {(row) => (
+          <div className="row browser-grid downloads-grid" data-state={row.state}>
             <div className="cell name-cell" title={row.url}>
               <Icon.Download className="glyph" />
               <span className="name">{row.title || row.url}</span>
@@ -118,8 +156,8 @@ export function DownloadsPage() {
               </Button>
             </div>
           </div>
-        ))}
-      </div>
+        )}
+      </VirtualList>
     </div>
   )
 }

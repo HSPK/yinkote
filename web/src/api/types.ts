@@ -256,6 +256,10 @@ export interface AgentStatus {
   maxSteps?: number
   tools?: string[]
   writes?: string[]
+  /** Every tool that could exist, so one that is off can be switched back on. */
+  allTools?: string[]
+  disabledTools?: string[]
+  skills?: { name: string; description: string; enabled: boolean }[]
 }
 
 export interface ImportPreview {
@@ -374,6 +378,8 @@ export type RunStep =
 
 /** What a conversation's turn is doing. */
 export interface RunState {
+  /** Epoch milliseconds when the turn started. */
+  startedAt?: number
   running: boolean
   question: string
   steps: RunStep[]

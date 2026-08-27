@@ -2251,9 +2251,96 @@ select.ctl { padding: 4px 6px; }
 
 .chat-head { display: flex; align-items: center; gap: 10px; }
 .chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-scope { display: flex; align-items: center; gap: 4px; font-size: 10px; }
-.chat-scope select { font-size: 10px; max-width: 160px; }
+/* Inside the composer, not in the header: the collection a question is
+   scoped to is part of the question. */
+.chat-scope { display: flex; align-items: center; gap: 3px; font-size: 10px; color: var(--fg-mute); }
+.chat-scope select {
+  max-width: 150px;
+  padding: 0 2px;
+  background: none;
+  border: 0;
+  color: var(--fg-dim);
+  font-size: 10px;
+}
+.chat-scope select:hover { color: var(--fg); }
+
+/* One control. The border belongs to the whole thing, so the chips, the text
+   and the bar read as one place rather than three stacked widgets. */
+.composer {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+}
+.composer[data-focused] { border-color: var(--accent); }
+.composer textarea {
+  padding: 6px 8px;
+  background: none;
+  border: 0;
+  resize: none;
+  color: var(--fg);
+  font: inherit;
+}
+.composer textarea:focus { outline: none; }
+
+.composer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 5px 6px 0;
+}
+
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 5px;
+  border-top: 1px solid var(--line);
+}
+.composer-bar .spacer { flex: 1; }
+.composer-bar .primary { padding: 2px 10px; font-size: 11px; }
+
+.composer-mention {
+  width: 20px;
+  height: 18px;
+  background: none;
+  border: 1px solid var(--line-2);
+  color: var(--fg-mute);
+  font: 11px var(--mono);
+  cursor: pointer;
+}
+.composer-mention:hover { color: var(--accent); border-color: var(--accent); }
 
 .model-settings { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .model-settings .row-actions { margin-top: 2px; }
 .model-settings .dim { margin: 0; font-size: 10px; }
+
+
+/* ─── the shared list ────────────────────────────────────────────────────── */
+
+/* The header lives inside this scroller and sticks to its top, so scrolling
+   sideways moves it with the rows and scrolling down pins it. Two separate
+   scrollers would need synchronising, and would eventually fall out of step. */
+.vlist { position: relative; flex: 1; overflow: auto; }
+.vlist-inner { position: relative; min-height: 100%; }
+.vlist-rows { position: relative; }
+.vlist-slot { position: absolute; top: 0; left: 0; right: 0; }
+.vlist .table-head { position: sticky; top: 0; z-index: 3; }
+
+.bubble-elapsed { margin-left: 6px; color: var(--fg-mute); font: 10px var(--mono); }
+
+/* ─── skill and tool toggles ─────────────────────────────────────────────── */
+
+.toggle-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.toggle-list.tools { max-height: 260px; overflow-y: auto; }
+.toggle-row { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; }
+.toggle-row input { flex: none; }
+.toggle-name { flex: none; }
+.toggle-name.mono { font-family: var(--mono); font-size: 10px; }
+.toggle-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}

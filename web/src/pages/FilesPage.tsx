@@ -15,6 +15,10 @@ import { useT } from '../i18n'
 import { bytes as formatBytes } from '../lib/format'
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, Input, toast } from '../ui'
+import { VirtualList } from '../components/VirtualList'
+
+/** Narrower than this the columns scroll sideways rather than crush. */
+const FILE_COLUMNS = 720
 
 export function FilesPage() {
   const t = useT()
@@ -113,12 +117,14 @@ export function FilesPage() {
         </div>
       )}
 
-      {!files.length && <Empty>{t('files.none')}</Empty>}
-
-      <div className="browser-body">
-        {files.map((file) => (
+      <VirtualList
+        rows={files}
+        keyOf={(file) => file.key}
+        minWidth={FILE_COLUMNS}
+        empty={<Empty>{t('files.none')}</Empty>}
+      >
+        {(file) => (
           <div
-            key={file.key}
             className="row browser-grid files-grid"
             onClick={() => file.parentKey && void showItem(file.parentKey)}
           >
@@ -136,8 +142,8 @@ export function FilesPage() {
             </div>
             <div className="cell num dim">{formatBytes(file.bytes)}</div>
           </div>
-        ))}
-      </div>
+        )}
+      </VirtualList>
     </div>
   )
 }

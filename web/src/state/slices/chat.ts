@@ -38,6 +38,8 @@ export interface ChatSlice {
     model?: string
     apiKey?: string
     allowCommands?: boolean
+    disabledSkills?: string[]
+    disabledTools?: string[]
   }) => Promise<void>
   removeConversation: (key: string) => Promise<void>
   sendMessage: (text: string, mentions?: string[]) => Promise<void>

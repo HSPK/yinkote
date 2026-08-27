@@ -72,17 +72,42 @@ pub struct AgentConfig {
     /// How many tool calls one turn may make. See `yk_agent::MAX_STEPS`.
     #[serde(default = "default_max_steps")]
     pub max_steps: usize,
+    /// Skills to leave out, by name.
+    ///
+    /// A deny list rather than an allow list: a skill dropped into the folder
+    /// should work without also being switched on somewhere, and a list of
+    /// what is *off* cannot silently disable something added later.
+    #[serde(default)]
+    pub disabled_skills: Vec<String>,
+    /// Tools to leave out, by name.
+    ///
+    /// Same reasoning, and it is how "the assistant may read my library but
+    /// not change it" is expressed without a second concept.
+    #[serde(default)]
+    pub disabled_tools: Vec<String>,
+}
+
+impl AgentConfig {
+    /// Whether a named tool should be built.
+    pub fn tool_enabled(&self, name: &str) -> bool {
+        !self.disabled_tools.iter().any(|d| d == name)
+    }
+
+    /// Whether a named skill should be offered.
+    pub fn skill_enabled(&self, name: &str) -> bool {
+        !self.disabled_skills.iter().any(|d| d == name)
+    }
+
+    pub fn is_configured(&self) -> bool {
+        self.endpoint.is_some() && self.model.is_some()
+    }
 }
 
 fn default_max_steps() -> usize {
     yk_agent::MAX_STEPS
 }
 
-impl AgentConfig {
-    pub fn is_configured(&self) -> bool {
-        self.endpoint.is_some() && self.model.is_some()
-    }
-}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

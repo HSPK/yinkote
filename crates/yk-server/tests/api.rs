@@ -412,6 +412,38 @@ async fn the_model_can_be_pointed_at_from_the_workbench() {
 }
 
 #[tokio::test]
+async fn tools_and_skills_can_be_switched_off_from_the_workbench() {
+    let (c, _app) = Client::new().await;
+
+    c.send(
+        "PUT",
+        "/agent",
+        Some(json!({ "endpoint": "http://127.0.0.1:9/v1", "model": "m" })),
+    )
+    .await;
+
+    let before = c.get("/agent").await;
+    let catalogue = before["allTools"].as_array().unwrap().clone();
+    assert!(!catalogue.is_empty(), "the catalogue is what the settings page offers");
+    assert!(catalogue.iter().any(|t| t == "trash_items"), "{catalogue:?}");
+    assert!(before["tools"].as_array().unwrap().iter().any(|t| t == "trash_items"));
+
+    let (_, off) = c
+        .send("PUT", "/agent", Some(json!({ "disabledTools": ["trash_items", "delete_items"] })))
+        .await;
+
+    // Gone from what the assistant has, still in what can be offered — a list
+    // of only the enabled tools could never offer to switch one back on.
+    assert!(!off["tools"].as_array().unwrap().iter().any(|t| t == "trash_items"), "{off}");
+    assert!(off["allTools"].as_array().unwrap().iter().any(|t| t == "trash_items"), "{off}");
+    assert_eq!(off["disabledTools"][0], "trash_items");
+
+    // And it survives a fresh read, because it was written to the config.
+    let again = c.get("/agent").await;
+    assert!(!again["tools"].as_array().unwrap().iter().any(|t| t == "trash_items"));
+}
+
+#[tokio::test]
 async fn a_paper_knows_which_conversations_named_it() {
     let (c, app) = Client::new().await;
     let lib = app.services.default_library;

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Item } from '../api/types'
-import { compact, creatorName, creatorSummary, shortDate, snippetParts, year } from './format'
+import {
+  compact,
+  creatorName,
+  creatorSummary,
+  elapsed,
+  shortDate,
+  snippetParts,
+  year,
+} from './format'
 
 const item = (patch: Partial<Item>): Item =>
   ({
@@ -126,5 +134,35 @@ describe('compact', () => {
     [1_500_000, '1.5M'],
   ])('formats %i as %s', (n, expected) => {
     expect(compact(n)).toBe(expected)
+  })
+})
+
+describe('elapsed', () => {
+  it('counts in seconds while a turn is still quick', () => {
+    expect(elapsed(0)).toBe('0s')
+    expect(elapsed(9_400)).toBe('9s')
+    expect(elapsed(59_900)).toBe('59s')
+  })
+
+  it('switches to minutes once seconds stop being the useful unit', () => {
+    expect(elapsed(60_000)).toBe('1m 00s')
+    expect(elapsed(125_000)).toBe('2m 05s')
+  })
+
+  it('drops seconds past an hour, where they are noise', () => {
+    expect(elapsed(3_600_000)).toBe('1h 00m')
+    expect(elapsed(7_530_000)).toBe('2h 05m')
+  })
+
+  it('pads so the width does not jump while it ticks', () => {
+    // It sits beside a spinner and updates once a second; a label that
+    // changes width every tick reads as flicker.
+    expect(elapsed(61_000)).toBe('1m 01s')
+    expect(elapsed(69_000)).toBe('1m 09s')
+  })
+
+  it('says nothing alarming about a clock that is not there', () => {
+    expect(elapsed(NaN)).toBe('0s')
+    expect(elapsed(-5)).toBe('0s')
   })
 })

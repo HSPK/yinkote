@@ -230,6 +230,31 @@ impl Tool for LibraryOverview {
     }
 }
 
+/// Every tool that could exist, whether or not it is switched on.
+///
+/// The settings page needs this: a list of only the *enabled* tools cannot
+/// offer to re-enable one, and a second hand-written list would drift from
+/// the first the moment a tool is added.
+pub fn tool_catalogue(
+    store: &Store,
+    search: &Arc<dyn SearchIndex>,
+    scrape: &Arc<yk_scrape::ScrapeEngine>,
+    workspace: Option<&Workspace>,
+    skills: &Arc<yk_agent::skills::Skills>,
+) -> Vec<String> {
+    let mut names: Vec<String> = tools(store, search, scrape).iter().map(|t| t.spec().name).collect();
+    if !skills.is_empty() {
+        names.push("read_skill".into());
+    }
+    if let Some(workspace) = workspace {
+        // Listed with commands included: the switch for those is
+        // `allow_commands`, and showing the tool explains what that switch does.
+        names.extend(workspace::tools(workspace, true).iter().map(|t| t.spec().name));
+    }
+    names.sort();
+    names
+}
+
 /// Everything the agent may do, in one place.
 pub fn tools(
     store: &Store,

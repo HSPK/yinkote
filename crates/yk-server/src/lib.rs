@@ -108,7 +108,13 @@ pub fn build_agent(
     if let Err(error) = agent::skills::install_builtins(&skills_dir) {
         tracing::warn!(%error, "could not write the built-in skills");
     }
-    let skills = Arc::new(yk_agent::skills::Skills::load_dir(&skills_dir));
+    let skills = Arc::new(yk_agent::skills::Skills::new(
+        yk_agent::skills::Skills::load_dir(&skills_dir)
+            .iter()
+            .filter(|s| config.agent.skill_enabled(&s.name))
+            .cloned()
+            .collect(),
+    ));
     tracing::info!(skills = skills.len(), dir = %skills_dir.display(), "agent skills");
 
     let workspace = match agent::Workspace::new(config.workspace_dir()) {
@@ -128,6 +134,9 @@ pub fn build_agent(
             if let Some(workspace) = &workspace {
                 tools.extend(agent::workspace::tools(workspace, config.agent.allow_commands));
             }
+            // Filtered once, here, rather than checked at every call site:
+            // a tool the assistant was never given cannot be forgotten about.
+            tools.retain(|t| config.agent.tool_enabled(&t.spec().name));
             let system = format!("{}{}", agent::SYSTEM_PROMPT, skills.prompt_section());
             let agent = yk_agent::Agent::new(Arc::new(provider), tools, system)
                 .with_max_steps(config.agent.max_steps);

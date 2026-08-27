@@ -113,6 +113,7 @@ fn agent_shapes_speak_camel_case() {
         "RunState",
         RunState {
             running: true,
+            started_at: 1_700_000_000_000,
             question: "why?".into(),
             steps: vec![
                 Step::Text { content: "Looking.".into() },

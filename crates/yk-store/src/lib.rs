@@ -13,6 +13,18 @@ pub mod graph;
 pub mod relations;
 pub mod index;
 mod items;
+
+/// The SQL whose *query plan* is part of its correctness.
+///
+/// Grouped and re-exported so the guard in `tests/fingerprint_plans.rs` is a
+/// list rather than a habit. Three separate times, a fingerprint lookup has
+/// silently fallen back to `idx_items_year` and scanned the library; the
+/// results were right every time, which is why nothing but a plan assertion
+/// ever noticed.
+pub mod plans {
+    pub use crate::items::fingerprint_sql;
+    pub use crate::relations::{CITES_SQL, MISSING_SQL};
+}
 mod smart;
 
 use std::path::Path;

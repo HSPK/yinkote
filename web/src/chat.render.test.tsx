@@ -399,6 +399,22 @@ describe('an answer arriving', () => {
     expect((preview?.textContent ?? '').length).toBeLessThan(120)
   })
 
+  it('says how long the turn has been going', async () => {
+    // Progress arrives every hundred milliseconds and stops altogether while
+    // the model thinks — which is exactly when somebody wants to know how
+    // long they have been waiting.
+    useStore.setState(running({ partial: 'x', startedAt: Date.now() - 125_000 }))
+    await render()
+    expect(container.querySelector('.bubble-elapsed')?.textContent).toBe('2m 05s')
+  })
+
+  it('shows the real age of a turn rejoined after a reload', async () => {
+    useStore.setState(running({ partial: 'x', startedAt: Date.now() - 9_000 }))
+    await render()
+    // Not "0s": the clock belongs to the turn, not to this page load.
+    expect(container.querySelector('.bubble-elapsed')?.textContent).toBe('9s')
+  })
+
   it('stops saying “thinking” once anything has arrived', async () => {
     useStore.setState(running({ partial: 'Here.' }))
     await render()

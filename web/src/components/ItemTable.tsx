@@ -1,5 +1,4 @@
-import { useVirtualizer } from '@tanstack/react-virtual'
-import { useEffect, useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 
 import type { BadgeValue, Item, MatchSource } from '../api/types'
 import { useSchemaLabel, useT } from '../i18n'
@@ -8,6 +7,7 @@ import {
   badgeColumn,
   gridTemplate,
   moveColumn,
+  totalColumnWidth,
   toggleColumn,
   visibleColumns,
   type ColumnDef,
@@ -18,6 +18,7 @@ import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
 import { contextMenu, type MenuItem } from '../ui'
 import { itemMenu } from './menus'
+import { VirtualList } from './VirtualList'
 
 /**
  * Tags in a table cell.
@@ -135,14 +136,12 @@ function Row({
   columns,
   selected,
   cursor,
-  style,
   grid,
 }: {
   item: Item
   columns: ColumnDef[]
   selected: boolean
   cursor: boolean
-  style: React.CSSProperties
   grid: string
 }) {
   const t = useT()
@@ -163,7 +162,7 @@ function Row({
   return (
     <div
       className="row"
-      style={{ ...style, gridTemplateColumns: grid }}
+      style={{ gridTemplateColumns: grid }}
       data-selected={selected}
       data-cursor={cursor}
       onMouseDown={(e) =>
@@ -209,6 +208,7 @@ export function ItemTable() {
   const available = useMemo(() => allColumns(badgeDefs.map((b) => badgeColumn(b))), [badgeDefs])
   const columns = useMemo(() => visibleColumns(order, available), [order, available])
   const grid = useMemo(() => gridTemplate(columns, widths), [columns, widths])
+  const totalWidth = useMemo(() => totalColumnWidth(columns, widths), [columns, widths])
 
   /** Labels differ in origin: builtin columns translate, badges carry plugin text. */
   const headerLabel = (c: ColumnDef) =>
@@ -255,78 +255,60 @@ export function ItemTable() {
     window.addEventListener('pointerup', up)
   }
 
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const rows = useVirtualizer({
-    count: items.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 26,
-    overscan: 16,
-  })
-
-  // Keep the keyboard cursor inside the viewport.
-  useEffect(() => {
-    if (items.length) rows.scrollToIndex(cursor, { align: 'auto' })
-  }, [cursor, items.length, rows])
-
-  // Fetch the next page as the last rendered rows come into view. Driven by the
-  // virtualiser rather than a scroll handler, so it also fires when the cursor
-  // is walked to the end with the keyboard.
-  const virtual = rows.getVirtualItems()
-  const lastVisible = virtual[virtual.length - 1]?.index ?? 0
-  useEffect(() => {
-    if (items.length && lastVisible >= items.length - 24) void loadMore()
-  }, [lastVisible, items.length, loadMore])
+  const header = (
+    <div className="table-head" style={{ gridTemplateColumns: grid }}>
+      {columns.map((c) => (
+        <div key={c.id} className="head-cell" onContextMenu={contextMenu(() => headerMenu(c))}>
+          <button
+            className={sort === c.sort ? 'sorted' : undefined}
+            disabled={!c.sort}
+            title={headerLabel(c)}
+            onClick={() => c.sort && setSort(c.sort)}
+          >
+            <span className="head-label">{headerLabel(c)}</span>
+            {sort === c.sort && (
+              <span className="sort-arrow">{direction === 'asc' ? '↑' : '↓'}</span>
+            )}
+          </button>
+          <span
+            className="col-grip"
+            onPointerDown={startResize(c)}
+            onDoubleClick={() => setColumnWidth(c.id, c.width, true)}
+          />
+        </div>
+      ))}
+    </div>
+  )
 
   return (
     <section className="pane main table-pane">
-      <div className="table-head" style={{ gridTemplateColumns: grid }}>
-        {columns.map((c) => (
-          <div key={c.id} className="head-cell" onContextMenu={contextMenu(() => headerMenu(c))}>
-            <button
-              className={sort === c.sort ? 'sorted' : undefined}
-              disabled={!c.sort}
-              title={headerLabel(c)}
-              onClick={() => c.sort && setSort(c.sort)}
-            >
-              <span className="head-label">{headerLabel(c)}</span>
-              {sort === c.sort && (
-                <span className="sort-arrow">{direction === 'asc' ? '↑' : '↓'}</span>
-              )}
-            </button>
-            <span
-              className="col-grip"
-              onPointerDown={startResize(c)}
-              onDoubleClick={() => setColumnWidth(c.id, c.width, true)}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="table-body" ref={scrollRef}>
-        {items.length === 0 && !loading && (
-          <div className="empty">
-            {query ? t('search.empty', { query }) : t('table.empty', { shortcut: '⌘K' })}
-          </div>
+      <VirtualList
+        rows={items}
+        keyOf={(item) => item.key}
+        header={header}
+        // Columns have real widths, so the content may be wider than the pane;
+        // the header scrolls with it because they share one scroller.
+        minWidth={totalWidth}
+        scrollTo={cursor}
+        onEndReached={loadMore}
+        empty={
+          loading ? null : (
+            <div className="empty">
+              {query ? t('search.empty', { query }) : t('table.empty', { shortcut: '⌘K' })}
+            </div>
+          )
+        }
+      >
+        {(item, index) => (
+          <Row
+            item={item}
+            columns={columns}
+            selected={selected.includes(item.key)}
+            cursor={index === cursor}
+            grid={grid}
+          />
         )}
-        <div style={{ height: rows.getTotalSize(), position: 'relative' }}>
-          {virtual.map((v) => {
-            const item = items[v.index]
-            if (!item) return null
-            return (
-              <Row
-                key={item.key}
-                item={item}
-                columns={columns}
-                selected={selected.includes(item.key)}
-                cursor={v.index === cursor}
-                style={{ transform: `translateY(${v.start}px)`, height: v.size }}
-                grid={grid}
-              />
-            )
-          })}
-        </div>
-      </div>
-
+      </VirtualList>
     </section>
   )
 }

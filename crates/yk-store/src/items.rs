@@ -48,6 +48,21 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<(i64, Item)> {
 
 /// Fill in tags and collections for a page of items using two batched queries
 /// instead of N+1.
+/// Look items up by the identifier a publisher gave them.
+///
+/// `INDEXED BY` is load-bearing, and this is the third time on this table:
+/// left alone the planner searched `idx_items_year` — a predicate matching
+/// the whole library — and scanned it looking for a fingerprint. 66 ms
+/// against 0.15 ms on a large library, for a duplicate check that runs on
+/// every item added. Identical results, so only a plan assertion catches it.
+pub fn fingerprint_sql(placeholders: &str) -> String {
+    format!(
+        "SELECT {COLS} FROM items i INDEXED BY idx_items_fingerprint \
+         LEFT JOIN items p ON p.id = i.parent_id \
+         WHERE i.library_id = ? AND i.fingerprint IN ({placeholders}) AND i.deleted = 0"
+    )
+}
+
 fn hydrate(conn: &Connection, rows: &mut [(i64, Item)]) -> Result<()> {
     if rows.is_empty() {
         return Ok(());
@@ -942,10 +957,7 @@ impl ItemRepository for SqliteItemRepository {
         self.db
             .call(move |c| {
                 let ph = placeholders(fps.len());
-                let sql = format!(
-                    "SELECT {COLS} {FROM} WHERE i.library_id = ? AND i.deleted = 0 \
-                     AND i.fingerprint IN ({ph})"
-                );
+                let sql = fingerprint_sql(&ph);
                 let mut args: Vec<rusqlite::types::Value> =
                     vec![rusqlite::types::Value::Integer(library_id)];
                 args.extend(fps.iter().map(|f| rusqlite::types::Value::Text(f.clone())));
@@ -1116,6 +1128,17 @@ mod plan_tests {
                SELECT i.id FROM items i WHERE {} {order} LIMIT ? OFFSET ?) {order}",
             p.sql,
         )
+    }
+
+    #[test]
+    fn a_duplicate_check_seeks_by_fingerprint() {
+        // Third time on this table. Left to itself the planner searched
+        // `idx_items_year` — a predicate matching the whole library — and
+        // scanned it looking for a fingerprint: 66ms against 0.15ms, on the
+        // check that runs every time an item is added.
+        let plan = plan(&fingerprint_sql("?,?"), 3);
+        assert!(plan.contains("idx_items_fingerprint"), "{plan}");
+        assert!(!plan.contains("idx_items_year"), "{plan}");
     }
 
     #[test]
