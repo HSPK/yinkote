@@ -14,7 +14,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
-use yk_core::model::Item;
+use yk_core::model::{Item, ItemPatch};
 use yk_core::{Error, Key};
 
 use crate::error::ApiResult;
@@ -130,8 +130,8 @@ async fn rename(
     let template = template_of(&app, body.template.clone()).await;
     let planned = plan(&app, lib, &body, &template).await?;
 
-    let mut renamed = 0u64;
     let mut failed = 0u64;
+    let mut moved: Vec<(Key, ItemPatch)> = Vec::with_capacity(planned.len());
 
     for (attachment, from, to) in planned {
         // The bytes move first. If the record were updated first and the move
@@ -146,16 +146,24 @@ async fn rename(
             }
         }
 
-        let patch = serde_json::from_value(json!({ "fields": { "filename": to } }));
-        match patch {
-            Ok(patch) => match app.store().items.update(lib, &attachment.key, patch, None).await {
-                Ok(_) => renamed += 1,
-                Err(e) => {
-                    tracing::warn!(error = %e, "renamed the file but not the record");
-                    failed += 1;
-                }
-            },
+        match serde_json::from_value(json!({ "fields": { "filename": to } })) {
+            Ok(patch) => moved.push((attachment.key, patch)),
             Err(_) => failed += 1,
+        }
+    }
+
+    // Every record in one write. Renaming used to open a transaction per file
+    // and bump the library version each time: two minutes and thirty thousand
+    // versions for a library this size, when what happened was one rename.
+    let results = app.store().items.update_many(lib, moved).await?;
+    let mut renamed = 0u64;
+    for result in results {
+        match result {
+            Ok(_) => renamed += 1,
+            Err(e) => {
+                tracing::warn!(error = %e, "renamed the file but not the record");
+                failed += 1;
+            }
         }
     }
 

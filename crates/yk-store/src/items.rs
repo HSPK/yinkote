@@ -187,6 +187,70 @@ fn hydrate(conn: &Connection, rows: &mut [(i64, Item)]) -> Result<()> {
 // Write helpers
 // ---------------------------------------------------------------------------
 
+/// Apply one patch to one item, inside a transaction that is already open and
+/// at a version that has already been taken.
+///
+/// Shared by the single and the batch update so that the two cannot drift:
+/// everything here — the version check, the denormalised sort columns, the tag
+/// and collection replacement, the reindex — is part of what "an item changed"
+/// means, and a batch that skipped any of it would corrupt the library quietly.
+fn apply_update(
+    tx: &Connection,
+    library_id: i64,
+    key: &Key,
+    patch: ItemPatch,
+    if_version: Option<i64>,
+    version: i64,
+) -> Result<Item> {
+    let (id, mut item) = load_one(tx, library_id, key)?;
+
+    if let Some(expected) = if_version {
+        if expected != item.version {
+            return Err(Error::VersionConflict { expected, current: item.version });
+        }
+    }
+
+    let tags_changed = patch.tags.is_some();
+    let collections_changed = patch.collections.is_some();
+    apply_patch(&mut item, patch);
+    if !schema().has_type(&item.item_type) {
+        return Err(Error::invalid(format!("unknown itemType '{}'", item.item_type)));
+    }
+
+    item.version = version;
+    item.date_modified = yk_core::now_ms();
+    let d = denorm(&item);
+
+    tx.execute(
+        "UPDATE items SET item_type=?1, fields=?2, creators=?3, sort_title=?4,
+             sort_creator=?5, year=?6, fingerprint=?7, deleted=?8, version=?9,
+             date_modified=?10 WHERE id=?11",
+        params![
+            item.item_type,
+            serde_json::to_string(&item.fields)?,
+            serde_json::to_string(&item.creators)?,
+            d.sort_title,
+            d.sort_creator,
+            d.year,
+            d.fingerprint,
+            i64::from(item.deleted),
+            version,
+            item.date_modified,
+            id
+        ],
+    )
+    .map_err(sql_err)?;
+
+    if tags_changed {
+        set_tags(tx, library_id, id, &item.tags)?;
+    }
+    if collections_changed {
+        set_collections(tx, library_id, id, &item.collections)?;
+    }
+    index::reindex(tx, id, &item)?;
+    Ok(item)
+}
+
 /// Advance the library version counter and return the new value. Every write
 /// goes through here, which is what makes delta sync possible.
 fn bump_version(tx: &Connection, library_id: i64) -> Result<i64> {
@@ -745,58 +809,50 @@ impl ItemRepository for SqliteItemRepository {
         self.db
             .call(move |c| {
                 let tx = write_tx(c)?;
-                let (id, mut item) = load_one(&tx, library_id, &key)?;
-
-                if let Some(expected) = if_version {
-                    if expected != item.version {
-                        return Err(Error::VersionConflict {
-                            expected,
-                            current: item.version,
-                        });
-                    }
-                }
-
-                let tags_changed = patch.tags.is_some();
-                let collections_changed = patch.collections.is_some();
-                apply_patch(&mut item, patch);
-                if !schema().has_type(&item.item_type) {
-                    return Err(Error::invalid(format!("unknown itemType '{}'", item.item_type)));
-                }
-
                 let version = bump_version(&tx, library_id)?;
-                item.version = version;
-                item.date_modified = yk_core::now_ms();
-                let d = denorm(&item);
-
-                tx.execute(
-                    "UPDATE items SET item_type=?1, fields=?2, creators=?3, sort_title=?4,
-                         sort_creator=?5, year=?6, fingerprint=?7, deleted=?8, version=?9,
-                         date_modified=?10 WHERE id=?11",
-                    params![
-                        item.item_type,
-                        serde_json::to_string(&item.fields)?,
-                        serde_json::to_string(&item.creators)?,
-                        d.sort_title,
-                        d.sort_creator,
-                        d.year,
-                        d.fingerprint,
-                        i64::from(item.deleted),
-                        version,
-                        item.date_modified,
-                        id
-                    ],
-                )
-                .map_err(sql_err)?;
-
-                if tags_changed {
-                    set_tags(&tx, library_id, id, &item.tags)?;
-                }
-                if collections_changed {
-                    set_collections(&tx, library_id, id, &item.collections)?;
-                }
-                index::reindex(&tx, id, &item)?;
+                let item = apply_update(&tx, library_id, &key, patch, if_version, version)?;
                 tx.commit().map_err(sql_err)?;
                 Ok(item)
+            })
+            .await
+    }
+
+    async fn update_many(
+        &self,
+        library_id: i64,
+        patches: Vec<(Key, ItemPatch)>,
+    ) -> Result<Vec<Result<Item>>> {
+        if patches.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.db
+            .call(move |c| {
+                // One transaction and one version for the batch. Renaming a
+                // library's files one item at a time cost 3.9ms each — two
+                // minutes for thirty thousand files — and left thirty thousand
+                // version bumps behind, which is a sync delta nobody wants to
+                // send. A bulk edit is one thing happening, so it is one
+                // version.
+                let mut tx = write_tx(c)?;
+                let version = bump_version(&tx, library_id)?;
+                let mut out = Vec::with_capacity(patches.len());
+                for (key, patch) in patches {
+                    // A savepoint per row, as in `create_many`: one item that
+                    // has since been deleted must not lose the other changes.
+                    let mut sp = tx.savepoint().map_err(sql_err)?;
+                    match apply_update(&sp, library_id, &key, patch, None, version) {
+                        Ok(item) => {
+                            sp.commit().map_err(sql_err)?;
+                            out.push(Ok(item));
+                        }
+                        Err(e) => {
+                            let _ = sp.rollback();
+                            out.push(Err(e));
+                        }
+                    }
+                }
+                tx.commit().map_err(sql_err)?;
+                Ok(out)
             })
             .await
     }

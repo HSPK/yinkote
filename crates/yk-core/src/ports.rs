@@ -55,6 +55,16 @@ pub trait ItemRepository: Send + Sync {
         if_version: Option<i64>,
     ) -> Result<Item>;
 
+    /// Apply many patches as one change: one transaction, one version.
+    ///
+    /// Per-item results, like [`ItemRepository::create_many`] — one item that
+    /// cannot be patched must not take the rest of the batch with it.
+    async fn update_many(
+        &self,
+        library_id: i64,
+        patches: Vec<(Key, ItemPatch)>,
+    ) -> Result<Vec<Result<Item>>>;
+
     async fn set_trashed(&self, library_id: i64, keys: &[Key], trashed: bool) -> Result<u64>;
     async fn delete(&self, library_id: i64, keys: &[Key]) -> Result<u64>;
     async fn empty_trash(&self, library_id: i64) -> Result<u64>;

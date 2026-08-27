@@ -184,6 +184,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_batch_update_is_one_change_at_one_version() {
+        let s = store();
+        let lib = s.default_library;
+        let a = s.items.create(lib, article("A")).await.unwrap();
+        let b = s.items.create(lib, article("B")).await.unwrap();
+        let before = s.libraries.version(lib).await.unwrap();
+
+        let patch = |title: &str| ItemPatch {
+            fields: Some(fields(serde_json::json!({ "title": title }))),
+            ..Default::default()
+        };
+        let out = s
+            .items
+            .update_many(lib, vec![(a.key.clone(), patch("A2")), (b.key.clone(), patch("B2"))])
+            .await
+            .unwrap();
+
+        assert_eq!(out.len(), 2);
+        let versions: Vec<i64> = out.iter().map(|r| r.as_ref().unwrap().version).collect();
+        assert_eq!(versions[0], versions[1], "one batch, one version");
+        assert_eq!(
+            s.libraries.version(lib).await.unwrap(),
+            before + 1,
+            "renaming a library's files must not leave a version per file behind"
+        );
+        assert_eq!(s.items.get(lib, &a.key).await.unwrap().title(), "A2");
+        assert_eq!(s.items.get(lib, &b.key).await.unwrap().title(), "B2");
+    }
+
+    #[tokio::test]
+    async fn one_bad_row_does_not_take_the_batch_with_it() {
+        let s = store();
+        let lib = s.default_library;
+        let good = s.items.create(lib, article("A")).await.unwrap();
+        let gone = yk_core::Key::generate();
+
+        let patch = || ItemPatch {
+            fields: Some(fields(serde_json::json!({ "title": "renamed" }))),
+            ..Default::default()
+        };
+        let out = s
+            .items
+            .update_many(lib, vec![(gone, patch()), (good.key.clone(), patch())])
+            .await
+            .unwrap();
+
+        assert!(out[0].is_err(), "an item that is no longer there cannot be patched");
+        assert!(out[1].is_ok(), "and that must not cost the item that is");
+        assert_eq!(s.items.get(lib, &good.key).await.unwrap().title(), "renamed");
+    }
+
+    #[tokio::test]
     async fn patch_merges_and_null_clears() {
         let s = store();
         let lib = s.default_library;

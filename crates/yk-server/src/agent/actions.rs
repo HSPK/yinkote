@@ -21,7 +21,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use yk_core::model::{CollectionDraft, ItemDraft, ItemTag};
+use yk_core::model::{CollectionDraft, ItemDraft, ItemPatch, ItemTag};
 use yk_ai::{Tool, ToolSpec};
 use yk_core::{Error, Key, Result};
 use yk_scrape::ScrapeEngine;
@@ -338,9 +338,14 @@ impl Tool for LibraryAction {
                 }
 
                 let adding = self.action == Action::TagItems;
-                let mut changed = 0u64;
-                for key in &keys {
-                    let item = self.store.items.get(lib, key).await?;
+
+                // Read the batch, then write the batch. "Tag everything about
+                // transformers" is one instruction; doing it as a transaction
+                // per item made the agent's cheapest-sounding request the
+                // slowest thing it could do.
+                let items = self.store.items.get_many(lib, &keys).await?;
+                let mut patches: Vec<(Key, ItemPatch)> = Vec::new();
+                for item in items {
                     let mut next: Vec<ItemTag> = item.tags.clone();
                     for tag in &tags {
                         let held = next.iter().position(|t| &t.tag == tag);
@@ -357,10 +362,18 @@ impl Tool for LibraryAction {
                     if next.len() != item.tags.len() {
                         let patch = serde_json::from_value(json!({ "tags": next }))
                             .map_err(|e| Error::internal(e.to_string()))?;
-                        self.store.items.update(lib, key, patch, None).await?;
-                        changed += 1;
+                        patches.push((item.key, patch));
                     }
                 }
+
+                let changed = self
+                    .store
+                    .items
+                    .update_many(lib, patches)
+                    .await?
+                    .into_iter()
+                    .filter(Result::is_ok)
+                    .count();
                 Ok(json!({ "changed": changed }))
             }
 
