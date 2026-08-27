@@ -22,7 +22,9 @@ vi.mock('./api/client', () => {
     new Proxy(function () {} as object, {
       get: (_t, key) => (key === 'then' ? undefined : build(`${path}.${String(key)}`)),
       apply: () => {
-        if (path === 'api.conversations.messages') return Promise.resolve([])
+        if (path === 'api.conversations.messages') {
+          return Promise.resolve({ messages: [], hasMore: false })
+        }
         if (path === 'api.conversations.list') return Promise.resolve([])
         if (path === 'api.conversations.append') return Promise.resolve({})
         if (path === 'api.conversations.ask') return Promise.resolve({})

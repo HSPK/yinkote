@@ -8,9 +8,28 @@
 import type { StateCreator } from 'zustand'
 
 import { api } from '../../api/client'
-import type { AgentStatus, Conversation, Message, RunState } from '../../api/types'
+import type {
+  AgentStatus,
+  Conversation,
+  Message,
+  MessagePage,
+  RunState,
+} from '../../api/types'
 import { tabId } from '../../lib/tabs'
 import type { State } from '../store'
+
+/** What a page of messages means for the store.
+ *
+ *  Written once and defensively: the same call is made from four places, and
+ *  a response missing its `messages` array would otherwise crash the pane the
+ *  moment it drew — which is how the run-state pane failed once already.
+ */
+function fromPage(page: MessagePage | undefined): {
+  messages: Message[]
+  hasOlder: boolean
+} {
+  return { messages: page?.messages ?? [], hasOlder: page?.hasMore ?? false }
+}
 
 export interface ChatSlice {
   conversations: Conversation[]
@@ -20,6 +39,12 @@ export interface ChatSlice {
   asking: boolean
   conversation: string | null
   messages: Message[]
+  /** Whether the thread has more above what is loaded. */
+  hasOlder: boolean
+  /** True while older messages are on their way. */
+  loadingOlder: boolean
+  /** Fetch the page before the oldest one held. */
+  loadOlder: () => Promise<void>
 
   openConversation: (key: string, keep?: boolean) => Promise<void>
   /** The turn in flight for each conversation, by key. */
@@ -53,6 +78,8 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
   asking: false,
   conversation: null,
   messages: [],
+  hasOlder: false,
+  loadingOlder: false,
   runs: {},
 
   applyRun(conversation, state) {
@@ -72,9 +99,9 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
     // the flicker at the end of every turn.
     void api.conversations
       .messages(get().library, conversation)
-      .then((messages) => {
+      .then((page) => {
         if (get().conversation !== conversation) return record()
-        set({ runs: { ...get().runs, [conversation]: run }, messages })
+        set({ runs: { ...get().runs, [conversation]: run }, ...fromPage(page) })
       })
       .catch(record)
   },
@@ -92,6 +119,33 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
     set({
       conversations: s.conversations.map((c) => (c.key === updated.key ? updated : c)),
     })
+  },
+
+  /** Fetch the page before the oldest message held.
+   *
+   *  A conversation is read from the bottom, so the top is where "there is
+   *  more" lives. Guarded against overlapping requests: scrolling fires more
+   *  often than the network answers, and two in flight would insert the same
+   *  page twice.
+   */
+  async loadOlder() {
+    const s = get()
+    const oldest = s.messages[0]?.id
+    if (!s.conversation || !s.hasOlder || s.loadingOlder || oldest === undefined) return
+
+    set({ loadingOlder: true })
+    try {
+      const page = await api.conversations.messages(s.library, s.conversation, {
+        before: oldest,
+      })
+      // Re-read: the thread may have been switched while this was in flight.
+      if (get().conversation !== s.conversation) return
+      set({ messages: [...page.messages, ...get().messages], hasOlder: page.hasMore })
+    } catch {
+      set({ hasOlder: false })
+    } finally {
+      set({ loadingOlder: false })
+    }
   },
 
   async cancelRun() {
@@ -116,7 +170,7 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
       preview: !keep,
     })
     try {
-      set({ messages: await api.conversations.messages(get().library, key) })
+      set(fromPage(await api.conversations.messages(get().library, key)))
     } catch {
       set({ messages: [] })
     }
@@ -183,11 +237,11 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
           mentions,
         })
       }
-      set({ messages: await api.conversations.messages(s.library, s.conversation) })
+      set(fromPage(await api.conversations.messages(s.library, s.conversation)))
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) })
       if (s.conversation) {
-        set({ messages: await api.conversations.messages(s.library, s.conversation) })
+        set(fromPage(await api.conversations.messages(s.library, s.conversation)))
       }
     } finally {
       set({ asking: false })

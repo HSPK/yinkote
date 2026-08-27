@@ -435,6 +435,18 @@ pub struct Message {
     pub created_at: i64,
 }
 
+/// A slice of a conversation, with a way to ask for the rest.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessagePage {
+    /// In reading order, oldest first — the order they are drawn in.
+    pub messages: Vec<Message>,
+    /// Whether anything older exists. Sent rather than inferred from the page
+    /// being full, which is wrong exactly when the thread length is a
+    /// multiple of the page size.
+    pub has_more: bool,
+}
+
 /// What may be changed about a conversation.
 ///
 /// `scope` is doubly optional on purpose: absent means "leave it", and

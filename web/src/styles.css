@@ -2422,3 +2422,16 @@ select.ctl { padding: 4px 6px; }
 .data-page .table-head { display: grid; }
 .data-page .table-head .head-cell { padding: 0 8px; align-items: center; }
 .data-page .table-head .head-cell.num { justify-content: flex-end; }
+
+.chat-older {
+  display: block;
+  width: 100%;
+  padding: 5px 0;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--fg-mute);
+  font: 11px var(--mono);
+  cursor: pointer;
+}
+.chat-older:hover:not(:disabled) { color: var(--accent); }

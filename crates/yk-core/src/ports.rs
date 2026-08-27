@@ -117,6 +117,22 @@ pub trait ConversationRepository: Send + Sync {
     async fn delete(&self, library_id: i64, key: &Key) -> Result<u64>;
 
     async fn messages(&self, library_id: i64, key: &Key) -> Result<Vec<Message>>;
+
+    /// One page of a thread, newest first by default.
+    ///
+    /// A conversation is not bounded — a working thread runs to hundreds of
+    /// messages and one tool result can be a hundred kilobytes — so opening
+    /// one must not depend on how long it has been going. `before` is a
+    /// message id: everything older than it, most recent first.
+    ///
+    /// The page comes back in reading order, because that is how it is drawn.
+    async fn messages_page(
+        &self,
+        library_id: i64,
+        key: &Key,
+        limit: u32,
+        before: Option<i64>,
+    ) -> Result<MessagePage>;
     async fn append(
         &self,
         library_id: i64,

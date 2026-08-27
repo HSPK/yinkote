@@ -224,6 +224,12 @@ export interface Message {
   createdAt: number
 }
 
+export interface MessagePage {
+  messages: Message[]
+  /** Whether anything older exists. */
+  hasMore: boolean
+}
+
 export interface BadgeDescriptor {
   id: string
   label: string

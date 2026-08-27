@@ -392,11 +392,11 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
     sleep 1
   done
   check "agent answers"  "$(j "$BASE/libraries/$LIB/conversations/$ACONV/messages" \
-                            | jq -r '[.[] | select(.role == "assistant")][0].content
+                            | jq -r '[.messages[] | select(.role == "assistant")][0].content
                                      | select(length > 0) | "answered"')"
   # A turn that ran must leave its steps behind, or the answer is unverifiable.
   check "agent shows work" "$(j "$BASE/libraries/$LIB/conversations/$ACONV/messages" \
-                              | jq -r '[.[] | select(.role == "assistant")][0].meta.trace
+                              | jq -r '[.messages[] | select(.role == "assistant")][0].meta.trace
                                        | select(length > 0) | "traced"')"
   j -X DELETE "$BASE/libraries/$LIB/conversations/$ACONV" > /dev/null
   fi
@@ -422,7 +422,7 @@ CONV=$(j -X POST "$BASE/libraries/$LIB/conversations" -d '{"title":"smoke"}' | j
 check "conversation"     "$CONV"
 check "message append"   "$(j -X POST "$BASE/libraries/$LIB/conversations/$CONV/messages" \
                               -d '{"role":"user","content":"hello"}' | jq -r .role)"
-check "transcript"       "$(j "$BASE/libraries/$LIB/conversations/$CONV/messages" | jq -r 'length')"
+check "transcript"       "$(j "$BASE/libraries/$LIB/conversations/$CONV/messages" | jq -r '.messages | length')"
 check "conversation list" "$(j "$BASE/libraries/$LIB/conversations" | jq -r '.[0].messageCount')"
 check "conversation drop" "$(j -X DELETE "$BASE/libraries/$LIB/conversations/$CONV" | jq -r .deleted)"
 
@@ -434,7 +434,7 @@ j -X POST "$BASE/libraries/$LIB/conversations/$MCONV/messages" \
   -d "{\"role\":\"user\",\"content\":\"about this\",\"mentions\":[\"$MITEM\"]}" > /dev/null
 # A mention has to survive the round trip, or the chip cannot be drawn.
 check "mention stored"   "$(j "$BASE/libraries/$LIB/conversations/$MCONV/messages" \
-                             | jq -r --arg k "$MITEM" '.[0].mentions | map(select(. == $k)) | length | select(. == 1)')"
+                             | jq -r --arg k "$MITEM" '.messages[0].mentions | map(select(. == $k)) | length | select(. == 1)')"
 # The reverse lookup is what the detail panel asks.
 check "paper knows its threads" "$(j "$BASE/libraries/$LIB/items/$MITEM/conversations" \
                              | jq -r --arg c "$MCONV" '.conversations | map(select(.key == $c)) | length | select(. == 1)')"

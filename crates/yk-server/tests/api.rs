@@ -444,6 +444,45 @@ async fn tools_and_skills_can_be_switched_off_from_the_workbench() {
 }
 
 #[tokio::test]
+async fn a_long_thread_arrives_a_page_at_a_time() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let base = format!("/libraries/{lib}/conversations");
+    let key = c.post(&base, json!({ "title": "Long" })).await["key"].as_str().unwrap().to_string();
+
+    for i in 0..25 {
+        c.post(
+            &format!("{base}/{key}/messages"),
+            json!({ "role": "user", "content": format!("Message {i}") }),
+        )
+        .await;
+    }
+
+    // Opening a conversation must not depend on how long it has been going.
+    let page = c.get(&format!("{base}/{key}/messages?limit=10")).await;
+    let first = page["messages"].as_array().unwrap();
+    assert_eq!(first.len(), 10);
+    assert_eq!(page["hasMore"], true);
+
+    // The newest ten, in reading order — which is what gets drawn.
+    assert_eq!(first[0]["content"], "Message 15");
+    assert_eq!(first[9]["content"], "Message 24");
+
+    // Older ones on request.
+    let oldest_seen = first[0]["id"].as_i64().unwrap();
+    let older = c.get(&format!("{base}/{key}/messages?limit=10&before={oldest_seen}")).await;
+    assert_eq!(older["messages"][0]["content"], "Message 5");
+    assert_eq!(older["messages"][9]["content"], "Message 14");
+    assert_eq!(older["hasMore"], true);
+
+    // And the end of the thread says so rather than leaving a client asking.
+    let start = older["messages"][0]["id"].as_i64().unwrap();
+    let last = c.get(&format!("{base}/{key}/messages?limit=10&before={start}")).await;
+    assert_eq!(last["messages"].as_array().unwrap().len(), 5);
+    assert_eq!(last["hasMore"], false);
+}
+
+#[tokio::test]
 async fn a_paper_knows_which_conversations_named_it() {
     let (c, app) = Client::new().await;
     let lib = app.services.default_library;
@@ -469,8 +508,8 @@ async fn a_paper_knows_which_conversations_named_it() {
 
     // Reading the thread back has to return what was named, or the client
     // cannot render the chip it let the user attach.
-    let messages = c.get(&format!("/libraries/{lib}/conversations/{key}/messages")).await;
-    assert_eq!(messages[0]["mentions"][0], item.as_str());
+    let page = c.get(&format!("/libraries/{lib}/conversations/{key}/messages")).await;
+    assert_eq!(page["messages"][0]["mentions"][0], item.as_str());
 
     // And the reverse lookup, which is what the detail panel asks.
     let about = c.get(&format!("/libraries/{lib}/items/{item}/conversations")).await;
@@ -501,9 +540,10 @@ async fn conversations_keep_their_transcript_and_recency_order() {
     c.post(&format!("{base}/{key}/messages"), json!({ "role": "user", "content": "Why RRF?" }))
         .await;
 
-    let messages = c.get(&format!("{base}/{key}/messages")).await;
-    assert_eq!(messages.as_array().unwrap().len(), 1);
-    assert_eq!(messages[0]["content"], "Why RRF?");
+    let page = c.get(&format!("{base}/{key}/messages")).await;
+    assert_eq!(page["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(page["messages"][0]["content"], "Why RRF?");
+    assert_eq!(page["hasMore"], false);
 
     // Appending is activity, so the thread that was just used sorts first.
     let list = c.get(&base).await;
@@ -602,9 +642,9 @@ async fn asking_without_a_model_still_records_the_question() {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "the caller is told what is missing");
 
     // What the user typed must survive a failure to answer it.
-    let messages = c.get(&format!("{base}/{key}/messages")).await;
-    assert_eq!(messages.as_array().unwrap().len(), 1);
-    assert_eq!(messages[0]["role"], "user");
+    let page = c.get(&format!("{base}/{key}/messages")).await;
+    assert_eq!(page["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(page["messages"][0]["role"], "user");
 }
 
 #[tokio::test]
@@ -617,7 +657,7 @@ async fn an_empty_question_is_rejected_before_anything_is_stored() {
     let (status, _) =
         c.send("POST", &format!("{base}/{key}/ask"), Some(json!({ "content": "  " }))).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert!(c.get(&format!("{base}/{key}/messages")).await.as_array().unwrap().is_empty());
+    assert!(c.get(&format!("{base}/{key}/messages")).await["messages"].as_array().unwrap().is_empty());
 }
 
 #[tokio::test]

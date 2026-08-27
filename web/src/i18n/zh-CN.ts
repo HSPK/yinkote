@@ -448,6 +448,8 @@ export const zhCN = {
   'files.col.paper': '所属文献',
   'files.col.source': '来源',
   'files.col.size': '大小',
+  'chat.loadOlder': '加载更早的消息',
+  'chat.loadingOlder': '加载中…',
   'tabs.emptyTitle': '没有打开的标签页',
   'tabs.emptyHint': '打开文献库，或从左侧选择任意内容。',
   'tabs.openLibrary': '打开文献库',

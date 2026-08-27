@@ -297,6 +297,13 @@ async fn mentioned_items(
 /// How many named papers to put in front of the model.
 const MENTION_CONTEXT: usize = 8;
 
+/// How much of a thread the model is shown.
+///
+/// Enough that a conversation feels continuous, few enough that a long one
+/// does not cost more every turn. What was said an hour ago is in the
+/// library, not in the prompt.
+const HISTORY_TURNS: u32 = 40;
+
 /// Run the turn to its end, whatever happens to whoever asked for it.
 async fn run_turn(app: App, lib: i64, key: yk_core::Key, run: std::sync::Arc<crate::runs::Run>) {
     let Some(agent) = app.agent() else { return };
@@ -304,8 +311,21 @@ async fn run_turn(app: App, lib: i64, key: yk_core::Key, run: std::sync::Arc<cra
     // Read once and used twice: the transcript the model sees, and the papers
     // it names. Fetching the thread a second time to find the mentions would
     // double the cost of starting every turn.
-    let thread = match app.store().conversations.messages(lib, &key).await {
-        Ok(messages) => messages,
+    //
+    // Bounded, because a prompt is not. A thread that has been going for a
+    // week holds hundreds of messages and tool results of a hundred kilobytes
+    // each; sending all of it re-reads the entire history on every turn and
+    // eventually exceeds whatever context the model has. The recent end is
+    // what the next answer depends on — the standing facts (what the
+    // conversation is scoped to, which papers were named) are re-stated in
+    // `turn_context` precisely so that dropping the beginning is safe.
+    let thread = match app
+        .store()
+        .conversations
+        .messages_page(lib, &key, HISTORY_TURNS, None)
+        .await
+    {
+        Ok(page) => page.messages,
         Err(e) => return run.fail(e.to_string()),
     };
     let mut history: Vec<yk_ai::ChatMessage> = thread.iter().map(to_chat).collect();
@@ -461,11 +481,30 @@ async fn remove(
     Ok(Json(json!({ "deleted": n })))
 }
 
+/// How many messages a client gets when it does not say.
+///
+/// Enough to fill a tall window without scrolling, so opening a conversation
+/// looks complete; the rest arrives when somebody scrolls back for it.
+const MESSAGE_PAGE: u32 = 60;
+
+#[derive(Deserialize)]
+struct MessageQuery {
+    limit: Option<u32>,
+    /// Everything older than this message id.
+    before: Option<i64>,
+}
+
 async fn messages(
     State(app): State<App>,
     Path((lib, k)): Path<(i64, String)>,
-) -> ApiResult<Json<Vec<Message>>> {
-    Ok(Json(app.store().conversations.messages(lib, &key(&k)?).await?))
+    Query(q): Query<MessageQuery>,
+) -> ApiResult<Json<yk_core::model::MessagePage>> {
+    let page = app
+        .store()
+        .conversations
+        .messages_page(lib, &key(&k)?, q.limit.unwrap_or(MESSAGE_PAGE), q.before)
+        .await?;
+    Ok(Json(page))
 }
 
 async fn append(

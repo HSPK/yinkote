@@ -40,6 +40,38 @@ fn map_message(r: &rusqlite::Row<'_>) -> rusqlite::Result<Message> {
     })
 }
 
+/// Attach the papers each message named.
+///
+/// One query for the page rather than one per message: a conversation is read
+/// on every keystroke of a live turn.
+fn hydrate_mentions(
+    conn: &rusqlite::Connection,
+    conversation_id: i64,
+    out: &mut [Message],
+) -> Result<()> {
+    if out.is_empty() {
+        return Ok(());
+    }
+    let mut stmt = conn
+        .prepare_cached(
+            "SELECT mm.message_id, mm.item_key FROM message_mentions mm \
+             JOIN messages m ON m.id = mm.message_id \
+             WHERE m.conversation_id = ?1",
+        )
+        .map_err(sql_err)?;
+    let mut rows = stmt.query(params![conversation_id]).map_err(sql_err)?;
+    while let Some(row) = rows.next().map_err(sql_err)? {
+        let message_id: i64 = row.get(0).map_err(sql_err)?;
+        let raw: String = row.get(1).map_err(sql_err)?;
+        if let (Some(message), Ok(item)) =
+            (out.iter_mut().find(|m| m.id == message_id), Key::parse(&raw))
+        {
+            message.mentions.push(item);
+        }
+    }
+    Ok(())
+}
+
 fn id_of(conn: &rusqlite::Connection, library_id: i64, key: &Key) -> Result<i64> {
     conn.query_row(
         "SELECT id FROM conversations WHERE library_id=?1 AND key=?2",
@@ -219,26 +251,51 @@ impl ConversationRepository for SqliteConversationRepository {
                     .collect::<rusqlite::Result<Vec<_>>>()
                     .map_err(sql_err)?;
 
-                // One query for the whole thread rather than one per message:
-                // a conversation is read on every keystroke of a live turn.
-                let mut mentions = c
+                hydrate_mentions(c, id, &mut out)?;
+                Ok(out)
+            })
+            .await
+    }
+
+    async fn messages_page(
+        &self,
+        library_id: i64,
+        key: &Key,
+        limit: u32,
+        before: Option<i64>,
+    ) -> Result<MessagePage> {
+        let key = key.clone();
+        let limit = limit.clamp(1, 500);
+        self.db
+            .call(move |c| {
+                let id = id_of(c, library_id, &key)?;
+
+                // Newest first with a bound, then reversed: "the last fifty"
+                // is a seek on the index, while "all of them, then take the
+                // last fifty" reads the whole thread to throw most of it away.
+                //
+                // One extra row is asked for, and it is the answer to "is
+                // there more" — inferring that from a full page is wrong
+                // exactly when the thread length is a multiple of the page.
+                let mut stmt = c
                     .prepare_cached(
-                        "SELECT mm.message_id, mm.item_key FROM message_mentions mm \
-                         JOIN messages m ON m.id = mm.message_id \
-                         WHERE m.conversation_id = ?1",
+                        "SELECT id, role, content, meta, created_at FROM messages \
+                         WHERE conversation_id = ?1 AND (?2 IS NULL OR id < ?2) \
+                         ORDER BY id DESC LIMIT ?3",
                     )
                     .map_err(sql_err)?;
-                let mut rows = mentions.query(params![id]).map_err(sql_err)?;
-                while let Some(row) = rows.next().map_err(sql_err)? {
-                    let message_id: i64 = row.get(0).map_err(sql_err)?;
-                    let raw: String = row.get(1).map_err(sql_err)?;
-                    if let (Some(message), Ok(item)) =
-                        (out.iter_mut().find(|m| m.id == message_id), Key::parse(&raw))
-                    {
-                        message.mentions.push(item);
-                    }
-                }
-                Ok(out)
+                let mut out = stmt
+                    .query_map(params![id, before, limit as i64 + 1], map_message)
+                    .map_err(sql_err)?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(sql_err)?;
+
+                let has_more = out.len() > limit as usize;
+                out.truncate(limit as usize);
+                out.reverse();
+
+                hydrate_mentions(c, id, &mut out)?;
+                Ok(MessagePage { messages: out, has_more })
             })
             .await
     }

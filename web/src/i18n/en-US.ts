@@ -452,6 +452,8 @@ export const enUS: Record<MessageKey, string> = {
   'files.col.paper': 'Paper',
   'files.col.source': 'Source',
   'files.col.size': 'Size',
+  'chat.loadOlder': 'Load earlier messages',
+  'chat.loadingOlder': 'Loading…',
   'tabs.emptyTitle': 'No tab open',
   'tabs.emptyHint': 'Open your library, or pick anything from the sidebar.',
   'tabs.openLibrary': 'Open library',

@@ -200,6 +200,8 @@ type Entry =
   | { kind: 'message'; id: string; message: Message }
   | { kind: 'live'; id: string; run: RunState }
   | { kind: 'error'; id: string; error: string }
+  /** A marker at the top of what is loaded; asking for it fetches more. */
+  | { kind: 'older'; id: string }
 
 export function ChatView() {
   const t = useT()
@@ -221,6 +223,9 @@ export function ChatView() {
   // agree with the first.
   const run = useStore((st) => (conversation ? st.runs[conversation] : undefined))
   const cancelRun = useStore((st) => st.cancelRun)
+  const hasOlder = useStore((st) => st.hasOlder)
+  const loadingOlder = useStore((st) => st.loadingOlder)
+  const loadOlder = useStore((st) => st.loadOlder)
   const collections = useStore((st) => st.collections)
   const setConversationScope = useStore((st) => st.setConversationScope)
   const busy = sending || !!run?.running
@@ -238,12 +243,19 @@ export function ChatView() {
       id: `m${message.id}`,
       message,
     }))
+    if (hasOlder) out.unshift({ kind: 'older', id: 'older' })
     if (run?.running) out.push({ kind: 'live', id: 'live', run })
     if (run?.error) out.push({ kind: 'error', id: 'error', error: run.error })
     return out
   }, [messages, run])
 
-  const marks = useMemo(() => railMarks(messages), [messages])
+  // Offset by the "load older" marker when there is one, since the rail
+  // addresses list positions and the marker occupies the first.
+  const offset = hasOlder ? 1 : 0
+  const marks = useMemo(
+    () => railMarks(messages).map((m) => ({ ...m, index: m.index + offset })),
+    [messages, offset],
+  )
 
   // Follow the tail as it grows. A conversation is read from the bottom, and
   // a new message that lands off screen looks like nothing happened.
@@ -317,6 +329,14 @@ export function ChatView() {
               <Turn message={entry.message} />
             ) : entry.kind === 'live' ? (
               <LiveTurn run={entry.run} onCancel={() => void cancelRun()} />
+            ) : entry.kind === 'older' ? (
+              <button
+                className="chat-older"
+                disabled={loadingOlder}
+                onClick={() => void loadOlder()}
+              >
+                {loadingOlder ? t('chat.loadingOlder') : t('chat.loadOlder')}
+              </button>
             ) : (
               <div className="bubble-note">{entry.error}</div>
             )

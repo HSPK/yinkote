@@ -4,6 +4,7 @@
  *  never touch `fetch` directly.
  */
 import type {
+  MessagePage,
   AgentStatus,
   ImportPreview,
   ImportResult,
@@ -259,8 +260,11 @@ export const api = {
       }),
     remove: (lib: number, key: string) =>
       request<{ deleted: number }>(`/libraries/${lib}/conversations/${key}`, { method: 'DELETE' }),
-    messages: (lib: number, key: string) =>
-      request<Message[]>(`/libraries/${lib}/conversations/${key}/messages`),
+    /** One page of a thread, newest by default; `before` walks backwards. */
+    messages: (lib: number, key: string, opts: { limit?: number; before?: number } = {}) =>
+      request<MessagePage>(
+        `/libraries/${lib}/conversations/${key}/messages${buildQuery(opts)}`,
+      ),
     append: (
       lib: number,
       key: string,

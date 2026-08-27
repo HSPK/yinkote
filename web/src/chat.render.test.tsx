@@ -54,7 +54,9 @@ vi.mock('./api/client', () => {
         if (path === 'api.conversations.messages') {
           // Held open to stand in for the round trip that fetches the stored
           // copy of an answer.
-          return holdMessages ? new Promise(() => {}) : Promise.resolve([])
+          return holdMessages
+            ? new Promise(() => {})
+            : Promise.resolve({ messages: [], hasMore: false })
         }
         if (path === 'api.conversations.run') return Promise.resolve({ running: false })
         if (path === 'api.conversations.list') return Promise.resolve([])
@@ -583,6 +585,21 @@ describe('a long conversation', () => {
     // asked, and the answers between are what makes it hard to find.
     const ticks = container.querySelectorAll('.jump-tick')
     expect(ticks.length).toBe(200)
+  })
+
+  it('offers the earlier messages when the thread is longer than what is held', async () => {
+    useStore.setState({ messages: many(40), hasOlder: true })
+    await render()
+    // Opening a conversation must not depend on how long it has been going,
+    // so the top of what is loaded says there is more rather than pretending
+    // the thread starts there.
+    expect(container.querySelector('.chat-older')).not.toBeNull()
+  })
+
+  it('says nothing about earlier messages when there are none', async () => {
+    useStore.setState({ messages: many(40), hasOlder: false })
+    await render()
+    expect(container.querySelector('.chat-older')).toBeNull()
   })
 
   it('stays out of the way of a short one', async () => {
