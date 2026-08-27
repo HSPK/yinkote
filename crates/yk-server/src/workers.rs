@@ -42,16 +42,12 @@ fn warm_facets(app: App) {
         else {
             return;
         };
-        match app.store().tags.facets(&filter, FACET_WARM_LIMIT).await {
+        match app.store().tags.facets(&filter, crate::routes::FACET_LIMIT).await {
             Ok(tags) => tracing::debug!(tags = tags.len(), "facet cache warmed"),
             Err(error) => tracing::debug!(%error, "could not warm the facet cache"),
         }
     });
 }
-
-/// How many facets to warm. The sidebar asks for sixty; warming the same
-/// number is what makes the first real request a hit rather than a near-miss.
-const FACET_WARM_LIMIT: u32 = 60;
 
 /// Share of the time the embedding worker may spend holding the write lock.
 ///

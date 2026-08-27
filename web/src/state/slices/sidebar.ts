@@ -46,10 +46,12 @@ export const createSidebarSlice: StateCreator<State, [], [], SidebarSlice> = (se
           api.collections.list(s.library),
           api.smart.list(s.library, true),
           api.conversations.list(s.library),
+          // No `limit`: the server has a default, and it is the number the
+          // startup warm-up computes. A second number here is a cache that
+          // fills a slot nobody asks for.
           api.tags.facets(s.library, {
             collection: s.view === 'collection' ? s.collection ?? undefined : undefined,
             trash: s.view === 'trash' ? 'only' : 'exclude',
-            limit: 80,
           }),
           api.stats(),
           api.plugins.list(),

@@ -7,6 +7,7 @@ mod graph;
 mod references;
 pub use references::Harvest;
 mod collections;
+pub use collections::FACET_LIMIT;
 pub(crate) mod files;
 mod downloads;
 mod files_browser;

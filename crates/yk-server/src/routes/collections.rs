@@ -89,6 +89,14 @@ async fn tags(
     Ok(Json(app.store().tags.list(lib, p.q.as_deref(), limit).await?))
 }
 
+/// How many facets a caller gets when it does not say.
+///
+/// Defined here rather than in the client, and used by the startup warm-up,
+/// so there is one number. Two — a client asking for eighty and a warm-up
+/// computing sixty — is a cache that fills a slot nobody asks for, which is
+/// exactly what happened.
+pub const FACET_LIMIT: u32 = 80;
+
 /// Tags that co-occur with the current filter, for progressive narrowing.
 async fn facets(
     State(app): State<App>,
@@ -96,7 +104,7 @@ async fn facets(
     Query(params): Query<ListParams>,
 ) -> ApiResult<Json<Vec<Tag>>> {
     let filter = params.filter(lib)?;
-    let limit = params.limit.unwrap_or(60).clamp(1, 500);
+    let limit = params.limit.unwrap_or(FACET_LIMIT).clamp(1, 500);
     Ok(Json(app.store().tags.facets(&filter, limit).await?))
 }
 
