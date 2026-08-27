@@ -10,6 +10,7 @@
 pub mod backups;
 pub mod export;
 pub mod integrity;
+pub mod restore;
 
 use axum::extract::State;
 use axum::routing::{get, post};
@@ -25,6 +26,7 @@ pub fn router() -> Router<App> {
         .route("/maintenance/backups", get(list_backups))
         .route("/maintenance/integrity", get(check_integrity))
         .route("/maintenance/export-all", post(export_all))
+        .route("/maintenance/import-archive", post(import_archive))
 }
 
 async fn run_backup(State(app): State<App>) -> ApiResult<Json<serde_json::Value>> {
@@ -42,4 +44,19 @@ async fn check_integrity(State(app): State<App>) -> ApiResult<Json<serde_json::V
 /// The whole library as one file, for moving to another machine.
 async fn export_all(State(app): State<App>) -> ApiResult<Json<serde_json::Value>> {
     Ok(Json(json!(export::run(&app).await?)))
+}
+
+#[derive(serde::Deserialize)]
+struct ArchivePath {
+    /// Where the `.yinkote` file is, on this machine.
+    path: String,
+}
+
+/// Read an archive back in, merging it with whatever is already here.
+async fn import_archive(
+    State(app): State<App>,
+    Json(body): Json<ArchivePath>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let done = restore::run(&app, std::path::Path::new(body.path.trim())).await?;
+    Ok(Json(json!(done)))
 }

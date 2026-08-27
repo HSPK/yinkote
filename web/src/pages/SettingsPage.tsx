@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import type { AgentStatus, SourceInfo } from '../api/types'
 import { LOCALES, useI18n, useT, type Locale } from '../i18n'
 import { AccentPicker } from '../components/AccentPicker'
+import { ArchiveImport } from '../components/ArchiveImport'
 import { BibliographyImport } from '../components/BibliographyImport'
 import { ZoteroImport } from '../components/ZoteroImport'
 import { filterSettings, type SettingSection } from '../lib/settings'
@@ -266,6 +267,13 @@ export function SettingsPage() {
             hint: t('import.bibHint'),
             keywords: t('settings.keywords.import'),
             render: () => <BibliographyImport />,
+          },
+          {
+            id: 'archive',
+            label: t('import.archive'),
+            hint: t('import.archiveHint'),
+            keywords: t('settings.keywords.import'),
+            render: () => <ArchiveImport />,
           },
         ],
       },

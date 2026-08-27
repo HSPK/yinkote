@@ -392,6 +392,23 @@ check "integrity reports" "$(j "$BASE/maintenance/integrity" | jq -r 'select((.m
 EXP=$(j -X POST "$BASE/maintenance/export-all")
 EXPNAME=$(echo "$EXP" | jq -r .name)
 check "exported"          "$(echo "$EXP" | jq -r '.bytes | select(. > 0) | "written"')"
+# The proof that matters: destroy something, read the archive back, and find
+# it there again with the same key. An export nothing can consume is a hole,
+# not a door.
+MARKER=$(j -X POST "$BASE/libraries/$LIB/items" \
+           -d '{"itemType":"journalArticle","title":"Archive Marker"}' | jq -r '.created[0].key')
+EXP2=$(j -X POST "$BASE/maintenance/export-all")
+EXP2NAME=$(echo "$EXP2" | jq -r .name)
+j -X POST "$BASE/libraries/$LIB/items/delete" -d "$(jq -nc --arg k "$MARKER" '{keys:[$k]}')" >/dev/null
+check "marker destroyed"  "$(j "$BASE/libraries/$LIB/items/$MARKER" -o /dev/null -w '%{http_code}' | grep -q '^4' && echo "gone")"
+IMP2=$(j -X POST "$BASE/maintenance/import-archive" \
+         -d "$(jq -nc --arg p "$DATA/exports/$EXP2NAME" '{path:$p}')")
+check "archive restores"  "$(echo "$IMP2" | jq -r '.items | select(. >= 1) | "restored"')"
+check "marker is back"    "$(j "$BASE/libraries/$LIB/items/$MARKER" | jq -r '.title | select(. == "Archive Marker")')"
+# Merging, not replacing: everything that was still here is left alone.
+check "import merges"     "$(echo "$IMP2" | jq -r '.skipped | select(. > 100) | "kept the rest"')"
+check "import is clean"   "$(echo "$IMP2" | jq -r '.failed | select(. == 0) | "no failures"')"
+
 check "archive opens"     "$(python3 - "$DATA/exports/$EXPNAME" <<'PY'
 import zipfile, sqlite3, sys, tempfile, os, json
 z = zipfile.ZipFile(sys.argv[1])

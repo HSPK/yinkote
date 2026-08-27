@@ -470,6 +470,11 @@ export const api = {
         '/maintenance/export-all',
         { method: 'POST' },
       ),
+    importArchive: (path: string) =>
+      request<{ items: number; skipped: number; files: number; failed: number }>(
+        '/maintenance/import-archive',
+        { method: 'POST', ...json({ path }) },
+      ),
     integrity: () =>
       request<{
         checked: number
