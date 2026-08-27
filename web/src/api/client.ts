@@ -4,6 +4,7 @@
  *  never touch `fetch` directly.
  */
 import type {
+  ReaderState,
   MessagePage,
   AgentStatus,
   ImportPreview,
@@ -334,6 +335,17 @@ export const api = {
         `/libraries/${lib}/import/bibliography`,
         { method: 'POST', ...json({ text, collection }) },
       ),
+  },
+
+  /** Where a document was left: page, zoom, and how it was being read. */
+  readerState: {
+    get: (lib: number, key: string) =>
+      request<ReaderState>(`/libraries/${lib}/items/${key}/reader-state`),
+    put: (lib: number, key: string, state: Partial<ReaderState>) =>
+      request<{ saved: boolean }>(`/libraries/${lib}/items/${key}/reader-state`, {
+        method: 'PUT',
+        ...json(state),
+      }),
   },
 
   /** Gather a paper's highlights into a note. */

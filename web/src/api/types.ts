@@ -46,6 +46,14 @@ export interface Item extends Record<string, unknown> {
   attachments?: AttachmentKind[]
 }
 
+/** How a document was left, so it can be reopened where it was. */
+export interface ReaderState {
+  lastPage: number
+  zoom: number
+  scrollMode: 'paged' | 'continuous'
+  sidebar: boolean
+}
+
 export interface Collection {
   key: string
   libraryId: number

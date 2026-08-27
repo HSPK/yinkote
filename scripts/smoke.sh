@@ -279,6 +279,32 @@ check "export refuses"    "$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content
                               -d "$(jq -nc --arg k "$EXKEY" '{itemKeys:[$k],format:"zotero-rdf"}')" \
                               | grep -q '^4' && echo "rejected")"
 
+echo "▸ reader state"
+# Reopening a paper where it was left. Stored per attachment, and deliberately
+# *not* on the item: writing it there would bump the library version on every
+# scroll, so the check is that reading a document does not look like editing
+# the library.
+# Its own file, rather than one another section happened to make: a check that
+# depends on a variable set further down the script is a check that breaks when
+# somebody reorders the sections, which is exactly what happened.
+RFILE=$(j -X POST "$BASE/libraries/$LIB/items" \
+          -d "{\"itemType\":\"attachment\",\"contentType\":\"application/pdf\",\"linkMode\":\"imported_file\",\"filename\":\"read.pdf\"}" \
+          | jq -r '.created[0].key')
+RVER=$(j "$BASE/libraries" | jq -r --argjson l "$LIB" '.[] | select(.id == $l) | .version')
+check "unread is page one" "$(j "$BASE/libraries/$LIB/items/$RFILE/reader-state" \
+                              | jq -r '.lastPage | select(. == 1)')"
+j -X PUT "$BASE/libraries/$LIB/items/$RFILE/reader-state" \
+  -d '{"lastPage":14,"zoom":1.6,"scrollMode":"paged","sidebar":false}' >/dev/null
+check "state remembered"  "$(j "$BASE/libraries/$LIB/items/$RFILE/reader-state" \
+                              | jq -r 'select(.lastPage == 14 and .zoom == 1.6 and .scrollMode == "paged" and .sidebar == false) | "kept"')"
+check "version untouched"  "$(j "$BASE/libraries" \
+                              | jq -r --argjson l "$LIB" --arg v "$RVER" '.[] | select(.id == $l) | .version | tostring | select(. == $v) | "unchanged"')"
+# What arrives from a client that has not finished loading.
+check "nonsense clamped"  "$(j -X PUT "$BASE/libraries/$LIB/items/$RFILE/reader-state" \
+                              -d '{"lastPage":0,"zoom":0}' | jq -r '.state | select(.lastPage == 1 and .zoom == 0.25) | "clamped"')"
+check "state is per file" "$(j "$BASE/libraries/$LIB/items/$KEY/reader-state" \
+                              | jq -r '.lastPage | select(. == 1)')"
+
 echo "▸ notes from annotations"
 NPAPER=$(j -X POST "$BASE/libraries/$LIB/items" \
            -d '{"itemType":"journalArticle","title":"A Paper With Marks"}' | jq -r '.created[0].key')
@@ -621,6 +647,15 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
     [[ "$(j "$BASE/libraries/$LIB/conversations/$ACONV/run" | jq -r .running)" == "true" ]] || break
     sleep 1
   done
+  # The model is shared and throttles without warning, and a turn can be
+  # rate-limited *after* the pre-flight probe said it was healthy. Reporting
+  # that as a failure makes the gate flaky, and a gate that cries wolf is one
+  # people learn to ignore — so the run says which it was.
+  ARUN=$(j "$BASE/libraries/$LIB/conversations/$ACONV/run")
+  if echo "$ARUN" | grep -qiE '429|rate.?limit|upstream busy'; then
+    skip "agent answers"     "the model is rate-limited right now"
+    skip "agent shows work"  "the model is rate-limited right now"
+  else
   check "agent answers"  "$(j "$BASE/libraries/$LIB/conversations/$ACONV/messages" \
                             | jq -r '[.messages[] | select(.role == "assistant")][0].content
                                      | select(length > 0) | "answered"')"
@@ -628,6 +663,7 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
   check "agent shows work" "$(j "$BASE/libraries/$LIB/conversations/$ACONV/messages" \
                               | jq -r '[.messages[] | select(.role == "assistant")][0].meta.trace
                                        | select(length > 0) | "traced"')"
+  fi
   j -X DELETE "$BASE/libraries/$LIB/conversations/$ACONV" > /dev/null
   fi
 else

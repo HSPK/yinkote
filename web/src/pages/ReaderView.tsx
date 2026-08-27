@@ -24,6 +24,12 @@ import { usePdf } from './usePdf'
  * A tab, not a modal: reading is not a detour from the library, it is what the
  * library is for, and it must survive searching, chatting and note-taking.
  */
+/** How long the reader must sit still before its place is written down.
+ *
+ *  Scrolling fires continuously; one request per event would be hundreds a
+ *  minute for something nobody is waiting on. */
+const SAVE_AFTER_MS = 600
+
 export function ReaderView({ target }: { target?: string }) {
   const t = useT()
   const library = useStore((s) => s.library)
@@ -96,11 +102,74 @@ export function ReaderView({ target }: { target?: string }) {
     await reload()
   }
 
-  const goTo = (page: number) => {
+  const goTo = useCallback((page: number, smooth = true) => {
     scrollRef.current
       ?.querySelector(`[data-page="${page}"]`)
-      ?.scrollIntoView({ block: 'start', behavior: 'smooth' })
-  }
+      ?.scrollIntoView({ block: 'start', behavior: smooth ? 'smooth' : 'auto' })
+  }, [])
+
+  /** Reopen where it was left.
+   *
+   *  Waits for the pages to exist: the state arrives long before the PDF is
+   *  rendered, and scrolling to a page that is not in the document yet does
+   *  nothing at all — silently, which is the sort of bug that gets called
+   *  "sometimes it works".
+   */
+  useEffect(() => {
+    if (!current || !doc || !pages.length) return
+    let live = true
+    void api.readerState
+      .get(library, current)
+      .then((state) => {
+        if (!live) return
+        setZoom(state.zoom)
+        // No animation: this is where the document opens, not somewhere it
+        // travelled to.
+        if (state.lastPage > 1) window.setTimeout(() => live && goTo(state.lastPage, false), 0)
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+    // Deliberately not `zoom`: this restores it, and depending on it would
+    // undo every zoom the reader makes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [library, current, doc, pages.length, goTo])
+
+  /** Remember the page in view, without saying so on every scrolled pixel. */
+  useEffect(() => {
+    const scroller = scrollRef.current
+    if (!scroller || !current || !doc) return
+
+    let timer = 0
+    const save = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        const top = scroller.getBoundingClientRect().top
+        // The page whose top edge is nearest the top of the view is the one
+        // being read; the first one *fully* visible is wrong at any zoom where
+        // a page is taller than the pane.
+        let best = 1
+        let bestGap = Number.POSITIVE_INFINITY
+        for (const el of scroller.querySelectorAll('[data-page]')) {
+          const gap = Math.abs(el.getBoundingClientRect().top - top)
+          if (gap < bestGap) {
+            bestGap = gap
+            best = Number((el as HTMLElement).dataset.page ?? 1)
+          }
+        }
+        void api.readerState.put(library, current, { lastPage: best, zoom }).catch(() => {})
+      }, SAVE_AFTER_MS)
+    }
+
+    scroller.addEventListener('scroll', save, { passive: true })
+    // Zoom is a decision rather than a drift, so it is worth saving on its own.
+    save()
+    return () => {
+      window.clearTimeout(timer)
+      scroller.removeEventListener('scroll', save)
+    }
+  }, [library, current, doc, zoom])
 
   if (!target) return <Empty>{t('reader.none')}</Empty>
   if (!attachments.length) return <Empty>{t('reader.noFile')}</Empty>
