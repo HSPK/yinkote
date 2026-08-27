@@ -126,25 +126,80 @@ impl Db {
         .map_err(|e| Error::internal(format!("join: {e}")))?
     }
 
+    /// Bring the schema up to date.
+    ///
+    /// Applied **by name**, not by position. They used to be applied by
+    /// position, with the names logged and never checked — which means removing
+    /// or reordering one silently skips whatever takes its place. That is not
+    /// hypothetical: a migration added and then reverted during development
+    /// consumed its slot, and the next migration to take that number was never
+    /// applied to any database that had seen the first. The failure surfaced
+    /// two features later as a missing table.
     fn migrate(&self) -> Result<()> {
         let mut conn = self.conn()?;
-        let current: i64 = conn
-            .query_row("PRAGMA user_version", [], |r| r.get(0))
-            .map_err(sql_err)?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                 name       TEXT PRIMARY KEY,
+                 applied_at INTEGER NOT NULL
+             )",
+        )
+        .map_err(sql_err)?;
+
+        self.backfill_names(&conn)?;
+
+        let applied: std::collections::HashSet<String> = {
+            let mut stmt =
+                conn.prepare("SELECT name FROM schema_migrations").map_err(sql_err)?;
+            let names = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(sql_err)?;
+            names.filter_map(|n| n.ok()).collect()
+        };
 
         for (idx, (name, sql)) in MIGRATIONS.iter().enumerate() {
-            let target = idx as i64 + 1;
-            if current >= target {
+            if applied.contains(*name) {
                 continue;
             }
             tracing::info!(migration = name, "applying migration");
             let tx = conn.transaction().map_err(sql_err)?;
-            tx.execute_batch(sql).map_err(|e| {
-                Error::storage(format!("migration {name} failed: {e}"))
-            })?;
-            tx.pragma_update(None, "user_version", target)
-                .map_err(sql_err)?;
+            tx.execute_batch(sql)
+                .map_err(|e| Error::storage(format!("migration {name} failed: {e}")))?;
+            tx.execute(
+                "INSERT OR REPLACE INTO schema_migrations (name, applied_at) VALUES (?1, ?2)",
+                rusqlite::params![name, yk_core::now_ms()],
+            )
+            .map_err(sql_err)?;
+            // Kept in step so anything reading the pragma — including a person
+            // with a SQLite shell — still sees how far the schema has come.
+            tx.pragma_update(None, "user_version", idx as i64 + 1).map_err(sql_err)?;
             tx.commit().map_err(sql_err)?;
+        }
+        Ok(())
+    }
+
+    /// Give names to migrations that were applied before names were recorded.
+    ///
+    /// A database from before this table can only say *how many* ran, so the
+    /// first that many are assumed — there is nothing else to go on. It is done
+    /// once, and from then on the record is exact.
+    fn backfill_names(&self, conn: &Connection) -> Result<()> {
+        let known: i64 = conn
+            .query_row("SELECT count(*) FROM schema_migrations", [], |r| r.get(0))
+            .map_err(sql_err)?;
+        if known > 0 {
+            return Ok(());
+        }
+
+        let version: i64 =
+            conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(sql_err)?;
+        if version <= 0 {
+            return Ok(());
+        }
+
+        for (name, _) in MIGRATIONS.iter().take(version as usize) {
+            conn.execute(
+                "INSERT OR IGNORE INTO schema_migrations (name, applied_at) VALUES (?1, ?2)",
+                rusqlite::params![name, yk_core::now_ms()],
+            )
+            .map_err(sql_err)?;
         }
         Ok(())
     }
@@ -292,6 +347,54 @@ mod tests {
 
         let pages: i64 = conn.query_row("PRAGMA wal_autocheckpoint", [], |r| r.get(0)).unwrap();
         assert_eq!(pages, 0, "checkpointing belongs to the worker, not to a write");
+    }
+
+    #[test]
+    fn records_which_migrations_ran_by_name() {
+        let db = Db::open(None).unwrap();
+        let conn = db.conn().unwrap();
+        let names: Vec<String> = conn
+            .prepare("SELECT name FROM schema_migrations ORDER BY name")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .filter_map(|n| n.ok())
+            .collect();
+
+        assert_eq!(names.len(), MIGRATIONS.len());
+        assert!(names.contains(&"001_init".to_string()));
+    }
+
+    #[test]
+    fn an_unknown_record_does_not_derail_the_ones_we_know() {
+        // A slot consumed by a migration that no longer exists is exactly the
+        // situation that caused this: one added and reverted during
+        // development took number five, and the feature that later took that
+        // number was never applied to any database that had seen the first.
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(Some(&dir.path().join("test.db"))).unwrap();
+        {
+            let conn = db.conn().unwrap();
+            conn.execute(
+                "INSERT INTO schema_migrations (name, applied_at) VALUES ('005_a_reverted_idea', 0)",
+                [],
+            )
+            .unwrap();
+        }
+
+        db.migrate().unwrap();
+
+        let conn = db.conn().unwrap();
+        for (name, _) in MIGRATIONS {
+            let seen: i64 = conn
+                .query_row(
+                    "SELECT count(*) FROM schema_migrations WHERE name = ?1",
+                    [name],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(seen, 1, "{name} should be recorded exactly once");
+        }
     }
 
     #[test]

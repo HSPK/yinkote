@@ -307,46 +307,72 @@ impl RelationRepository for SqliteRelationRepository {
         tokio::task::spawn_blocking(move || {
             let conn = db.conn()?;
 
-            // Grouped by the cited work, counted by *distinct citing papers*
-            // rather than by rows: a bibliography that lists the same work
-            // twice says nothing about how central it is.
+            // Two passes on purpose.
             //
-            // Entries with no identifier are excluded, and deliberately. Prose
-            // references cannot be grouped — the same paper appears in ten
-            // bibliographies in ten different house styles — so counting them
-            // would produce a ranking of formatting conventions.
+            // The aggregate is over every stored reference — 1.8 million rows
+            // in a hundred-thousand-item library — so *everything* it touches
+            // is paid for that many times. The ownership check therefore runs
+            // over the four hundred thousand *groups*, not over the rows: as a
+            // correlated subquery inside the aggregate it took longer than ten
+            // minutes and never finished a measurement. And the labels are
+            // fetched afterwards for the few rows that survive, because
+            // `max(target_label)` inside the aggregate reads a table row per
+            // reference and cost six seconds on its own.
+            //
+            // This is still slower than a page deserves; see the note in
+            // docs/13-knowledge-graph.md about maintaining the count instead.
             let mut stmt = conn
                 .prepare_cached(
-                    "SELECT r.target_key,
-                            max(r.target_label) AS label,
-                            max(r.target_year)  AS year,
-                            max(r.target_doi)   AS doi,
-                            count(DISTINCT r.source_id) AS citations
-                     FROM item_relations r
-                     CROSS JOIN items i ON i.id = r.source_id
-                     WHERE r.kind = ?1 AND r.target_key != ''
-                       AND i.library_id = ?2 AND i.deleted = 0
-                       AND NOT EXISTS (SELECT 1 FROM items owned
-                                       WHERE owned.library_id = ?2 AND owned.deleted = 0
-                                         AND owned.fingerprint = r.target_key)
-                     GROUP BY r.target_key
-                     ORDER BY citations DESC, year DESC
+                    "SELECT g.target_key, g.citations FROM (
+                         SELECT target_key, count(DISTINCT source_id) AS citations
+                         FROM item_relations
+                         WHERE kind = ?1 AND target_key != ''
+                           AND source_id NOT IN (SELECT id FROM items
+                                                 WHERE library_id = ?2 AND deleted = 1)
+                         GROUP BY target_key
+                         ORDER BY citations DESC
+                     ) g
+                     WHERE NOT EXISTS (SELECT 1 FROM items o
+                                       WHERE o.library_id = ?2 AND o.deleted = 0
+                                         AND o.fingerprint = g.target_key)
                      LIMIT ?3",
                 )
                 .map_err(sql_err)?;
 
-            let rows = stmt
-                .query_map(params![CITES, library_id, limit], |r| {
-                    Ok(Missing {
-                        fingerprint: r.get(0)?,
-                        label: r.get(1)?,
-                        year: r.get(2)?,
-                        doi: r.get(3)?,
-                        cited_by: r.get(4)?,
-                    })
-                })
+            let ranked: Vec<(String, i64)> = stmt
+                .query_map(params![CITES, library_id, limit], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map_err(sql_err)?
+                .collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(sql_err)?;
-            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(sql_err)
+
+            let mut label = conn
+                .prepare_cached(
+                    "SELECT max(target_label), max(target_year), max(target_doi)
+                     FROM item_relations WHERE kind = ?1 AND target_key = ?2",
+                )
+                .map_err(sql_err)?;
+
+            let mut out = Vec::with_capacity(ranked.len());
+            for (fingerprint, cited_by) in ranked {
+                let (name, year, doi) = label
+                    .query_row(params![CITES, &fingerprint], |r| {
+                        Ok((
+                            r.get::<_, Option<String>>(0)?,
+                            r.get::<_, Option<i64>>(1)?,
+                            r.get::<_, Option<String>>(2)?,
+                        ))
+                    })
+                    .unwrap_or((None, None, None));
+
+                out.push(Missing {
+                    fingerprint,
+                    label: name.unwrap_or_default(),
+                    year,
+                    doi: doi.unwrap_or_default(),
+                    cited_by,
+                });
+            }
+            Ok(out)
         })
         .await
         .map_err(|e| Error::internal(e.to_string()))?
