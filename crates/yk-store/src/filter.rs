@@ -10,6 +10,13 @@ use yk_core::query::{Direction, ItemFilter, SortField, TrashScope};
 pub struct Predicate {
     pub sql: String,
     pub params: Vec<SqlValue>,
+    /// Whether this is nothing but "a live item in this library".
+    ///
+    /// A plain browse can be driven straight down the index that already holds
+    /// the sort order; anything narrower — a tag, a collection — is better off
+    /// letting the planner choose, since it may be far more selective than the
+    /// ordering. See [`sort_index`].
+    pub base_only: bool,
 }
 
 impl Predicate {
@@ -21,6 +28,7 @@ impl Predicate {
 
         clauses.push("i.library_id = ?".into());
         params.push(SqlValue::Integer(filter.library_id));
+        let base_clauses = 2; // library and trash scope
 
         match filter.trash {
             TrashScope::Exclude => clauses.push("i.deleted = 0".into()),
@@ -101,7 +109,11 @@ impl Predicate {
             params.push(SqlValue::Text(name.to_string()));
         }
 
-        Predicate { sql: clauses.join(" AND "), params }
+        Predicate {
+            base_only: clauses.len() <= base_clauses,
+            sql: clauses.join(" AND "),
+            params,
+        }
     }
 }
 
@@ -133,6 +145,30 @@ pub fn placeholders(n: usize) -> String {
         s.push('?');
     }
     s
+}
+
+/// The index that already holds a given order.
+///
+/// Named explicitly, because leaving it to the planner is how a plain browse
+/// went from 9ms to 69ms: adding `idx_items_attachment` gave SQLite a second
+/// index with the same `(library_id, deleted)` prefix, it chose that one, and
+/// then sorted a hundred and thirty thousand rows to get the order it had
+/// thrown away. Nothing about the *results* changed, which is why only a plan
+/// assertion can see it — and the assertion has to run against a database with
+/// statistics, or the planner it questions is not the one in production.
+///
+/// Every one of these indexes leads with `(library_id, deleted)`, so the hint
+/// is valid for the base filter and for nothing else. See `Predicate::base_only`.
+pub fn sort_index(sort: SortField) -> &'static str {
+    match sort {
+        SortField::DateModified | SortField::Relevance => "idx_items_modified",
+        SortField::DateAdded => "idx_items_added",
+        SortField::Title => "idx_items_title",
+        SortField::Creator => "idx_items_creator",
+        SortField::Year => "idx_items_year",
+        SortField::ItemType => "idx_items_type",
+        SortField::Attachment => "idx_items_attachment",
+    }
 }
 
 /// Whitelisted ORDER BY clause — never interpolates user input.

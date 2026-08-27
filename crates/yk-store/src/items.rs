@@ -81,6 +81,36 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<(i64, Item)> {
     Ok((id, item))
 }
 
+/// The statement a page of items is read with.
+///
+/// One function so the plan assertions can question the statement that actually
+/// runs. They used to rebuild it by hand, which is fine until the two drift —
+/// and they drifted the moment an index hint was added, leaving a test that
+/// proved something true about a query nobody executes.
+///
+/// A deferred join: pick the page's ids from an index alone, then fetch the
+/// columns for those rows only. The obvious shape joins the parent table for
+/// every row it walks, including the fifty thousand an offset is about to throw
+/// away — 95.7ms at offset 50000 against 2.1ms. The outer `ORDER BY` re-sorts a
+/// hundred rows, which is free, and is needed because `IN` does not preserve
+/// order.
+fn page_sql(p: &Predicate, sort: SortField, direction: Direction) -> String {
+    let order = order_by(sort, direction);
+    // Name the index for a plain browse. See `filter::sort_index`: one unrelated
+    // index with the same leading columns was enough to make the planner throw
+    // the order away and re-sort the library — 9ms to 69ms, same results.
+    let hint = if p.base_only {
+        format!("INDEXED BY {}", crate::filter::sort_index(sort))
+    } else {
+        String::new()
+    };
+    format!(
+        "SELECT {COLS} {FROM} WHERE i.id IN ( \
+           SELECT i.id FROM items i {hint} WHERE {} {order} LIMIT ? OFFSET ?) {order}",
+        p.sql,
+    )
+}
+
 /// Fill in tags and collections for a page of items using two batched queries
 /// instead of N+1.
 /// Look items up by the identifier a publisher gave them.
@@ -717,12 +747,7 @@ impl ItemRepository for SqliteItemRepository {
                 // 50000; picking the ids from a covering index first makes it
                 // 2.1ms. The outer ORDER BY re-sorts a hundred rows, which is
                 // free, and is needed because `IN` does not preserve order.
-                let order = order_by(query.sort, query.direction);
-                let sql = format!(
-                    "SELECT {COLS} {FROM} WHERE i.id IN ( \
-                       SELECT i.id FROM items i WHERE {} {order} LIMIT ? OFFSET ?) {order}",
-                    p.sql,
-                );
+                let sql = page_sql(&p, query.sort, query.direction);
                 let mut args = p.params.clone();
                 args.push(rusqlite::types::Value::Integer(query.limit as i64));
                 args.push(rusqlite::types::Value::Integer(query.offset as i64));
@@ -1407,8 +1432,14 @@ mod plan_tests {
     use yk_core::query::{Direction, ItemQuery, SortField};
 
     /// What SQLite says it will do, rather than what it returns.
+    ///
+    /// Against a database with rows and statistics. An empty one is a different
+    /// planner: with no `sqlite_stat1` it falls back to heuristics and happens
+    /// to choose well, so an assertion here passed all the way through a change
+    /// that made a plain browse seven times slower in production. See
+    /// `docs/16` §3.66.
     fn plan(sql: &str, params: usize) -> String {
-        let store = crate::Store::in_memory().unwrap();
+        let store = seeded();
         let conn = store.db().conn().unwrap();
         let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
         let bound: Vec<i64> = (0..params).map(|_| 1).collect();
@@ -1419,21 +1450,93 @@ mod plan_tests {
             .join(" | ")
     }
 
-    /// The statement `list` builds, for a plain library page.
+    /// A library with enough in it, and enough shape, for the planner to choose
+    /// the way it would in front of a real one.
+    fn seeded() -> crate::Store {
+        let store = crate::Store::in_memory().unwrap();
+        {
+            let conn = store.db().conn().unwrap();
+            conn.execute_batch("BEGIN").unwrap();
+            {
+                let mut insert = conn
+                    .prepare(
+                        "INSERT INTO items(library_id, key, item_type, parent_id, sort_title, \
+                                           sort_creator, year, fingerprint, attachment_rank, \
+                                           date_added, date_modified) \
+                         VALUES (1, ?1, ?2, ?3, ?1, ?1, 2020, ?1, ?4, ?5, ?5)",
+                    )
+                    .unwrap();
+                for i in 0..8000 {
+                    let top = i % 4 != 0;
+                    insert
+                        .execute(rusqlite::params![
+                            format!("K{i:07}"),
+                            if top { "journalArticle" } else { "attachment" },
+                            if top { None } else { Some(1_i64) },
+                            i64::from(i % 5 == 0),
+                            i as i64,
+                        ])
+                        .unwrap();
+                }
+            }
+            conn.execute_batch("COMMIT; ANALYZE;").unwrap();
+        }
+        store
+    }
+
+    /// The statement `list` builds, for a plain library page — the same
+    /// builder, not a copy of it.
     fn list_sql(sort: SortField, direction: Direction) -> String {
-        let query = ItemQuery {
-            filter: yk_core::query::ItemFilter { library_id: 1, ..Default::default() },
-            sort,
-            direction,
-            ..Default::default()
-        };
-        let p = Predicate::build(&query.filter, None);
-        let order = order_by(query.sort, query.direction);
-        format!(
-            "SELECT {COLS} {FROM} WHERE i.id IN ( \
-               SELECT i.id FROM items i WHERE {} {order} LIMIT ? OFFSET ?) {order}",
-            p.sql,
-        )
+        let filter = yk_core::query::ItemFilter { library_id: 1, ..Default::default() };
+        page_sql(&Predicate::build(&filter, None), sort, direction)
+    }
+
+    /// Browsing must never sort the library.
+    ///
+    /// Every sort field has an index that already holds its order; using it
+    /// means reading a hundred rows and stopping. Failing to means reading a
+    /// hundred and thirty thousand and sorting them for the same answer, which
+    /// is what happened when `idx_items_attachment` turned up with the same
+    /// leading columns as the index this depends on.
+    ///
+    /// Honest about its reach, like `tests/fingerprint_plans.rs`: at any size
+    /// this can seed, SQLite chooses correctly with or without the hint, so
+    /// removing the hint does *not* make this fail. It guards the shape — that
+    /// each order still has an index and the statement still names it — and
+    /// `scripts/bench.mjs` guards the production plan, where it now fails the
+    /// run rather than printing a number nobody compares.
+    #[test]
+    fn every_browse_order_comes_from_an_index() {
+        for sort in [
+            SortField::DateModified,
+            SortField::DateAdded,
+            SortField::Title,
+            SortField::Creator,
+            SortField::Year,
+            SortField::ItemType,
+            SortField::Attachment,
+        ] {
+            for direction in [Direction::Desc, Direction::Asc] {
+                let sql = list_sql(sort, direction);
+                // library id, limit, offset.
+                let plan = plan(&sql, 3);
+
+                assert!(
+                    plan.contains(crate::filter::sort_index(sort)),
+                    "{sort:?}/{direction:?} does not read the index that holds its order:\n  {plan}"
+                );
+                // Exactly one sort is expected and free: the outer statement
+                // putting the hundred rows it fetched back in order, which `IN`
+                // does not preserve. A second one is the library being sorted,
+                // which is the regression this test exists for — it went from
+                // one to two the day an index with the same leading columns
+                // turned up, and from 9ms to 69ms with it.
+                assert!(
+                    plan.matches("TEMP B-TREE").count() <= 1,
+                    "{sort:?}/{direction:?} sorts the library instead of reading it in order:\n  {plan}"
+                );
+            }
+        }
     }
 
     #[test]

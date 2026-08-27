@@ -84,6 +84,30 @@ function stats(samples) {
   return { p50: at(0.5), p95: at(0.95), p99: at(0.99), max: s.at(-1) }
 }
 
+/** What a measurement is allowed to cost, in p50 milliseconds.
+ *
+ *  Only for the numbers where a regression means something went structurally
+ *  wrong rather than a machine being busy — a browse that stops using its index
+ *  goes from 9ms to 69ms, which no amount of noise explains. Set well above the
+ *  measured figure so an ordinary bad day does not fail the run.
+ *
+ *  This exists because that regression shipped: the plan assertions could not
+ *  see it (an empty test database picks the right index whatever the statement
+ *  says) and the benchmark printed 68.6ms next to a comment saying 9ms, and
+ *  printing is not checking.
+ */
+const BUDGET = {
+  'list first page (sort=modified)': 25,
+  'list deep page (offset=50000)': 25,
+  'list sorted by title': 25,
+  'list one collection': 25,
+  'list collection + children': 25,
+  facets: 15,
+  stats: 30,
+}
+
+const overBudget = []
+
 async function measure(label, path, runs = 40) {
   const samples = []
   let count = 0
@@ -94,10 +118,13 @@ async function measure(label, path, runs = 40) {
     count = body.total ?? body.hits?.length ?? 0
   }
   const s = stats(samples)
+  const budget = BUDGET[label]
+  const over = budget !== undefined && s.p50 > budget
+  if (over) overBudget.push(`${label}: ${s.p50.toFixed(1)}ms, budget ${budget}ms`)
   console.log(
     `  ${label.padEnd(34)} p50 ${s.p50.toFixed(1).padStart(6)}ms  ` +
       `p95 ${s.p95.toFixed(1).padStart(6)}ms  p99 ${s.p99.toFixed(1).padStart(6)}ms  ` +
-      `(n=${count})`,
+      `(n=${count})${over ? '  ← OVER BUDGET' : ''}`,
   )
   return s
 }
@@ -296,6 +323,14 @@ async function main() {
     `\n▸ final: ${stat1.items} items, ${stat1.search.embedded} vectors, ` +
       `library version ${stat1.version}`,
   )
+
+  if (overBudget.length) {
+    // Fail, rather than print. A benchmark that only prints is a benchmark
+    // whose regressions are found by whoever happens to read carefully.
+    console.error(`\n▸ ${overBudget.length} measurement(s) over budget:`)
+    for (const line of overBudget) console.error(`  ${line}`)
+    process.exitCode = 1
+  }
 }
 
 main().catch((e) => {
