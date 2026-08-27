@@ -153,6 +153,11 @@ describe('required reading', () => {
 
     // The count is the whole ranking: seven of your papers citing something you
     // have never read is a different fact from one paper citing it.
+    //
+    // This passed while the feature was broken, because the fixture below was
+    // written from the *client's* type: the server sent `cited_by` and the
+    // column rendered blank. A fixture copied from the type it feeds tests
+    // nothing about the contract — that is what the smoke check is for.
     expect(rows()[0]?.textContent).toContain('7')
   })
 

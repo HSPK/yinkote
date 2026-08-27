@@ -22,6 +22,24 @@ use crate::db::{sql_err, write_tx, Db};
 /// than assumed so the second one does not have to migrate the first.
 pub const CITES: &str = "cites";
 
+/// The works cited most and owned least.
+///
+/// `INDEXED BY` is load-bearing and invisible. Left to itself the planner
+/// answered "does the library own this?" with `idx_items_year` — an index on
+/// `(library_id, deleted, …)` — and then *scanned* a hundred thousand rows
+/// looking for the fingerprint, once per candidate. Measured on a library with
+/// 1.8 million references: **8.5 seconds against 0.2 milliseconds**. Naming the
+/// index that actually answers the question is the whole difference, and
+/// nothing about the results changes, so only a plan assertion can catch its
+/// removal.
+pub(crate) const MISSING_SQL: &str = "SELECT c.target_key, c.label, c.year, c.doi, c.citations
+     FROM cited_works c
+     WHERE NOT EXISTS (SELECT 1 FROM items o INDEXED BY idx_items_fingerprint
+                       WHERE o.library_id = ?1 AND o.fingerprint = c.target_key
+                         AND o.deleted = 0)
+     ORDER BY c.citations DESC
+     LIMIT ?2";
+
 /// One work cited by another.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Citation {
@@ -50,6 +68,7 @@ pub struct CitationDraft {
 
 /// A work the library keeps citing and does not hold.
 #[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct Missing {
     /// `doi:…`. Only works with an identifier can appear here; see below.
     pub fingerprint: String,
@@ -133,6 +152,18 @@ impl RelationRepository for SqliteRelationRepository {
             let id = id_of(&conn, library_id, &key)?;
             let tx = write_tx(&mut conn)?;
 
+            // Take this source's votes back before recording its new ones.
+            // Done inside the same transaction as the references themselves,
+            // which is the only reason a maintained count is allowed here at
+            // all: it cannot disagree with what it counts.
+            tx.execute(
+                "UPDATE cited_works SET citations = citations - 1
+                 WHERE target_key IN (SELECT DISTINCT target_key FROM item_relations
+                                      WHERE source_id = ?1 AND kind = ?2 AND target_key != '')",
+                params![id, CITES],
+            )
+            .map_err(sql_err)?;
+
             tx.execute(
                 "DELETE FROM item_relations WHERE source_id=?1 AND kind=?2",
                 params![id, CITES],
@@ -163,6 +194,31 @@ impl RelationRepository for SqliteRelationRepository {
                     stored += 1;
                 }
             }
+            // Cast this source's votes. `DISTINCT` because a bibliography that
+            // lists one work twice says nothing about how central it is.
+            tx.execute(
+                "INSERT INTO cited_works (target_key, label, year, doi, citations)
+                 SELECT target_key, max(target_label), max(target_year), max(target_doi), 1
+                 FROM item_relations
+                 WHERE source_id = ?1 AND kind = ?2 AND target_key != ''
+                 GROUP BY target_key
+                 ON CONFLICT(target_key) DO UPDATE SET
+                    citations = cited_works.citations + 1,
+                    -- Keep whatever label we have: a later reference may carry
+                    -- a title where an earlier one carried only a DOI.
+                    label = CASE WHEN cited_works.label = '' THEN excluded.label
+                                 ELSE cited_works.label END,
+                    year = coalesce(cited_works.year, excluded.year),
+                    doi = CASE WHEN cited_works.doi = '' THEN excluded.doi
+                               ELSE cited_works.doi END",
+                params![id, CITES],
+            )
+            .map_err(sql_err)?;
+
+            // A work nobody cites any more is not a work with zero citations,
+            // it is not a row.
+            tx.execute("DELETE FROM cited_works WHERE citations <= 0", []).map_err(sql_err)?;
+
             // Record that we asked, separately from what came back. A paper
             // with no deposited references leaves no rows at all, and without
             // this the next bulk run cannot tell that from never having asked.
@@ -307,70 +363,58 @@ impl RelationRepository for SqliteRelationRepository {
         tokio::task::spawn_blocking(move || {
             let conn = db.conn()?;
 
-            // Two passes on purpose.
+            // A scan of the ranked index, not of the references. Aggregating
+            // 1.8 million reference rows on every visit took 2.8 seconds after
+            // the query was restructured, and over ten minutes before that;
+            // the count is maintained beside the references now, in the same
+            // transaction, so this is a lookup.
             //
-            // The aggregate is over every stored reference — 1.8 million rows
-            // in a hundred-thousand-item library — so *everything* it touches
-            // is paid for that many times. The ownership check therefore runs
-            // over the four hundred thousand *groups*, not over the rows: as a
-            // correlated subquery inside the aggregate it took longer than ten
-            // minutes and never finished a measurement. And the labels are
-            // fetched afterwards for the few rows that survive, because
-            // `max(target_label)` inside the aggregate reads a table row per
-            // reference and cost six seconds on its own.
-            //
-            // This is still slower than a page deserves; see the note in
-            // docs/13-knowledge-graph.md about maintaining the count instead.
-            let mut stmt = conn
-                .prepare_cached(
-                    "SELECT g.target_key, g.citations FROM (
-                         SELECT target_key, count(DISTINCT source_id) AS citations
-                         FROM item_relations
-                         WHERE kind = ?1 AND target_key != ''
-                           AND source_id NOT IN (SELECT id FROM items
-                                                 WHERE library_id = ?2 AND deleted = 1)
-                         GROUP BY target_key
-                         ORDER BY citations DESC
-                     ) g
-                     WHERE NOT EXISTS (SELECT 1 FROM items o
-                                       WHERE o.library_id = ?2 AND o.deleted = 0
-                                         AND o.fingerprint = g.target_key)
-                     LIMIT ?3",
-                )
-                .map_err(sql_err)?;
+            // Over-fetched because some candidates will be dropped below: the
+            // library may own one, or the only papers citing it may be in the
+            // trash.
+            let wanted = (limit as i64) * 4 + 20;
+            let mut stmt = conn.prepare_cached(MISSING_SQL).map_err(sql_err)?;
 
-            let ranked: Vec<(String, i64)> = stmt
-                .query_map(params![CITES, library_id, limit], |r| Ok((r.get(0)?, r.get(1)?)))
+            let candidates: Vec<Missing> = stmt
+                .query_map(params![library_id, wanted], |r| {
+                    Ok(Missing {
+                        fingerprint: r.get(0)?,
+                        label: r.get(1)?,
+                        year: r.get(2)?,
+                        doi: r.get(3)?,
+                        cited_by: r.get(4)?,
+                    })
+                })
                 .map_err(sql_err)?
                 .collect::<rusqlite::Result<Vec<_>>>()
                 .map_err(sql_err)?;
 
-            let mut label = conn
+            // A paper in the trash stops voting. Corrected here, over a few
+            // dozen candidates, rather than excluded from the maintained count
+            // — trashing would otherwise have to update every work that paper
+            // cites, which is the write path paying for a browsing page.
+            let mut trashed = conn
                 .prepare_cached(
-                    "SELECT max(target_label), max(target_year), max(target_doi)
-                     FROM item_relations WHERE kind = ?1 AND target_key = ?2",
+                    "SELECT count(DISTINCT r.source_id) FROM item_relations r
+                     CROSS JOIN items i ON i.id = r.source_id
+                     WHERE r.target_key = ?1 AND r.kind = ?2
+                       AND i.library_id = ?3 AND i.deleted = 1",
                 )
                 .map_err(sql_err)?;
 
-            let mut out = Vec::with_capacity(ranked.len());
-            for (fingerprint, cited_by) in ranked {
-                let (name, year, doi) = label
-                    .query_row(params![CITES, &fingerprint], |r| {
-                        Ok((
-                            r.get::<_, Option<String>>(0)?,
-                            r.get::<_, Option<i64>>(1)?,
-                            r.get::<_, Option<String>>(2)?,
-                        ))
-                    })
-                    .unwrap_or((None, None, None));
-
-                out.push(Missing {
-                    fingerprint,
-                    label: name.unwrap_or_default(),
-                    year,
-                    doi: doi.unwrap_or_default(),
-                    cited_by,
-                });
+            let mut out = Vec::with_capacity(limit as usize);
+            for mut work in candidates {
+                let gone: i64 = trashed
+                    .query_row(params![&work.fingerprint, CITES, library_id], |r| r.get(0))
+                    .unwrap_or(0);
+                work.cited_by -= gone;
+                if work.cited_by <= 0 {
+                    continue;
+                }
+                out.push(work);
+                if out.len() >= limit as usize {
+                    break;
+                }
             }
             Ok(out)
         })

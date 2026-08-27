@@ -273,6 +273,12 @@ check "harvest one only"  "$(j -X POST "$BASE/libraries/$LIB/citations/harvest" 
 j -X POST "$BASE/libraries/$LIB/citations/harvest/stop" >/dev/null
 check "gaps listed"       "$(j "$BASE/libraries/$LIB/citations/missing" \
                              | jq -r 'select((.works | type) == "array") | "listed"')"
+# The count *is* the view. It shipped as `cited_by` against a client reading
+# `citedBy`, so the column was blank and nothing failed — a whole feature
+# quietly answering nothing.
+check "gaps name fields"  "$(j "$BASE/libraries/$LIB/citations/missing" \
+                             | jq -r '.works[0] // {"citedBy":0} | has("citedBy")
+                                      | select(. == true) | "camelCase"')"
 check "refs both ways"    "$(j "$BASE/libraries/$LIB/items/$GA/citations" \
                              | jq -r 'select((.cites | type) == "array" and
                                              (.citedBy | type) == "array") | "both"')"

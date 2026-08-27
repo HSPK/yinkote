@@ -316,3 +316,129 @@ async fn a_paper_whose_publisher_deposited_nothing_is_not_asked_about_twice() {
 
     assert!(s.relations.unfetched(lib, 10).await.unwrap().is_empty());
 }
+
+/// What the maintained count would be if it were computed from scratch.
+async fn counted_afresh(s: &Store) -> Vec<(String, i64)> {
+    let conn = s.db().conn().unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT target_key, count(DISTINCT source_id) FROM item_relations
+             WHERE kind = 'cites' AND target_key != ''
+             GROUP BY target_key ORDER BY target_key",
+        )
+        .unwrap();
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+}
+
+/// What the maintained table says.
+async fn counted_as_kept(s: &Store) -> Vec<(String, i64)> {
+    let conn = s.db().conn().unwrap();
+    let mut stmt = conn
+        .prepare("SELECT target_key, citations FROM cited_works ORDER BY target_key")
+        .unwrap();
+    stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn the_kept_count_never_disagrees_with_what_it_counts() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+
+    let a = s.items.create(lib, paper("A", Some("10.1/a"))).await.unwrap();
+    let b = s.items.create(lib, paper("B", Some("10.1/b"))).await.unwrap();
+    let shared = print_of("10.1/shared");
+    let only_a = print_of("10.1/onlya");
+
+    // A count kept beside the thing it counts is only defensible if it cannot
+    // drift from it, so the test is that the two always agree — after adding,
+    // after replacing, after emptying.
+    s.relations
+        .set_citations(lib, &a.key, vec![cite(&shared, "Shared"), cite(&only_a, "Only A")])
+        .await
+        .unwrap();
+    assert_eq!(counted_as_kept(&s).await, counted_afresh(&s).await);
+
+    s.relations.set_citations(lib, &b.key, vec![cite(&shared, "Shared")]).await.unwrap();
+    assert_eq!(counted_as_kept(&s).await, counted_afresh(&s).await);
+
+    // Replacing a bibliography takes its old votes back.
+    s.relations.set_citations(lib, &a.key, vec![cite(&shared, "Shared")]).await.unwrap();
+    assert_eq!(counted_as_kept(&s).await, counted_afresh(&s).await);
+
+    s.relations.set_citations(lib, &a.key, vec![]).await.unwrap();
+    s.relations.set_citations(lib, &b.key, vec![]).await.unwrap();
+    assert_eq!(counted_as_kept(&s).await, counted_afresh(&s).await);
+}
+
+#[tokio::test]
+async fn a_work_nobody_cites_any_more_is_not_a_row() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+    let a = s.items.create(lib, paper("A", Some("10.1/a"))).await.unwrap();
+
+    s.relations
+        .set_citations(lib, &a.key, vec![cite(&print_of("10.1/x"), "X")])
+        .await
+        .unwrap();
+    s.relations.set_citations(lib, &a.key, vec![]).await.unwrap();
+
+    // Zero citations is not a fact worth storing; it is the absence of one.
+    assert!(counted_as_kept(&s).await.is_empty());
+}
+
+#[tokio::test]
+async fn keeps_a_title_that_arrives_in_a_later_bibliography() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+    let a = s.items.create(lib, paper("A", Some("10.1/a"))).await.unwrap();
+    let b = s.items.create(lib, paper("B", Some("10.1/b"))).await.unwrap();
+    let key = print_of("10.1/target");
+
+    // The first publisher deposited only an identifier; the second wrote out
+    // the title. Keeping the better label is the point of merging them.
+    s.relations
+        .set_citations(
+            lib,
+            &a.key,
+            vec![CitationDraft {
+                fingerprint: key.clone(),
+                doi: "10.1/target".into(),
+                label: String::new(),
+                year: None,
+            }],
+        )
+        .await
+        .unwrap();
+    s.relations.set_citations(lib, &b.key, vec![cite(&key, "The real title")]).await.unwrap();
+
+    assert_eq!(s.relations.missing(lib, 10).await.unwrap()[0].label, "The real title");
+}
+
+#[test]
+fn the_missing_query_asks_the_index_that_can_answer() {
+    // Invisible and load-bearing. The planner's own choice — an index on
+    // `(library_id, deleted)` followed by a scan for the fingerprint — returns
+    // exactly the same rows, and took 8.5 seconds instead of 0.2 milliseconds
+    // on a library with 1.8 million references. Only a plan assertion can catch
+    // somebody tidying the hint away.
+    let store = Store::in_memory().unwrap();
+    let conn = store.db().conn().unwrap();
+    let mut stmt = conn
+        .prepare(&format!("EXPLAIN QUERY PLAN {}", crate::relations::MISSING_SQL))
+        .unwrap();
+    let plan = stmt
+        .query_map(rusqlite::params![1i64, 10i64], |r| r.get::<_, String>(3))
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>()
+        .join(" | ");
+
+    assert!(plan.contains("idx_items_fingerprint"), "{plan}");
+    assert!(plan.contains("idx_cited_works_rank"), "the ranking must stream: {plan}");
+}
