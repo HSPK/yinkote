@@ -20,6 +20,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         include_str!("../migrations/004_collection_appearance.sql"),
     ),
     ("005_relations", include_str!("../migrations/005_relations.sql")),
+    ("006_relation_doi", include_str!("../migrations/006_relation_doi.sql")),
 ];
 
 /// Handle to the SQLite database.

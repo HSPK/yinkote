@@ -111,6 +111,12 @@ export function GraphFooter() {
   )
 }
 
+export function GapsFooter() {
+  const t = useT()
+  const count = useStore((s) => s.gapCount)
+  return <span>{t('gaps.footer', { count })}</span>
+}
+
 export function ReaderFooter() {
   return (
     <>

@@ -13,7 +13,12 @@ fn paper(title: &str, doi: Option<&str>) -> ItemDraft {
 }
 
 fn cite(fingerprint: &str, label: &str) -> CitationDraft {
-    CitationDraft { fingerprint: fingerprint.into(), label: label.into(), year: Some(2015) }
+    CitationDraft {
+        fingerprint: fingerprint.into(),
+        doi: fingerprint.strip_prefix("doi:").unwrap_or_default().into(),
+        label: label.into(),
+        year: Some(2015),
+    }
 }
 
 /// The fingerprint an item with this DOI will have.
@@ -159,4 +164,122 @@ async fn a_trashed_citing_paper_does_not_show_up_as_a_citation() {
 
     // A graph that shows what the list does not is a graph nobody can trust.
     assert!(s.relations.cited_by(lib, &target.key).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn ranks_the_works_the_library_keeps_citing_and_does_not_have() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+
+    let a = s.items.create(lib, paper("A", Some("10.1/a"))).await.unwrap();
+    let b = s.items.create(lib, paper("B", Some("10.1/b"))).await.unwrap();
+    let c = s.items.create(lib, paper("C", Some("10.1/c"))).await.unwrap();
+
+    let popular = print_of("10.1/popular");
+    let obscure = print_of("10.1/obscure");
+    for item in [&a, &b, &c] {
+        s.relations
+            .set_citations(lib, &item.key, vec![cite(&popular, "Everyone cites this")])
+            .await
+            .unwrap();
+    }
+    s.relations
+        .set_citations(lib, &a.key, vec![cite(&popular, "Everyone cites this"), cite(&obscure, "Only A cites this")])
+        .await
+        .unwrap();
+
+    let missing = s.relations.missing(lib, 10).await.unwrap();
+    assert_eq!(missing[0].label, "Everyone cites this");
+    assert_eq!(missing[0].cited_by, 3);
+    assert_eq!(missing[1].cited_by, 1);
+}
+
+#[tokio::test]
+async fn a_work_the_library_owns_is_not_missing() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+    let a = s.items.create(lib, paper("A", Some("10.1/a"))).await.unwrap();
+    s.items.create(lib, paper("Owned", Some("10.1/owned"))).await.unwrap();
+
+    s.relations
+        .set_citations(lib, &a.key, vec![cite(&print_of("10.1/owned"), "Owned")])
+        .await
+        .unwrap();
+
+    assert!(s.relations.missing(lib, 10).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn counts_citing_papers_rather_than_reference_entries() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+    let a = s.items.create(lib, paper("A", Some("10.1/a"))).await.unwrap();
+
+    let twice = print_of("10.1/twice");
+    s.relations
+        .set_citations(lib, &a.key, vec![cite(&twice, "Listed twice"), cite(&twice, "Listed twice")])
+        .await
+        .unwrap();
+
+    // A bibliography that lists the same work twice says nothing about how
+    // central it is.
+    assert_eq!(s.relations.missing(lib, 10).await.unwrap()[0].cited_by, 1);
+}
+
+#[tokio::test]
+async fn leaves_out_references_that_cannot_be_grouped() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+    let a = s.items.create(lib, paper("A", Some("10.1/a"))).await.unwrap();
+
+    // Prose references have no identifier: the same paper appears in ten
+    // bibliographies in ten house styles, so counting them would rank
+    // formatting conventions rather than papers.
+    s.relations
+        .set_citations(lib, &a.key, vec![cite("", "Somebody, in a journal, 2001.")])
+        .await
+        .unwrap();
+
+    assert!(s.relations.missing(lib, 10).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_trashed_paper_stops_voting() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+    let a = s.items.create(lib, paper("A", Some("10.1/a"))).await.unwrap();
+    s.relations
+        .set_citations(lib, &a.key, vec![cite(&print_of("10.1/x"), "Cited by a trashed paper")])
+        .await
+        .unwrap();
+
+    s.items.set_trashed(lib, std::slice::from_ref(&a.key), true).await.unwrap();
+    assert!(s.relations.missing(lib, 10).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn keeps_the_identifier_the_publisher_wrote() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+    let a = s.items.create(lib, paper("A", Some("10.1/a"))).await.unwrap();
+
+    s.relations
+        .set_citations(
+            lib,
+            &a.key,
+            vec![CitationDraft {
+                fingerprint: print_of("10.1016/j.cell.2020.01.001"),
+                doi: "10.1016/j.cell.2020.01.001".into(),
+                label: "A cell paper".into(),
+                year: Some(2020),
+            }],
+        )
+        .await
+        .unwrap();
+
+    // The fingerprint flattens punctuation so two spellings match, which makes
+    // it one-way: this DOI cannot be reconstructed from it. Fetching the paper
+    // needs the original, so the original is kept.
+    let missing = s.relations.missing(lib, 10).await.unwrap();
+    assert_eq!(missing[0].doi, "10.1016/j.cell.2020.01.001");
 }

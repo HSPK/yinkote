@@ -146,6 +146,7 @@ plugins/       示例插件（见 plugins/README.md）
 文献问答与摘要 Agent、Zotero 导入（含附件、笔记、PDF 标注）、
 引文与参考文献渲染（APA / MLA / Chicago / IEEE / GB-T 7714）、
 关系图谱（标签 / 作者 / 收藏夹 / 语义相似 / 引用关系，含库外节点）、
+必读缺口（被你多篇论文引用、你却没有的文献，一键入库）、
 浏览器保存（兼容 Zotero Connector 协议，用 `--connector-port 23119` 开启）。
 
 > 浏览器保存复用已装好的 Zotero Connector 扩展：它带着二十年维护的数百个站点

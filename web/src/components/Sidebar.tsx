@@ -104,6 +104,16 @@ export function Sidebar() {
           <span className="label">{t('sidebar.trash')}</span>
           <span className="count">{stats ? compact(stats.trashed) : ''}</span>
         </button>
+
+        <button
+          className="nav-item"
+          data-active={activeTab.startsWith('gaps')}
+          title={t('gaps.open')}
+          onClick={() => openTab({ id: tabId('gaps'), kind: 'gaps', title: '' })}
+        >
+          <Icon.Graph className="glyph" />
+          <span className="label">{t('gaps.title')}</span>
+        </button>
       </div>
 
       <div className="nav-group">

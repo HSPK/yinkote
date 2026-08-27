@@ -34,14 +34,31 @@ pub struct Citation {
     pub year: Option<i64>,
     /// `doi:…`, or empty when the publisher deposited no identifier.
     pub fingerprint: String,
+    /// The DOI as deposited. The fingerprint cannot be turned back into one.
+    pub doi: String,
 }
 
 /// What to store for one reference.
 #[derive(Debug, Clone)]
 pub struct CitationDraft {
     pub fingerprint: String,
+    /// The DOI as deposited, kept because the fingerprint is one-way.
+    pub doi: String,
     pub label: String,
     pub year: Option<i64>,
+}
+
+/// A work the library keeps citing and does not hold.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Missing {
+    /// `doi:…`. Only works with an identifier can appear here; see below.
+    pub fingerprint: String,
+    pub label: String,
+    pub year: Option<i64>,
+    /// The DOI as deposited, so the work can actually be fetched.
+    pub doi: String,
+    /// How many papers in the library cite it.
+    pub cited_by: i64,
 }
 
 #[async_trait]
@@ -63,6 +80,14 @@ pub trait RelationRepository: Send + Sync {
 
     /// What in this library cites this item.
     async fn cited_by(&self, library_id: i64, key: &Key) -> Result<Vec<Citation>>;
+
+    /// The works this library cites most and does not hold.
+    ///
+    /// This is the question a citation graph exists to answer. A paper cited by
+    /// several things on the shelf and owned by none is, almost by definition,
+    /// the next thing to read — and it is invisible in every other view,
+    /// because nothing in the library is it.
+    async fn missing(&self, library_id: i64, limit: u32) -> Result<Vec<Missing>>;
 }
 
 #[derive(Clone)]
@@ -111,8 +136,9 @@ impl RelationRepository for SqliteRelationRepository {
                 let mut stmt = tx
                     .prepare(
                         "INSERT INTO item_relations
-                         (source_id, kind, position, target_key, target_label, target_year)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                         (source_id, kind, position, target_key, target_label,
+                          target_year, target_doi)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     )
                     .map_err(sql_err)?;
                 for (position, c) in citations.iter().enumerate() {
@@ -122,7 +148,8 @@ impl RelationRepository for SqliteRelationRepository {
                         position as i64,
                         c.fingerprint,
                         c.label,
-                        c.year
+                        c.year,
+                        c.doi
                     ])
                     .map_err(sql_err)?;
                     stored += 1;
@@ -147,7 +174,8 @@ impl RelationRepository for SqliteRelationRepository {
             // the label the publisher gave it. Neither case is special.
             let mut stmt = conn
                 .prepare_cached(
-                    "SELECT r.position, r.target_key, r.target_label, r.target_year, i.key
+                    "SELECT r.position, r.target_key, r.target_label, r.target_year, i.key,
+                            r.target_doi
                      FROM item_relations r
                      LEFT JOIN items i
                           ON i.library_id = ?1 AND i.deleted = 0
@@ -188,7 +216,7 @@ impl RelationRepository for SqliteRelationRepository {
 
             let mut stmt = conn
                 .prepare_cached(
-                    "SELECT r.position, r.target_key, i.fields, i.year, i.key
+                    "SELECT r.position, r.target_key, i.fields, i.year, i.key, r.target_doi
                      FROM item_relations r
                      CROSS JOIN items i ON i.id = r.source_id
                      WHERE r.target_key = ?1 AND r.kind = ?2
@@ -209,6 +237,57 @@ impl RelationRepository for SqliteRelationRepository {
                             .get::<_, String>(4)
                             .ok()
                             .and_then(|k| Key::parse(&k).ok()),
+                        doi: r.get(5)?,
+                    })
+                })
+                .map_err(sql_err)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(sql_err)
+        })
+        .await
+        .map_err(|e| Error::internal(e.to_string()))?
+    }
+
+    async fn missing(&self, library_id: i64, limit: u32) -> Result<Vec<Missing>> {
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = db.conn()?;
+
+            // Grouped by the cited work, counted by *distinct citing papers*
+            // rather than by rows: a bibliography that lists the same work
+            // twice says nothing about how central it is.
+            //
+            // Entries with no identifier are excluded, and deliberately. Prose
+            // references cannot be grouped — the same paper appears in ten
+            // bibliographies in ten different house styles — so counting them
+            // would produce a ranking of formatting conventions.
+            let mut stmt = conn
+                .prepare_cached(
+                    "SELECT r.target_key,
+                            max(r.target_label) AS label,
+                            max(r.target_year)  AS year,
+                            max(r.target_doi)   AS doi,
+                            count(DISTINCT r.source_id) AS citations
+                     FROM item_relations r
+                     CROSS JOIN items i ON i.id = r.source_id
+                     WHERE r.kind = ?1 AND r.target_key != ''
+                       AND i.library_id = ?2 AND i.deleted = 0
+                       AND NOT EXISTS (SELECT 1 FROM items owned
+                                       WHERE owned.library_id = ?2 AND owned.deleted = 0
+                                         AND owned.fingerprint = r.target_key)
+                     GROUP BY r.target_key
+                     ORDER BY citations DESC, year DESC
+                     LIMIT ?3",
+                )
+                .map_err(sql_err)?;
+
+            let rows = stmt
+                .query_map(params![CITES, library_id, limit], |r| {
+                    Ok(Missing {
+                        fingerprint: r.get(0)?,
+                        label: r.get(1)?,
+                        year: r.get(2)?,
+                        doi: r.get(3)?,
+                        cited_by: r.get(4)?,
                     })
                 })
                 .map_err(sql_err)?;
@@ -226,6 +305,7 @@ fn map_citation(r: &rusqlite::Row<'_>) -> rusqlite::Result<Citation> {
         label: r.get(2)?,
         year: r.get(3)?,
         key: r.get::<_, Option<String>>(4)?.and_then(|k| Key::parse(&k).ok()),
+        doi: r.get(5)?,
     })
 }
 

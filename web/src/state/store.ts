@@ -123,6 +123,9 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   /** What the graph tab is currently showing, for the status bar. */
   graphSize: { nodes: number; edges: number }
   setGraphSize: (nodes: number, edges: number) => void
+  /** How many cited-but-unowned works the gaps tab found, for the status bar. */
+  gapCount: number
+  setGapCount: (count: number) => void
   fetchPdf: (itemKey: string, url?: string) => Promise<void>
   openCollectionEditor: (key: string | null) => void
   loadBadges: (keys: string[]) => Promise<void>
@@ -470,7 +473,12 @@ export const useStore = create<State>((set, get, store) => ({
 
 
   graphSize: { nodes: 0, edges: 0 },
+  gapCount: 0,
   detached: null,
+
+  setGapCount(gapCount) {
+    set({ gapCount })
+  },
 
   async showItem(key) {
     const s = get()

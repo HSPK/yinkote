@@ -4,6 +4,7 @@ import type { MessageKey } from '../i18n'
 import type { TabKind } from '../lib/tabs'
 import { ChatView } from '../pages/ChatView'
 import { CollectionsPage } from '../pages/CollectionsPage'
+import { GapsPage } from '../pages/GapsPage'
 import { GraphView } from '../pages/GraphView'
 import { ItemTable } from '../components/ItemTable'
 import { PluginsPage } from '../pages/PluginsPage'
@@ -11,7 +12,14 @@ import { ReaderView } from '../pages/ReaderView'
 import { StatusPage } from '../pages/StatusPage'
 import type { IconName } from '../ui'
 import { CollectionDetail } from '../components/CollectionDetail'
-import { ChatFooter, CollectionsFooter, GraphFooter, LibraryFooter, ReaderFooter } from './footers'
+import {
+  ChatFooter,
+  CollectionsFooter,
+  GapsFooter,
+  GraphFooter,
+  LibraryFooter,
+  ReaderFooter,
+} from './footers'
 
 export interface TabDefinition {
   Body: ComponentType<{ target?: string }>
@@ -68,6 +76,13 @@ export const TABS: Record<TabKind, TabDefinition> = {
     labelKey: 'graph.title',
     withDetail: true,
     Footer: GraphFooter,
+    search: 'none',
+  },
+  gaps: {
+    Body: GapsPage,
+    icon: 'Graph',
+    labelKey: 'gaps.title',
+    Footer: GapsFooter,
     search: 'none',
   },
   plugins: { Body: PluginsPage, icon: 'Plugin', labelKey: 'nav.plugins', search: 'none' },

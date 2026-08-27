@@ -11,6 +11,7 @@ import type {
   BadgeValue,
   CitationList,
   CitationRender,
+  MissingWork,
   CitationStyle,
   Collection,
   GraphNeighbourhood,
@@ -183,6 +184,8 @@ export const api = {
   references: {
     list: (lib: number, key: string) =>
       request<CitationList>(`/libraries/${lib}/items/${key}/citations`),
+    missing: (lib: number, limit = 50) =>
+      request<{ works: MissingWork[] }>(`/libraries/${lib}/citations/missing?limit=${limit}`),
     fetch: (lib: number, key: string) =>
       request<{ stored: number; resolved: number }>(
         `/libraries/${lib}/items/${key}/citations/fetch`,

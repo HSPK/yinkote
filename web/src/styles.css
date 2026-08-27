@@ -1916,3 +1916,9 @@ select.ctl { padding: 4px 6px; }
   padding-left: 6px;
   margin-top: 3px;
 }
+
+
+/* Required reading: cited works the library does not hold. */
+.gaps-grid {
+  grid-template-columns: 1fr 64px 90px 92px;
+}

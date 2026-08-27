@@ -333,3 +333,14 @@ export interface CitationList {
   /** How many of `cites` are papers the library actually holds. */
   resolved: number
 }
+
+/** A work the library keeps citing and does not hold. */
+export interface MissingWork {
+  fingerprint: string
+  /** The DOI as deposited; the fingerprint cannot be turned back into one. */
+  doi: string
+  label: string
+  year: number | null
+  /** How many papers in the library cite it. */
+  citedBy: number
+}

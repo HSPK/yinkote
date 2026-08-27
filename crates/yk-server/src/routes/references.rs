@@ -20,6 +20,27 @@ pub fn router() -> Router<App> {
     Router::new()
         .route("/libraries/:lib/items/:key/citations", get(list))
         .route("/libraries/:lib/items/:key/citations/fetch", post(fetch))
+        .route("/libraries/:lib/citations/missing", get(missing))
+}
+
+#[derive(serde::Deserialize)]
+struct Limit {
+    #[serde(default = "default_missing")]
+    limit: u32,
+}
+
+fn default_missing() -> u32 {
+    50
+}
+
+/// What the library keeps citing and does not hold.
+async fn missing(
+    State(app): State<App>,
+    Path(lib): Path<i64>,
+    axum::extract::Query(params): axum::extract::Query<Limit>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let works = app.store().relations.missing(lib, params.limit.clamp(1, 500)).await?;
+    Ok(Json(json!({ "works": works })))
 }
 
 async fn list(
@@ -59,6 +80,7 @@ async fn fetch(
         .iter()
         .map(|r| CitationDraft {
             fingerprint: r.fingerprint().unwrap_or_default(),
+            doi: r.doi.clone().unwrap_or_default(),
             label: r.label(),
             year: r.year,
         })

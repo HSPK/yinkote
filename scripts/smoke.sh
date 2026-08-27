@@ -201,6 +201,8 @@ check "refs need a doi"   "$(j -X POST "$BASE/libraries/$LIB/items/$GA/citations
                              | jq -r '.title // empty | select(contains("DOI"))')"
 # `check` passes any non-empty string, so this is phrased so that a wrong
 # answer is empty rather than merely a different number.
+check "gaps listed"       "$(j "$BASE/libraries/$LIB/citations/missing" \
+                             | jq -r 'select((.works | type) == "array") | "listed"')"
 check "refs both ways"    "$(j "$BASE/libraries/$LIB/items/$GA/citations" \
                              | jq -r 'select((.cites | type) == "array" and
                                              (.citedBy | type) == "array") | "both"')"

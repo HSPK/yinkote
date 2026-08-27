@@ -17,6 +17,7 @@ export type TabKind =
   | 'chat'
   | 'reader'
   | 'graph'
+  | 'gaps'
   | 'plugins'
   | 'status'
 
