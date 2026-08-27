@@ -134,6 +134,7 @@ plugins/       示例插件（见 plugins/README.md）
 | [13-knowledge-graph](docs/13-knowledge-graph.md) | 文献关系图谱 |
 | [14-storage-layout](docs/14-storage-layout.md) | 存储布局、路径模板、Zotero 导入 |
 | [15-development-philosophy](docs/15-development-philosophy.md) | **开发哲学：持续重构、测试、边界诚实** |
+| [16-workspace-rules](docs/16-workspace-rules.md) | **工作区规则：无弹窗、tab 模型、踩坑记录** |
 | [plugins/README](plugins/README.md) | **插件开发指南与协议规范** |
 
 ## 路线（尚未实现）

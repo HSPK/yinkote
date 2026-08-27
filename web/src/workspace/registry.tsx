@@ -8,6 +8,8 @@ import { GapsPage } from '../pages/GapsPage'
 import { GraphView } from '../pages/GraphView'
 import { ItemTable } from '../components/ItemTable'
 import { PluginsPage } from '../pages/PluginsPage'
+import { SettingsPage } from '../pages/SettingsPage'
+import { CollectionEditorHost } from '../components/CollectionEditorHost'
 import { ReaderView } from '../pages/ReaderView'
 import { StatusPage } from '../pages/StatusPage'
 import type { IconName } from '../ui'
@@ -87,4 +89,11 @@ export const TABS: Record<TabKind, TabDefinition> = {
   },
   plugins: { Body: PluginsPage, icon: 'Plugin', labelKey: 'nav.plugins', search: 'none' },
   status: { Body: StatusPage, icon: 'Gauge', labelKey: 'nav.status', search: 'none' },
+  settings: { Body: SettingsPage, icon: 'Settings', labelKey: 'nav.settings', search: 'none' },
+  'collection-edit': {
+    Body: CollectionEditorHost,
+    icon: 'Folder',
+    labelKey: 'collection.edit',
+    search: 'none',
+  },
 }

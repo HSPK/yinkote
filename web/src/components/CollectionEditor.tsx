@@ -20,7 +20,6 @@ import {
   Field as Row,
   Icon,
   Input,
-  Modal,
   Select,
   Toggle,
 } from "../ui";
@@ -116,7 +115,8 @@ export function CollectionEditor({
   };
 
   return (
-    <Modal title={title} width="narrow" onClose={onCancel}>
+    <div className="pane main surface">
+      <div className="surface-head">{title}</div>
       <div className="page narrow rule-editor">
         <Row label={t("dialog.name")}>
           <Input
@@ -269,6 +269,6 @@ export function CollectionEditor({
           </Button>
         </footer>
       </div>
-    </Modal>
+    </div>
   );
 }

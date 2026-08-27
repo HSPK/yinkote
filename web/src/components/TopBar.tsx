@@ -13,7 +13,7 @@ import { SearchBar } from './SearchBar'
  */
 export function TopBar() {
   const t = useT()
-  const setModal = useStore((s) => s.setModal)
+  const openSettings = useStore((s) => s.openSettings)
   const openTab = useStore((s) => s.openTab)
 
   return (
@@ -42,7 +42,7 @@ export function TopBar() {
         >
           <Icon.Gauge />
         </button>
-        <button className="icon-btn" title={t('nav.settings')} onClick={() => setModal('settings')}>
+        <button className="icon-btn" title={t('nav.settings')} onClick={() => openSettings()}>
           <Icon.Settings />
         </button>
       </div>

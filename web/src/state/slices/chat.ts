@@ -21,7 +21,7 @@ export interface ChatSlice {
   conversation: string | null
   messages: Message[]
 
-  openConversation: (key: string) => Promise<void>
+  openConversation: (key: string, keep?: boolean) => Promise<void>
   newConversation: () => Promise<void>
   renameConversation: (key: string, title: string) => Promise<void>
   removeConversation: (key: string) => Promise<void>
@@ -37,10 +37,22 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
   conversation: null,
   messages: [],
 
-  async openConversation(key) {
+  /** Show a conversation.
+   *
+   *  As a glance, like a paper or a graph: reading through past threads is
+   *  browsing, and the same gesture must not leave a tab behind for each one.
+   *  Writing into it keeps it — see `sendMessage`. A freshly created thread is
+   *  kept from the start, because asking for a new one *is* the intent. */
+  async openConversation(key, keep = false) {
     const title = get().conversations.find((c) => c.key === key)?.title
     set({ conversation: key })
-    get().openTab({ id: tabId('chat', key), kind: 'chat', title: title || '', target: key })
+    get().openTab({
+      id: tabId('chat', key),
+      kind: 'chat',
+      title: title || '',
+      target: key,
+      preview: !keep,
+    })
     try {
       set({ messages: await api.conversations.messages(get().library, key) })
     } catch {
@@ -51,7 +63,7 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
   async newConversation() {
     const created = await api.conversations.create(get().library)
     set({ conversations: [created, ...get().conversations] })
-    await get().openConversation(created.key)
+    await get().openConversation(created.key, true)
   },
 
   async renameConversation(key, title) {
@@ -82,6 +94,8 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
       createdAt: Date.now(),
     }
     set({ messages: [...s.messages, optimistic], asking: true })
+    // Typing into a surface is the clearest statement that it is not a glance.
+    get().keepTab(tabId('chat', s.conversation))
 
     try {
       if (s.agent?.configured) {

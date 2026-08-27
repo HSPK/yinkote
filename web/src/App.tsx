@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 
 import { CommandPalette } from './components/CommandPalette'
-import { CollectionEditorHost } from './components/CollectionEditorHost'
 import { DetailPanel } from './components/DetailPanel'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
@@ -9,9 +8,8 @@ import { TabBar } from './components/TabBar'
 import { TopBar } from './components/TopBar'
 import { TABS } from './workspace/registry'
 import { useT } from './i18n'
-import { SettingsPage } from './pages/SettingsPage'
 import { useStore } from './state/store'
-import { ErrorBoundary, Modal, OverlayHost, Splitter } from './ui'
+import { ErrorBoundary, OverlayHost, Splitter } from './ui'
 
 /** True when a keystroke belongs to whatever the user is typing into. */
 function isEditing(target: EventTarget | null): boolean {
@@ -52,9 +50,8 @@ function useGlobalKeys() {
       }
       if (e.key === 'Escape') {
         if (store.paletteOpen) return store.togglePalette(false)
-        if (store.modal) return store.setModal(null)
       }
-      if (isEditing(e.target) || store.modal) return
+      if (isEditing(e.target)) return
 
       switch (e.key) {
         case '/':
@@ -105,22 +102,14 @@ function useGlobalKeys() {
   }, [store])
 }
 
-/** Only preferences stay modal. Everything you *work in* is a tab, because
- *  reading, annotating and asking happen alongside each other. */
-const MODALS = {
-  settings: { title: 'nav.settings', width: 'wide', scroll: false, Body: SettingsPage },
-} as const
-
 export function App() {
   const t = useT()
   const ready = useStore((s) => s.ready)
   const error = useStore((s) => s.error)
-  const modal = useStore((s) => s.modal)
   const tabs = useStore((s) => s.tabs)
   const activeTab = useStore((s) => s.activeTab)
   const layout = useStore((s) => s.layout)
   const detailOpen = useStore((s) => s.detailOpen)
-  const setModal = useStore((s) => s.setModal)
   const setLayout = useStore((s) => s.setLayout)
   const bootstrap = useStore((s) => s.bootstrap)
 
@@ -138,7 +127,6 @@ export function App() {
     )
   }
 
-  const open = modal ? MODALS[modal] : null
   const tab = tabs.find((t) => t.id === activeTab) ?? tabs[0]
   const current = tab ? { tab, def: TABS[tab.kind] } : null
   const showDetail = current?.def.withDetail ?? false
@@ -192,17 +180,6 @@ export function App() {
 
       <StatusBar />
       <CommandPalette />
-      <CollectionEditorHost />
-      {open && (
-        <Modal
-          title={t(open.title)}
-          width={open.width}
-          scroll={open.scroll}
-          onClose={() => setModal(null)}
-        >
-          <open.Body />
-        </Modal>
-      )}
       <OverlayHost />
     </div>
   )

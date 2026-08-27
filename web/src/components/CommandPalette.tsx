@@ -34,7 +34,7 @@ export function CommandPalette() {
       {
         id: 'settings',
         label: t('palette.goto', { page: t('nav.settings') }),
-        run: () => store.setModal('settings'),
+        run: () => store.openSettings(),
       },
       { id: 'new-chat', label: t('chat.new'), run: store.newConversation },
       { id: 'clear', label: t('menu.clearFilters'), run: store.clearFilters },

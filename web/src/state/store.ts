@@ -44,9 +44,6 @@ import type {
   Stats,
 } from '../api/types'
 
-/** Secondary surfaces. `null` means the workbench itself is in front. */
-/** Only preferences remain modal: everything you *work in* is a tab. */
-export type Modal = null | 'settings'
 export type Panel = 'detail' | 'plugins' | 'stats'
 
 export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
@@ -61,7 +58,6 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   plugins: PluginStatus[]
 
   /** Which secondary surface is open, if any. */
-  modal: Modal
   /** Open workspace tabs and the one in front. */
   tabs: Tab[]
   activeTab: string
@@ -101,7 +97,8 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   selectAll: () => void
   moveCursor: (delta: number) => void
   setPanel: (p: Panel) => void
-  setModal: (m: Modal) => void
+  /** Preferences are a surface you work in, so they are a tab like the rest. */
+  openSettings: () => void
   setFilter: (value: string) => void
   openTab: (tab: Tab) => void
   closeTab: (id: string) => void
@@ -178,7 +175,6 @@ export const useStore = create<State>((set, get, store) => ({
   stats: null,
   server: null,
   plugins: [],
-  modal: null,
   tabs: [libraryTab('')],
   activeTab: LIBRARY_TAB_ID,
   scopes: {},
@@ -395,8 +391,8 @@ export const useStore = create<State>((set, get, store) => ({
     set({ panel })
   },
 
-  setModal(modal) {
-    set({ modal })
+  openSettings() {
+    get().openTab({ id: tabId('settings'), kind: 'settings', title: '' })
   },
 
   setFilter(filter) {
@@ -520,8 +516,20 @@ export const useStore = create<State>((set, get, store) => ({
     return void result
   },
 
-  openCollectionEditor(collectionEditor) {
-    set({ collectionEditor })
+  /** Edit a collection in its own tab.
+   *
+   *  `null` means a new one. Both go through one surface because which kind a
+   *  new collection becomes is decided inside it, not by which button opened
+   *  it. */
+  openCollectionEditor(key) {
+    const target = key ?? 'new'
+    set({ collectionEditor: key })
+    get().openTab({
+      id: tabId('collection-edit', target),
+      kind: 'collection-edit',
+      title: '',
+      target,
+    })
   },
 
 
