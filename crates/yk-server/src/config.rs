@@ -192,6 +192,31 @@ impl Config {
         cfg
     }
 
+    /// Write the configuration back to `config.toml`.
+    ///
+    /// So that pointing the assistant at a model is something the workbench
+    /// can do. The program is a local server the user started; telling them to
+    /// edit a file and restart it would make the web interface a partial one.
+    ///
+    /// Written to a temporary file and renamed, because a half-written
+    /// `config.toml` is one the next start refuses to parse — and the failure
+    /// would arrive long after the write.
+    pub fn save(&self) -> yk_core::Result<()> {
+        let dir = self.data_dir();
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| yk_core::Error::internal(format!("{}: {e}", dir.display())))?;
+
+        let text = toml::to_string_pretty(self)
+            .map_err(|e| yk_core::Error::internal(format!("serialising config: {e}")))?;
+        let target = dir.join("config.toml");
+        let temp = dir.join("config.toml.tmp");
+        std::fs::write(&temp, text)
+            .map_err(|e| yk_core::Error::internal(format!("{}: {e}", temp.display())))?;
+        std::fs::rename(&temp, &target)
+            .map_err(|e| yk_core::Error::internal(format!("{}: {e}", target.display())))?;
+        Ok(())
+    }
+
     pub fn data_dir(&self) -> PathBuf {
         self.data_dir.clone().unwrap_or_else(default_data_dir)
     }

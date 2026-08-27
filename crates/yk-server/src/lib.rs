@@ -82,8 +82,8 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         services,
         plugins,
         badges,
-        config,
-        agent,
+        config: parking_lot::RwLock::new(config),
+        agent: parking_lot::RwLock::new(agent),
         started: Instant::now(),
         harvest: Default::default(),
         runs: Default::default(),
@@ -94,7 +94,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
 ///
 /// A misconfigured endpoint disables the agent rather than refusing to start:
 /// the library is the point of the program, and it must open regardless.
-fn build_agent(
+pub fn build_agent(
     config: &Config,
     services: &Arc<state::Services>,
 ) -> Option<Arc<yk_agent::Agent>> {
@@ -167,7 +167,8 @@ pub fn router(app: App) -> Router {
     // reachable only on loopback, and accepts only the shapes it defines.
     let mut router = Router::new().nest("/api/v1", api).merge(routes::connector::router());
 
-    if let Some(dir) = &app.config.web_dir {
+    let started_config = app.config();
+    if let Some(dir) = &started_config.web_dir {
         let index = dir.join("index.html");
         if index.exists() {
             // SPA fallback: unknown paths render the app shell, not a 404.
@@ -192,7 +193,7 @@ pub fn router(app: App) -> Router {
 
 /// Bind and serve until the process is asked to stop.
 pub async fn serve(app: App) -> anyhow::Result<()> {
-    let addr = app.config.bind_addr();
+    let addr = app.config().bind_addr();
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let local = listener.local_addr()?;
     tracing::info!(%local, "yinkote listening — open http://{local}");
@@ -220,7 +221,7 @@ pub async fn serve(app: App) -> anyhow::Result<()> {
 /// A refusal to bind is reported and survived: the workbench is the product,
 /// and it must not fail to start because a port is busy.
 async fn serve_connector(app: &App) {
-    let Some(port) = app.config.connector_port else { return };
+    let Some(port) = app.config().connector_port else { return };
     let addr = format!("127.0.0.1:{port}");
 
     match tokio::net::TcpListener::bind(&addr).await {

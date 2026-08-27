@@ -32,6 +32,13 @@ export interface ChatSlice {
   renameConversation: (key: string, title: string) => Promise<void>
   /** Point the current conversation at a collection, or clear it. */
   setConversationScope: (scope: string | null) => Promise<void>
+  /** Point the assistant at a model. */
+  configureAgent: (patch: {
+    endpoint?: string
+    model?: string
+    apiKey?: string
+    allowCommands?: boolean
+  }) => Promise<void>
   removeConversation: (key: string) => Promise<void>
   sendMessage: (text: string, mentions?: string[]) => Promise<void>
   askAbout: (itemKey: string) => Promise<void>
@@ -68,6 +75,12 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
         set({ runs: { ...get().runs, [conversation]: run }, messages })
       })
       .catch(record)
+  },
+
+  async configureAgent(patch) {
+    // The status the save returns is authoritative — re-fetching to find out
+    // whether it worked is a race with the next reader.
+    set({ agent: await api.configureAgent(patch) })
   },
 
   async setConversationScope(scope) {

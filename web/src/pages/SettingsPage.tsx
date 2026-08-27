@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { api } from '../api/client'
-import type { SourceInfo } from '../api/types'
+import type { AgentStatus, SourceInfo } from '../api/types'
 import { LOCALES, useI18n, useT, type Locale } from '../i18n'
 import { AccentPicker } from '../components/AccentPicker'
 import { ZoteroImport } from '../components/ZoteroImport'
@@ -28,6 +28,9 @@ export function SettingsPage() {
   const setDensity = useStore((s) => s.setDensity)
   const setTheme = useStore((s) => s.setTheme)
   const setLocale = useStore((s) => s.setLocale)
+
+  const agent = useStore((s) => s.agent)
+  const configureAgent = useStore((s) => s.configureAgent)
 
   const [sources, setSources] = useState<SourceInfo[]>([])
   const [filter, setFilter] = useState('')
@@ -121,6 +124,19 @@ export function SettingsPage() {
                 onChange={(e) => setDensity(e.target.value)}
               />
             ),
+          },
+        ],
+      },
+      {
+        id: 'model',
+        title: t('settings.model'),
+        fields: [
+          {
+            id: 'agent',
+            label: t('settings.modelEndpoint'),
+            hint: t('settings.modelHint'),
+            keywords: t('settings.keywords.model'),
+            render: () => <ModelSettings agent={agent} onSave={configureAgent} />,
           },
         ],
       },
@@ -294,6 +310,8 @@ export function SettingsPage() {
       sources,
       server,
       stats,
+      agent,
+      configureAgent,
       setLocale,
       setTheme,
       setDensity,
@@ -372,6 +390,94 @@ export function SettingsPage() {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+/** Pointing the assistant at a model.
+ *
+ *  The program is a local server the user started, so this has to be doable
+ *  from the workbench; telling somebody to edit a TOML file and restart makes
+ *  the web interface a partial one.
+ *
+ *  The key is write-only. It is never sent back, so the box stays empty and
+ *  says whether one is stored — leaving it alone keeps it, and clearing it
+ *  explicitly removes it.
+ */
+function ModelSettings({
+  agent,
+  onSave,
+}: {
+  agent: AgentStatus | null
+  onSave: (patch: {
+    endpoint?: string
+    model?: string
+    apiKey?: string
+    allowCommands?: boolean
+  }) => Promise<void>
+}) {
+  const t = useT()
+  const [endpoint, setEndpoint] = useState('')
+  const [model, setModel] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  // Seeded from the server rather than mirrored: a field the user is typing
+  // in must not be overwritten by a status refresh.
+  useEffect(() => {
+    setEndpoint(agent?.endpoint ?? '')
+    setModel(agent?.model ?? '')
+  }, [agent?.endpoint, agent?.model])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await onSave({
+        endpoint,
+        model,
+        // Absent means "leave it"; the box is empty because the key is never
+        // shown, not because the user cleared it.
+        ...(apiKey ? { apiKey } : {}),
+      })
+      setApiKey('')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="model-settings">
+      <Input
+        value={endpoint}
+        placeholder="http://127.0.0.1:11434/v1"
+        onChange={(e) => setEndpoint(e.target.value)}
+      />
+      <Input
+        value={model}
+        placeholder={t('settings.modelName')}
+        onChange={(e) => setModel(e.target.value)}
+      />
+      <Input
+        value={apiKey}
+        type="password"
+        placeholder={agent?.hasApiKey ? t('settings.keyStored') : t('settings.keyOptional')}
+        onChange={(e) => setApiKey(e.target.value)}
+      />
+      <div className="row-actions">
+        <Button
+          tone="primary"
+          disabled={saving || !endpoint.trim() || !model.trim()}
+          onClick={() => void save()}
+        >
+          {t('settings.modelSave')}
+        </Button>
+        <Badge tone={agent?.configured ? 'ok' : 'muted'}>
+          {agent?.configured ? t('settings.modelReady') : t('settings.modelUnset')}
+        </Badge>
+      </div>
+      {agent?.configured && (
+        <p className="dim">{t('settings.modelTools', { count: agent.tools?.length ?? 0 })}</p>
+      )}
     </div>
   )
 }

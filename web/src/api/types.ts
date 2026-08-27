@@ -250,6 +250,12 @@ export interface AgentStatus {
   configured: boolean
   model?: string
   endpoint?: string
+  /** Whether a key is stored. The key itself is never sent back. */
+  hasApiKey?: boolean
+  allowCommands?: boolean
+  maxSteps?: number
+  tools?: string[]
+  writes?: string[]
 }
 
 export interface ImportPreview {

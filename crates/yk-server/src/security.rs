@@ -35,14 +35,15 @@ pub async fn guard(State(app): State<App>, request: Request, next: Next) -> Resp
     let headers = request.headers();
 
     // When bound to loopback, only loopback names may address us.
-    if app.config.host == "127.0.0.1" || app.config.host == "::1" {
+    let config = app.config();
+    if config.host == "127.0.0.1" || config.host == "::1" {
         let host = headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("");
         if !host.is_empty() && !ALLOWED_HOSTNAMES.contains(&hostname(host)) {
             return deny(StatusCode::FORBIDDEN, "unrecognised Host header");
         }
     }
 
-    if let Some(expected) = &app.config.api_key {
+    if let Some(expected) = &config.api_key {
         let presented = headers
             .get("authorization")
             .and_then(|v| v.to_str().ok())

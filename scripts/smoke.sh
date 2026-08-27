@@ -326,6 +326,17 @@ check "unknown style"     "$(j -X POST "$BASE/libraries/$LIB/citations" \
 
 echo "▸ agent"
 check "agent status"     "$(j "$BASE/agent" | jq -r 'has("configured")')"
+# The workbench must be able to point the assistant at a model: this is a
+# local server the user started, and "edit a TOML file and restart" would make
+# the web interface a partial one. Half a configuration is refused, and the
+# key is never handed back.
+# Explicitly clearing the endpoint, not merely omitting it: this server may
+# already have one from the environment, and a check that quietly *succeeds*
+# would overwrite the running configuration and take every later agent check
+# down with it. It did, once.
+check "half a config refused" "$(j -X PUT "$BASE/agent" -d '{"endpoint":"","model":"only-a-name"}' \
+                                  | jq -r 'select(.status == 422) | "refused"')"
+check "key is write-only" "$(j "$BASE/agent" | jq -r 'if has("apiKey") then empty else "hidden" end')"
 
 # The agent needs a model, which most environments will not have. Skipping is
 # honest; pretending the path is covered when it never ran would not be.

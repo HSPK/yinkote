@@ -26,7 +26,7 @@ pub fn router() -> Router<App> {
         )
         .route("/libraries/:lib/conversations/:key/messages", get(messages).post(append))
         .route("/libraries/:lib/conversations/:key/ask", post(ask))
-        .route("/agent", get(status))
+        .route("/agent", get(status).put(configure))
         .route("/libraries/:lib/conversations/:key/run", get(run_state))
         .route("/libraries/:lib/conversations/:key/cancel", post(cancel_run))
         .route("/libraries/:lib/items/:key/conversations", get(about_item))
@@ -42,26 +42,101 @@ async fn about_item(
     Ok(Json(json!({ "conversations": found })))
 }
 
+/// Point the assistant at a model.
+///
+/// The program is a local server the user started; telling them to edit a
+/// file and restart it would make the web interface a partial one. The agent
+/// is rebuilt in place, so a conversation started a moment later uses the new
+/// model without anything being restarted.
+async fn configure(
+    State(app): State<App>,
+    Json(body): Json<AgentConfigBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let mut config = app.config();
+    let blank = |s: &Option<String>| s.as_deref().map(str::trim).unwrap_or_default().is_empty();
+
+    if let Some(endpoint) = &body.endpoint {
+        config.agent.endpoint = Some(endpoint.trim().to_string()).filter(|e| !e.is_empty());
+    }
+    if let Some(model) = &body.model {
+        config.agent.model = Some(model.trim().to_string()).filter(|m| !m.is_empty());
+    }
+    // An absent key leaves whatever is stored; an empty one clears it. Without
+    // the distinction, a form that never shows the key would erase it on every
+    // save.
+    if let Some(key) = &body.api_key {
+        config.agent.api_key = Some(key.trim().to_string()).filter(|k| !k.is_empty());
+    }
+    if let Some(allow) = body.allow_commands {
+        config.agent.allow_commands = allow;
+    }
+    if let Some(steps) = body.max_steps {
+        config.agent.max_steps = steps.clamp(1, 64);
+    }
+
+    if blank(&config.agent.endpoint) || blank(&config.agent.model) {
+        // Saying which half is missing; "not configured" sends people to the
+        // wrong field half the time.
+        return Err(Error::invalid(match blank(&config.agent.endpoint) {
+            true => "an endpoint is needed, e.g. http://127.0.0.1:11434/v1",
+            false => "a model name is needed",
+        })
+        .into());
+    }
+
+    config.save()?;
+    let rebuilt = crate::build_agent(&config, &app.services);
+    let ok = rebuilt.is_some();
+    *app.agent.write() = rebuilt;
+    *app.config.write() = config;
+
+    if !ok {
+        return Err(Error::invalid("that endpoint could not be used").into());
+    }
+    Ok(Json(agent_status(&app)))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentConfigBody {
+    endpoint: Option<String>,
+    model: Option<String>,
+    api_key: Option<String>,
+    allow_commands: Option<bool>,
+    max_steps: Option<usize>,
+}
+
 /// Whether asking is possible, so the UI can explain itself rather than
 /// offering a box that fails on submit.
 async fn status(State(app): State<App>) -> Json<serde_json::Value> {
-    let agent = &app.config.agent;
-    Json(json!({
+    Json(agent_status(&app))
+}
+
+/// What the workbench needs to know about the assistant.
+///
+/// Shared with `configure` so that saving a model answers with exactly what a
+/// fresh read would say — a form that has to re-fetch to find out whether it
+/// worked will eventually show a stale answer.
+fn agent_status(app: &App) -> serde_json::Value {
+    let config = app.config();
+    let agent = &config.agent;
+    json!({
         "configured": agent.is_configured(),
         "model": agent.model,
         "endpoint": agent.endpoint,
+        // Whether one is set, never the key itself.
+        "hasApiKey": agent.api_key.as_deref().is_some_and(|k| !k.is_empty()),
+        "allowCommands": agent.allow_commands,
+        "maxSteps": agent.max_steps,
         // What it may do, so that "can it change my library?" is answerable
         // without reading the source.
-        "tools": app
-            .agent()
-            .map(|a| a.tool_names())
-            .unwrap_or_default(),
+        "tools": app.agent().map(|a| a.tool_names()).unwrap_or_default(),
         "writes": crate::agent::ACTIONS
             .iter()
             .filter(|a| a.writes())
             .map(|a| a.name())
             .collect::<Vec<_>>(),
-    }))
+    })
 }
 
 #[derive(Deserialize)]

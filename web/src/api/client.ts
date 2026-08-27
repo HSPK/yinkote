@@ -281,6 +281,14 @@ export const api = {
   },
 
   agent: () => request<AgentStatus>('/agent'),
+  /** Point the assistant at a model. An absent field is left as it was. */
+  configureAgent: (patch: {
+    endpoint?: string
+    model?: string
+    apiKey?: string
+    allowCommands?: boolean
+    maxSteps?: number
+  }) => request<AgentStatus>('/agent', { method: 'PUT', ...json(patch) }),
 
   import: {
     /** Counts what would arrive. Reads the file; writes nothing. */

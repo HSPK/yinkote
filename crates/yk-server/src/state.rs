@@ -35,9 +35,14 @@ pub struct AppState {
     /// Sits beside the registry rather than inside it: badges are a *use* of
     /// plugins, not part of running them.
     pub badges: BadgeService,
-    pub config: Config,
+    /// The configuration as it stands, which the workbench can change.
+    pub config: parking_lot::RwLock<Config>,
     /// `None` when no model is configured, which is the default.
-    pub agent: Option<Arc<yk_agent::Agent>>,
+    ///
+    /// Behind a lock because pointing the assistant at a different model is
+    /// something a user does from the settings tab, and making them restart a
+    /// server they did not start by hand would be a strange thing to ask.
+    pub agent: parking_lot::RwLock<Option<Arc<yk_agent::Agent>>>,
     pub started: Instant,
     /// The reference-harvesting run, if one is going. One at a time: they all
     /// talk to the same service, and two would only get the client throttled.
@@ -63,8 +68,18 @@ impl AppState {
     pub fn storage(&self) -> &Arc<Storage> {
         &self.services.storage
     }
-    pub fn agent(&self) -> Option<&yk_agent::Agent> {
-        self.agent.as_deref()
+    /// The agent as it is right now.
+    ///
+    /// Returns an owned handle rather than a borrow: a turn outlives the lock,
+    /// and holding a read guard across one would block every reconfiguration
+    /// for as long as the model takes to answer.
+    pub fn agent(&self) -> Option<Arc<yk_agent::Agent>> {
+        self.agent.read().clone()
+    }
+
+    /// A snapshot of the configuration.
+    pub fn config(&self) -> Config {
+        self.config.read().clone()
     }
     pub fn uptime_secs(&self) -> u64 {
         self.started.elapsed().as_secs()

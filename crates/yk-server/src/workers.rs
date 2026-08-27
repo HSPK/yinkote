@@ -40,8 +40,8 @@ const EMBED_MAX_PAUSE: Duration = Duration::from_secs(2);
 /// is exactly when backing off harder is called for. Sleeping in proportion to
 /// the pass just taken is self-tuning and needs no signal from the API.
 fn embedding_worker(app: App) {
-    let batch = app.config.embeddings.batch;
-    let idle = Duration::from_secs(app.config.embeddings.interval_secs.max(1));
+    let batch = app.config().embeddings.batch;
+    let idle = Duration::from_secs(app.config().embeddings.interval_secs.max(1));
 
     tokio::spawn(async move {
         loop {

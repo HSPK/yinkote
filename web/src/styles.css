@@ -2251,3 +2251,7 @@ select.ctl { padding: 4px 6px; }
 .chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-scope { display: flex; align-items: center; gap: 4px; font-size: 10px; }
 .chat-scope select { font-size: 10px; max-width: 160px; }
+
+.model-settings { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.model-settings .row-actions { margin-top: 2px; }
+.model-settings .dim { margin: 0; font-size: 10px; }

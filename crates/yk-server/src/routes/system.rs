@@ -38,13 +38,13 @@ async fn ping(State(app): State<App>) -> Json<Value> {
         "defaultLibrary": app.services.default_library,
         // Surfaced so the Settings page can tell the user where their data
         // actually lives — a local-first app owes them that.
-        "dataDir": app.config.data_dir().display().to_string(),
-        "pluginDirs": app.config
+        "dataDir": app.config().data_dir().display().to_string(),
+        "pluginDirs": app.config()
             .all_plugin_dirs()
             .iter()
             .map(|d| d.display().to_string())
             .collect::<Vec<_>>(),
-        "bind": app.config.bind_addr(),
+        "bind": app.config().bind_addr(),
     }))
 }
 

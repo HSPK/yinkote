@@ -370,6 +370,48 @@ async fn reindex_rebuilds_search_from_the_items_table() {
 }
 
 #[tokio::test]
+async fn the_model_can_be_pointed_at_from_the_workbench() {
+    let (c, _app) = Client::new().await;
+
+    let before = c.get("/agent").await;
+    assert_eq!(before["configured"], false);
+
+    // Half a configuration is the common mistake, and "not configured" sends
+    // people to the wrong field half the time.
+    let (status, body) = c.send("PUT", "/agent", Some(json!({ "model": "some-model" }))).await;
+    assert_eq!(status, 422, "{body}");
+    assert!(body["title"].as_str().unwrap_or_default().contains("endpoint"), "{body}");
+
+    let (status, saved) = c
+        .send(
+            "PUT",
+            "/agent",
+            Some(json!({
+                "endpoint": "http://127.0.0.1:9/v1",
+                "model": "some-model",
+                "apiKey": "secret",
+            })),
+        )
+        .await;
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["configured"], true);
+    assert_eq!(saved["model"], "some-model");
+
+    // The key is never handed back, only the fact that one is set.
+    assert_eq!(saved["hasApiKey"], true);
+    assert!(!saved.to_string().contains("secret"), "the key must not be echoed: {saved}");
+
+    // Saving answers with exactly what a fresh read says.
+    assert_eq!(c.get("/agent").await, saved);
+
+    // An absent key leaves the stored one alone; a form that never shows the
+    // key would otherwise erase it on every save.
+    let (_, again) = c.send("PUT", "/agent", Some(json!({ "model": "other-model" }))).await;
+    assert_eq!(again["hasApiKey"], true, "{again}");
+    assert_eq!(again["model"], "other-model");
+}
+
+#[tokio::test]
 async fn a_paper_knows_which_conversations_named_it() {
     let (c, app) = Client::new().await;
     let lib = app.services.default_library;
