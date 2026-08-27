@@ -138,14 +138,14 @@ plugins/       示例插件（见 plugins/README.md）
 
 ## 路线（尚未实现）
 
-设计已完成、代码待补：**Word 插件、引文关系（cites/cocitation）、多端同步**。
+设计已完成、代码待补：**Word 插件、共被引/文献耦合（cocitation / coupling）、多端同步**。
 详见 `docs/09-roadmap.md`。
 
 已实现并可用：条目与收藏夹、智能收藏夹、混合检索（关键词 / 模糊 / 语义 / 标签）、
 标签与分面、插件系统（含徽章贡献点）、DOI/arXiv/ISBN 抓取、附件下载与 PDF 阅读标注、
 文献问答与摘要 Agent、Zotero 导入（含附件、笔记、PDF 标注）、
 引文与参考文献渲染（APA / MLA / Chicago / IEEE / GB-T 7714）、
-关系图谱（标签 / 作者 / 收藏夹 / 语义相似）、
+关系图谱（标签 / 作者 / 收藏夹 / 语义相似 / 引用关系，含库外节点）、
 浏览器保存（兼容 Zotero Connector 协议，用 `--connector-port 23119` 开启）。
 
 > 浏览器保存复用已装好的 Zotero Connector 扩展：它带着二十年维护的数百个站点

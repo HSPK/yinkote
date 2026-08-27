@@ -1849,6 +1849,7 @@ select.ctl { padding: 4px 6px; }
 .graph-edge[data-relation='author']     { stroke: #d6a44c; }
 .graph-edge[data-relation='collection'] { stroke: #5fb236; }
 .graph-edge[data-relation='similar']    { stroke: #a28ae5; }
+.graph-edge[data-relation='cites']      { stroke: #c0554b; }
 .graph-edge[data-lit] { opacity: 1; stroke-width: 1.6; }
 
 .graph-node { cursor: pointer; }
@@ -1858,6 +1859,16 @@ select.ctl { padding: 4px 6px; }
   stroke-width: 1.2;
 }
 .graph-node[data-focus] circle { fill: var(--accent-dim); stroke: var(--accent); }
+
+/* A cited work the library does not hold. Hollow and dashed because clicking
+   it cannot open anything — the picture should say so before the click. */
+.graph-node[data-external] { cursor: default; }
+.graph-node[data-external] circle {
+  fill: none;
+  stroke-dasharray: 2 2;
+  opacity: 0.75;
+}
+.graph-node[data-external] text { font-style: italic; }
 .graph-node[data-lit] circle,
 .graph-node:hover circle { stroke: var(--accent); }
 .graph-node:focus-visible { outline: none; }
@@ -1892,6 +1903,7 @@ select.ctl { padding: 4px 6px; }
 .graph-swatch[data-relation='author']     { background: #d6a44c; }
 .graph-swatch[data-relation='collection'] { background: #5fb236; }
 .graph-swatch[data-relation='similar']    { background: #a28ae5; }
+.graph-swatch[data-relation='cites']      { background: #c0554b; }
 .graph-hint { display: flex; align-items: center; gap: 6px; margin-top: 2px; opacity: 0.7; }
 
 

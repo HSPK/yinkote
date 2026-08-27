@@ -103,6 +103,85 @@ impl Resolver for Crossref {
     }
 }
 
+/// One entry from a paper's reference list.
+///
+/// A reference is a fact from outside the library — it came from the
+/// publisher, not from anything the user did — which is why, unlike a shared
+/// tag, it has to be stored rather than derived.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Reference {
+    /// Normalised, when the publisher deposited one. Most do not: roughly half
+    /// of Crossref's reference entries are prose and nothing else.
+    pub doi: Option<String>,
+    pub title: Option<String>,
+    pub year: Option<i64>,
+    /// The raw citation string, kept as a label when there is no title.
+    pub unstructured: Option<String>,
+}
+
+impl Crossref {
+    /// The works a paper cites, in the order it cites them.
+    ///
+    /// Order is kept because a reference list is a numbered thing in the paper
+    /// it came from, and renumbering somebody's bibliography is exactly the
+    /// kind of quiet damage this project must not do.
+    pub async fn references(&self, doi: &str) -> Result<Vec<Reference>> {
+        let url = format!("https://api.crossref.org/works/{}", urlencoding(doi));
+        let Some(response) = get(&self.http, &url).await? else { return Ok(Vec::new()) };
+        let body: serde_json::Value =
+            response.json().await.map_err(|e| Error::Unavailable(format!("crossref: {e}")))?;
+        Ok(parse_references(&body))
+    }
+}
+
+/// Pull the reference list out of a Crossref work.
+pub fn parse_references(body: &serde_json::Value) -> Vec<Reference> {
+    let Some(list) = body.pointer("/message/reference").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+
+    list.iter()
+        .map(|entry| {
+            let text = |key: &str| {
+                entry.get(key).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty())
+            };
+            Reference {
+                doi: text("DOI").map(|d| d.to_lowercase()),
+                // Crossref names a journal article's title `article-title`, and
+                // a book's `volume-title`; an entry may carry either.
+                title: text("article-title")
+                    .or_else(|| text("volume-title"))
+                    .or_else(|| text("series-title"))
+                    .map(str::to_string),
+                year: text("year").and_then(|y| y.get(..4)?.parse().ok()),
+                unstructured: text("unstructured").map(str::to_string),
+            }
+        })
+        // An entry with neither an identifier nor any words is not a reference,
+        // it is a gap in the publisher's deposit.
+        .filter(|r| r.doi.is_some() || r.title.is_some() || r.unstructured.is_some())
+        .collect()
+}
+
+impl Reference {
+    /// How the cited work is written down: the same shape an item's
+    /// fingerprint takes, so a reference resolves to a library item through the
+    /// index that already exists rather than a column invented for it.
+    pub fn fingerprint(&self) -> Option<String> {
+        let doi = self.doi.as_deref()?;
+        Some(format!("doi:{}", yk_core::text::normalize(doi)))
+    }
+
+    /// What to show when the cited work is not in the library.
+    pub fn label(&self) -> String {
+        self.title
+            .clone()
+            .or_else(|| self.unstructured.clone())
+            .or_else(|| self.doi.clone())
+            .unwrap_or_default()
+    }
+}
+
 // ---------------------------------------------------------------------------
 
 pub struct Arxiv {
@@ -316,5 +395,69 @@ mod label_tests {
                 r.label
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod reference_tests {
+    use super::*;
+
+    fn crossref_work() -> serde_json::Value {
+        serde_json::json!({
+            "message": {
+                "reference": [
+                    { "key": "1", "DOI": "10.1000/A", "article-title": "First", "year": "2015" },
+                    { "key": "2", "volume-title": "A Book", "year": "1999-06" },
+                    { "key": "3", "unstructured": "Somebody, in a journal, 2001." },
+                    { "key": "4" }
+                ]
+            }
+        })
+    }
+
+    #[test]
+    fn reads_a_reference_list_in_order() {
+        let refs = parse_references(&crossref_work());
+        // A reference list is numbered in the paper it came from; renumbering
+        // somebody's bibliography is quiet damage.
+        assert_eq!(refs.len(), 3);
+        assert_eq!(refs[0].title.as_deref(), Some("First"));
+        assert_eq!(refs[1].title.as_deref(), Some("A Book"));
+    }
+
+    #[test]
+    fn drops_an_entry_that_says_nothing() {
+        // An entry with neither identifier nor words is a gap in the
+        // publisher's deposit, not a reference.
+        assert!(parse_references(&crossref_work()).iter().all(|r| !r.label().is_empty()));
+    }
+
+    #[test]
+    fn keeps_prose_when_that_is_all_there_is() {
+        // Roughly half of Crossref's reference entries are prose and nothing
+        // else. Dropping them would understate a paper's bibliography.
+        let refs = parse_references(&crossref_work());
+        assert_eq!(refs[2].label(), "Somebody, in a journal, 2001.");
+        assert!(refs[2].fingerprint().is_none());
+    }
+
+    #[test]
+    fn addresses_a_cited_work_the_way_an_item_is_addressed() {
+        let refs = parse_references(&crossref_work());
+        // The same shape `Item::fingerprint` produces, so resolution uses the
+        // index that already exists.
+        assert_eq!(refs[0].fingerprint().as_deref(), Some("doi:10 1000 a"));
+    }
+
+    #[test]
+    fn takes_the_year_from_whatever_shape_it_arrived_in() {
+        let refs = parse_references(&crossref_work());
+        assert_eq!(refs[0].year, Some(2015));
+        assert_eq!(refs[1].year, Some(1999));
+    }
+
+    #[test]
+    fn a_work_with_no_deposited_references_is_not_an_error() {
+        assert!(parse_references(&serde_json::json!({ "message": {} })).is_empty());
     }
 }

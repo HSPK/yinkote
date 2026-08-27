@@ -298,13 +298,15 @@ export interface GraphNode {
   itemType: string
   /** The item the neighbourhood is about. Exactly one node has this. */
   focus?: boolean
+  /** A cited work this library does not hold. It cannot be opened. */
+  external?: boolean
 }
 
 /** Why two items are connected, and how strongly. */
 export interface GraphEdge {
   source: string
   target: string
-  relation: 'tag' | 'author' | 'collection' | 'similar'
+  relation: 'tag' | 'author' | 'collection' | 'similar' | 'cites'
   /** Shared tags or collections for structural edges; a cosine for similarity. */
   weight: number
 }
@@ -313,4 +315,21 @@ export interface GraphNeighbourhood {
   focus: string
   nodes: GraphNode[]
   edges: GraphEdge[]
+}
+
+/** One work cited by another. */
+export interface Citation {
+  position: number
+  /** The item in this library, when it holds the cited work. */
+  key: string | null
+  label: string
+  year: number | null
+  fingerprint: string
+}
+
+export interface CitationList {
+  cites: Citation[]
+  citedBy: Citation[]
+  /** How many of `cites` are papers the library actually holds. */
+  resolved: number
 }

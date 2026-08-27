@@ -185,3 +185,49 @@ describe('the graph tab', () => {
     expect(container.textContent).toContain('Layer normalisation')
   })
 })
+
+describe('a cited work the library does not hold', () => {
+  beforeEach(() => {
+    neighbourhood.nodes.push({
+      key: 'doi:101000abc',
+      title: 'A paper nobody here owns',
+      itemType: 'journalArticle',
+      external: true,
+    })
+    neighbourhood.edges.push({
+      source: 'FOCUS111',
+      target: 'doi:101000abc',
+      relation: 'cites',
+      weight: 1,
+    })
+  })
+
+  afterEach(() => {
+    neighbourhood.nodes.pop()
+    neighbourhood.edges.pop()
+  })
+
+  it('is drawn, because what is missing is the point', async () => {
+    await render()
+
+    // A work cited by several papers on the shelf and owned by none is, almost
+    // by definition, the next thing to read.
+    const external = container.querySelectorAll('.graph-node[data-external]')
+    expect(external).toHaveLength(1)
+    expect(external[0]?.textContent).toContain('A paper nobody here owns')
+  })
+
+  it('cannot be selected, because there is nothing to show', async () => {
+    await render()
+    const external = container.querySelector('.graph-node[data-external]') as HTMLElement
+
+    await act(async () => {
+      external.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(useStore.getState().selected).toEqual([])
+  })
+})

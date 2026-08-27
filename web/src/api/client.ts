@@ -9,6 +9,7 @@ import type {
   ImportResult,
   BadgeDescriptor,
   BadgeValue,
+  CitationList,
   CitationRender,
   CitationStyle,
   Collection,
@@ -177,6 +178,16 @@ export const api = {
   graph: {
     around: (lib: number, key: string, limit = 8) =>
       request<GraphNeighbourhood>(`/libraries/${lib}/graph/${key}?limit=${limit}`),
+  },
+
+  references: {
+    list: (lib: number, key: string) =>
+      request<CitationList>(`/libraries/${lib}/items/${key}/citations`),
+    fetch: (lib: number, key: string) =>
+      request<{ stored: number; resolved: number }>(
+        `/libraries/${lib}/items/${key}/citations/fetch`,
+        { method: 'POST' },
+      ),
   },
 
   citations: {

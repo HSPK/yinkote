@@ -193,6 +193,18 @@ check "graph names nodes" "$(j "$BASE/libraries/$LIB/graph/$GA" \
                              | jq -r '.nodes[] | select(.focus != true) | .title')"
 check "graph unknown key" "$(j "$BASE/libraries/$LIB/graph/ZZZZZZZZ" | jq -r '.title // empty')"
 
+echo "▸ references"
+# Citations are stored, not derived: they come from the publisher and exist
+# whether or not either paper is here. Fetching needs the network, so the
+# storage is exercised directly and the fetch is only checked for its refusal.
+check "refs need a doi"   "$(j -X POST "$BASE/libraries/$LIB/items/$GA/citations/fetch" -d '{}' \
+                             | jq -r '.title // empty | select(contains("DOI"))')"
+# `check` passes any non-empty string, so this is phrased so that a wrong
+# answer is empty rather than merely a different number.
+check "refs both ways"    "$(j "$BASE/libraries/$LIB/items/$GA/citations" \
+                             | jq -r 'select((.cites | type) == "array" and
+                                             (.citedBy | type) == "array") | "both"')"
+
 echo "▸ citations"
 CK=$(j -X POST "$BASE/libraries/$LIB/items" \
        -d '[{"itemType":"journalArticle","title":"Citation smoke","publicationTitle":"Journal of Smoke","volume":"30","issue":"1","pages":"1-9","date":"2017-06-12","DOI":"10.1000/smoke","creators":[{"creatorType":"author","firstName":"Ashish","lastName":"Vaswani"}]}]' \

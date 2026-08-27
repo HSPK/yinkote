@@ -4,6 +4,7 @@ mod badges;
 mod citations;
 pub(crate) mod connector;
 mod graph;
+mod references;
 mod collections;
 pub(crate) mod files;
 mod import;
@@ -34,6 +35,7 @@ pub fn router() -> Router<App> {
         .merge(badges::router())
         .merge(citations::router())
         .merge(graph::router())
+        .merge(references::router())
         .merge(files::router())
         .merge(import::router())
         .merge(collections::router())

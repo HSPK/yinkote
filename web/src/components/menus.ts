@@ -4,6 +4,7 @@
  *  detail panel or the command palette without duplicating the actions — and so
  *  the wording and ordering stay consistent.
  */
+import { api } from '../api/client'
 import type { Collection, Item, SmartCollection } from '../api/types'
 import { t } from '../i18n'
 import { useStore } from '../state/store'
@@ -55,6 +56,19 @@ export function itemMenu(item: Item): MenuItem[] {
   return [
     { label: t('reader.open'), onSelect: () => store.openReader(item.key) },
     { label: t('graph.open'), onSelect: () => store.openGraph(item.key) },
+    ...(item.DOI
+      ? [
+          {
+            label: t('references.fetch'),
+            onSelect: () =>
+              withToast(async () => {
+                const got = await api.references.fetch(store.library, item.key)
+                if (!got.stored) throw new Error(t('references.none'))
+                toast.success(t('references.fetched', got))
+              }, { failure: t('references.failed') }),
+          },
+        ]
+      : []),
     {
       label: t('reader.fetch'),
       onSelect: () =>

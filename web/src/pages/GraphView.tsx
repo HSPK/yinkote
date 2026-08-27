@@ -106,14 +106,17 @@ export function GraphView({ target }: { target?: string }) {
             key={node.key}
             className="graph-node"
             data-focus={node.focus || undefined}
+            data-external={node.external || undefined}
             data-lit={hover === node.key || undefined}
             transform={`translate(${node.x} ${node.y})`}
             tabIndex={0}
             role="button"
             onMouseEnter={() => setHover(node.key)}
             onMouseLeave={() => setHover(null)}
-            onClick={() => void showItem(node.key)}
-            onDoubleClick={() => (node.focus ? open(node) : openGraph(node.key))}
+            onClick={() => !node.external && void showItem(node.key)}
+            onDoubleClick={() =>
+              node.external ? undefined : node.focus ? open(node) : openGraph(node.key)
+            }
             onKeyDown={(e) => e.key === 'Enter' && open(node)}
           >
             <circle r={node.focus ? 9 : 6} />

@@ -19,7 +19,7 @@ use serde::Serialize;
 use yk_core::model::ItemDraft;
 
 pub use identify::{detect, detect_one, Identifier};
-pub use resolver::{Resolver, SourceInfo};
+pub use resolver::{parse_references, Reference, Resolver, SourceInfo};
 
 /// One successfully resolved identifier.
 #[derive(Debug, Clone, Serialize)]
