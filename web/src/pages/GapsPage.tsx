@@ -15,6 +15,10 @@ import type { Harvest, MissingWork } from '../api/types'
 import { useT } from '../i18n'
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, toast } from '../ui'
+import { VirtualList } from '../components/VirtualList'
+
+/** Narrower than this the columns scroll sideways rather than crush. */
+const GAP_COLUMNS = 640
 
 export function GapsPage() {
   const t = useT()
@@ -129,18 +133,23 @@ export function GapsPage() {
     )
 
   return (
-    <div className="pane main browser">
+    <div className="pane main data-page">
       {bar}
-      <div className="browser-head browser-grid gaps-grid">
-        <span>{t('gaps.work')}</span>
-        <span className="num">{t('gaps.year')}</span>
-        <span className="num">{t('gaps.citedBy')}</span>
-        <span />
-      </div>
-
-      <div className="browser-body">
-        {works.map((work) => (
-          <div key={work.fingerprint} className="row browser-grid gaps-grid">
+      <VirtualList
+        rows={works}
+        keyOf={(work) => work.fingerprint}
+        minWidth={GAP_COLUMNS}
+        header={
+          <div className="table-head gaps-grid">
+            <div className="head-cell">{t('gaps.work')}</div>
+            <div className="head-cell num">{t('gaps.year')}</div>
+            <div className="head-cell num">{t('gaps.citedBy')}</div>
+            <div className="head-cell" />
+          </div>
+        }
+      >
+        {(work) => (
+          <div className="row browser-grid gaps-grid">
             <div className="cell name-cell" title={work.label}>
               <Icon.Graph className="glyph" />
               <span className="name">{work.label || work.doi}</span>
@@ -157,8 +166,8 @@ export function GapsPage() {
               </Button>
             </div>
           </div>
-        ))}
-      </div>
+        )}
+      </VirtualList>
     </div>
   )
 }

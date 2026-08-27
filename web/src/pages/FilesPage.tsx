@@ -79,7 +79,7 @@ export function FilesPage() {
   if (loading) return <Empty>{t('files.loading')}</Empty>
 
   return (
-    <div className="pane main browser">
+    <div className="pane main data-page">
       <div className="gaps-bar">
         <span className="dim">{t('files.summary', { count: total })}</span>
         <span className="row-actions">
@@ -121,6 +121,14 @@ export function FilesPage() {
         rows={files}
         keyOf={(file) => file.key}
         minWidth={FILE_COLUMNS}
+        header={
+          <div className="table-head files-grid">
+            <div className="head-cell">{t('files.col.name')}</div>
+            <div className="head-cell">{t('files.col.paper')}</div>
+            <div className="head-cell">{t('files.col.source')}</div>
+            <div className="head-cell num">{t('files.col.size')}</div>
+          </div>
+        }
         empty={<Empty>{t('files.none')}</Empty>}
       >
         {(file) => (

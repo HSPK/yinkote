@@ -2087,7 +2087,7 @@ select.ctl { padding: 4px 6px; }
 
 /* ─── download queue ─────────────────────────────────────────────────────── */
 
-.downloads-grid { grid-template-columns: 1.1fr 1.2fr 260px 80px 150px; }
+.downloads-grid { grid-template-columns: minmax(140px, 1.1fr) minmax(160px, 1.2fr) 260px 80px 160px; }
 .downloads-grid .mono { font-family: var(--mono); font-size: 11px; }
 
 .download-state {
@@ -2344,3 +2344,33 @@ select.ctl { padding: 4px 6px; }
   white-space: nowrap;
   font-size: 10px;
 }
+
+
+/* ─── a page that is a table ─────────────────────────────────────────────── */
+
+/* Exactly one thing scrolls. `.pane` scrolls by default, which is right for a
+   page of prose and wrong for one holding a list that scrolls itself — that
+   pairing is what produced two scrollbars on the downloads tab. */
+.data-page {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.page-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 8px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+  font: 11px/1.6 var(--mono);
+}
+
+/* The header is a grid like the rows, so a column name sits over its column
+   rather than near it. */
+.data-page .table-head { display: grid; }
+.data-page .table-head .head-cell { padding: 0 8px; align-items: center; }
+.data-page .table-head .head-cell.num { justify-content: flex-end; }

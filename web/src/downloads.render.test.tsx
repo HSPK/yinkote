@@ -137,6 +137,37 @@ describe('download queue', () => {
     expect(error?.getAttribute('title')).toContain('web page with no file linked')
   })
 
+  it('names its columns', async () => {
+    await render()
+    // A table without a header is a grid of values nobody can read.
+    const head = container.querySelector('.data-page .table-head')
+    expect(head).not.toBeNull()
+    expect(head?.textContent).toContain('Address')
+    expect(head?.textContent).toContain('State')
+  })
+
+  it('scrolls in exactly one place', async () => {
+    await render()
+    // `.pane` scrolls by default and the list scrolls itself; the pair gave
+    // the tab two scrollbars, one inside the other.
+    //
+    // Asserted on structure rather than on `getComputedStyle`, which reads
+    // nothing useful here — jsdom does not load the stylesheet, so a computed
+    // check would pass whatever the CSS said.
+    const page = container.querySelector('.pane.main') as HTMLElement
+    expect(page?.className).toContain('data-page')
+    expect(container.querySelectorAll('.vlist')).toHaveLength(1)
+  })
+
+  it('uses one button style for row actions', async () => {
+    await render()
+    // Retry and Remove sit side by side in the same row; two tones there
+    // reads as two kinds of action when they are the same kind.
+    const row = rows().find((r) => r.textContent?.includes('A paper'))!
+    const tones = [...row.querySelectorAll('button')].map((b) => b.className)
+    expect(tones.every((c) => c.includes('btn-ghost'))).toBe(true)
+  })
+
   it('offers a retry only where retrying means something', async () => {
     await render()
 

@@ -4,18 +4,20 @@
  *  time, it fails for reasons worth reading, and the decision it needs — retry,
  *  give up, paste a different address — comes later than the moment it broke.
  *
- *  Rows that need a decision sort to the top. Everything else is history, and
- *  history is what the clear button is for.
+ *  Laid out as a table because it is one: a header naming the columns, rows
+ *  under it, and exactly one thing that scrolls. Getting that last part wrong
+ *  is how this page ended up with two scrollbars — a pane that scrolls holding
+ *  a list that scrolls.
  */
 import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api/client'
 import type { Download } from '../api/types'
+import { VirtualList } from '../components/VirtualList'
 import { useT } from '../i18n'
 import { bytes as formatBytes } from '../lib/format'
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, toast } from '../ui'
-import { VirtualList } from '../components/VirtualList'
 
 /** Narrower than this the columns scroll sideways rather than crush. */
 const DOWNLOAD_COLUMNS = 880
@@ -87,13 +89,24 @@ export function DownloadsPage() {
     }
   }
 
-  if (loading) return <Empty>{t('downloads.loading')}</Empty>
-
   const failed = rows.filter((r) => r.state === 'failed').map((r) => r.id)
 
+  const header = (
+    <div className="table-head downloads-grid">
+      <div className="head-cell">{t('downloads.col.title')}</div>
+      <div className="head-cell">{t('downloads.col.url')}</div>
+      <div className="head-cell">{t('downloads.col.state')}</div>
+      <div className="head-cell num">{t('downloads.col.size')}</div>
+      {/* The actions column has no name, because "Retry" and "Remove" say
+          what they are. A heading here would be a word for the sake of a
+          heading. */}
+      <div className="head-cell" />
+    </div>
+  )
+
   return (
-    <div className="pane main browser">
-      <div className="gaps-bar">
+    <div className="pane main data-page">
+      <div className="page-bar">
         <span className="dim">
           {t('downloads.summary', {
             waiting: rows.filter((r) => r.state === 'waiting').length,
@@ -106,6 +119,8 @@ export function DownloadsPage() {
             {t('downloads.retryAll')}
           </Button>
           <Button
+            tone="ghost"
+            disabled={!rows.length}
             onClick={() =>
               void api.downloads
                 .clear(library)
@@ -121,12 +136,13 @@ export function DownloadsPage() {
       <VirtualList
         rows={rows}
         keyOf={(row) => String(row.id)}
+        header={header}
         minWidth={DOWNLOAD_COLUMNS}
-        empty={<Empty>{t('downloads.none')}</Empty>}
+        empty={<Empty>{loading ? t('downloads.loading') : t('downloads.none')}</Empty>}
       >
         {(row) => (
           <div className="row browser-grid downloads-grid" data-state={row.state}>
-            <div className="cell name-cell" title={row.url}>
+            <div className="cell name-cell" title={row.title || row.url}>
               <Icon.Download className="glyph" />
               <span className="name">{row.title || row.url}</span>
             </div>
@@ -147,9 +163,14 @@ export function DownloadsPage() {
               )}
             </div>
             <div className="cell num dim">{row.bytes ? formatBytes(row.bytes) : ''}</div>
+            {/* One tone for every row action, and a retry only where retrying
+                means something: a row of buttons that do nothing is a row of
+                questions about what they would do. */}
             <div className="cell row-actions">
               {row.state === 'failed' && (
-                <Button onClick={() => void act('retry', [row.id])}>{t('downloads.retry')}</Button>
+                <Button tone="ghost" onClick={() => void act('retry', [row.id])}>
+                  {t('downloads.retry')}
+                </Button>
               )}
               <Button tone="ghost" onClick={() => void act('remove', [row.id])}>
                 {t('downloads.remove')}
