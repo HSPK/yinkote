@@ -279,6 +279,35 @@ check "export refuses"    "$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content
                               -d "$(jq -nc --arg k "$EXKEY" '{itemKeys:[$k],format:"zotero-rdf"}')" \
                               | grep -q '^4' && echo "rejected")"
 
+echo "▸ notes from annotations"
+NPAPER=$(j -X POST "$BASE/libraries/$LIB/items" \
+           -d '{"itemType":"journalArticle","title":"A Paper With Marks"}' | jq -r '.created[0].key')
+NFILE=$(j -X POST "$BASE/libraries/$LIB/items" \
+          -d "{\"itemType\":\"attachment\",\"parentKey\":\"$NPAPER\",\"contentType\":\"application/pdf\",\"linkMode\":\"imported_file\",\"filename\":\"p.pdf\"}" \
+          | jq -r '.created[0].key')
+# Out of order on purpose: the note must come back in page order.
+for m in '7|later passage|' '2|earlier passage|a thought'; do
+  PG=$(echo "$m" | cut -d'|' -f1); TX=$(echo "$m" | cut -d'|' -f2); CM=$(echo "$m" | cut -d'|' -f3)
+  j -X POST "$BASE/libraries/$LIB/items" \
+    -d "$(jq -nc --arg p "$NFILE" --arg pg "$PG" --arg tx "$TX" --arg cm "$CM" \
+          '{itemType:"annotation",parentKey:$p,annotationType:"highlight",annotationPage:$pg,annotationText:$tx,annotationComment:$cm}')" >/dev/null
+done
+NOTE=$(j -X POST "$BASE/libraries/$LIB/items/$NPAPER/notes/from-annotations" -d '{}')
+check "gathered marks"    "$(echo "$NOTE" | jq -r '.annotations | select(. == 2)')"
+# The trap this endpoint exists to avoid: annotations hang off the attachment,
+# not the paper, so asking for the paper's own children finds nothing.
+check "note is a child"   "$(echo "$NOTE" | jq -r --arg p "$NPAPER" '.note | select(.parentKey == $p) | .itemType')"
+NBODY=$(echo "$NOTE" | jq -r '.note.note')
+check "page order kept"   "$(echo "$NBODY" | python3 -c "
+import sys
+t = sys.stdin.read()
+print('in order' if t.find('p. 2') < t.find('p. 7') else '')
+")"
+check "quotes the paper"  "$(echo "$NBODY" | grep -o '<blockquote>earlier passage</blockquote>')"
+check "keeps the comment" "$(echo "$NBODY" | grep -o '<p>a thought</p>')"
+check "refuses an empty"  "$(j -X POST "$BASE/libraries/$LIB/items/$KEY/notes/from-annotations" -d '{}' \
+                             | jq -r '.error.message // .error // "refused"' | head -c 8)"
+
 echo "▸ bibliography import"
 # The round trip through the API: what the server just wrote, it can read back.
 # This is what catches an escaping bug in either direction, and the title is

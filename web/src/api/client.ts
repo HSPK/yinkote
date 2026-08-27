@@ -336,6 +336,13 @@ export const api = {
       ),
   },
 
+  /** Gather a paper's highlights into a note. */
+  noteFromAnnotations: (lib: number, key: string, annotationKeys: string[] = []) =>
+    request<{ note: Item; annotations: number }>(
+      `/libraries/${lib}/items/${key}/notes/from-annotations`,
+      { method: 'POST', ...json({ annotationKeys }) },
+    ),
+
   /** Summarise an item into a note child. */
   summarise: (lib: number, key: string, focus?: string) =>
     request<{ note: Item; model: string; truncated: boolean }>(

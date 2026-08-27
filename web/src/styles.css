@@ -1112,6 +1112,9 @@ option {
 .chat-log { flex: 1; min-height: 0; padding: 10px 12px; }
 .chat-log .vlist-slot { padding-bottom: 10px; }
 
+/* The annotations pane's header carries an action now, so it lays out. */
+.reader-notes .pane-header { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+
 /* A file picker is unstyleable, so the button beside it does the talking. */
 .hidden-input { display: none; }
 

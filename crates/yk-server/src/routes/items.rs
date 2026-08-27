@@ -12,6 +12,7 @@ use yk_core::event::DomainEvent;
 use yk_core::model::*;
 use yk_core::plugin::{hooks, HookEvent};
 use yk_core::query::{SearchHit, SearchRequest};
+use yk_core::Error;
 use yk_core::Key;
 
 use super::{announce, key, notify_plugins, BadgeSort, ListParams};
@@ -23,6 +24,7 @@ pub fn router() -> Router<App> {
         .route("/libraries/:lib/items", get(list).post(create).delete(trash))
         .route("/libraries/:lib/items/:key", get(get_one).patch(update))
         .route("/libraries/:lib/items/:key/children", get(children))
+        .route("/libraries/:lib/items/:key/notes/from-annotations", post(note_from_annotations))
         .route("/libraries/:lib/items/restore", post(restore))
         .route("/libraries/:lib/items/delete", post(destroy))
         .route("/libraries/:lib/trash", axum::routing::delete(empty_trash))
@@ -491,4 +493,62 @@ async fn list_by_badge(
         }
     }
     Ok((headers, Json(Page::new(window, total, offset, limit))))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct FromAnnotations {
+    /// Only these, or every annotation on the paper when empty.
+    #[serde(rename = "annotationKeys")]
+    annotation_keys: Vec<String>,
+}
+
+/// Gather what was highlighted on a paper into a note.
+///
+/// Annotations hang off the *attachment* they were drawn on, not the paper, so
+/// this walks one level down to find them — asking for the paper's own children
+/// would come back with the PDF and nothing else, which is the obvious version
+/// of this endpoint and returns an empty note.
+async fn note_from_annotations(
+    State(app): State<App>,
+    Path((lib, k)): Path<(i64, String)>,
+    Json(body): Json<FromAnnotations>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let paper_key = key(&k)?;
+    let paper = app.store().items.get(lib, &paper_key).await?;
+
+    let wanted: Vec<String> = body.annotation_keys.iter().map(|s| s.trim().to_string()).collect();
+    let mut marks = Vec::new();
+    for child in app.store().items.children(lib, &paper_key).await? {
+        if child.item_type != "attachment" {
+            continue;
+        }
+        for grandchild in app.store().items.children(lib, &child.key).await? {
+            if let Some(mark) = crate::notes::Annotation::of(&grandchild) {
+                if wanted.is_empty() || wanted.contains(&mark.key) {
+                    marks.push(mark);
+                }
+            }
+        }
+    }
+
+    if marks.is_empty() {
+        return Err(Error::invalid("this paper has no annotations to gather").into());
+    }
+    let count = marks.len();
+    let html = crate::notes::render(paper.title(), &marks);
+
+    let mut draft = ItemDraft::new("note");
+    draft.parent_key = Some(paper_key.clone());
+    draft.fields.insert("note".into(), html.into());
+    let note = app.store().items.create(lib, draft).await?;
+
+    let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
+        library_id: lib,
+        keys: vec![paper_key.clone(), note.key.clone()],
+        version,
+    })
+    .await?;
+
+    Ok(Json(json!({ "note": note, "annotations": count, "version": version })))
 }

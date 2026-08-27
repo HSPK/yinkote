@@ -13,7 +13,7 @@ import {
   type HighlightColour,
 } from '../lib/annotations'
 import { useStore } from '../state/store'
-import { Empty, Icon, contextMenu, toast } from '../ui'
+import { Button, Empty, Icon, contextMenu, toast, withToast } from '../ui'
 import { PdfPage } from './PdfPage'
 import { useFind } from './useFind'
 import { usePdf } from './usePdf'
@@ -192,7 +192,29 @@ export function ReaderView({ target }: { target?: string }) {
         </div>
 
         <aside className="reader-notes">
-          <div className="pane-header">{t('reader.annotations', { count: annotations.length })}</div>
+          <div className="pane-header">
+            <span>{t('reader.annotations', { count: annotations.length })}</span>
+            {/* Where the highlights are is where somebody decides they are
+                finished with them, so the action to keep them lives here. */}
+            {annotations.length > 0 && target && (
+              <Button
+                tone="ghost"
+                title={t('reader.gatherHint')}
+                onClick={() =>
+                  void withToast(
+                    async () => await api.noteFromAnnotations(library, target),
+                    {
+                      success: (made) =>
+                        t('reader.gathered', { count: made?.annotations ?? 0 }),
+                      failure: t('reader.gatherFailed'),
+                    },
+                  )
+                }
+              >
+                {t('reader.gather')}
+              </Button>
+            )}
+          </div>
           {annotations.length === 0 && <Empty>{t('reader.noAnnotations')}</Empty>}
           {annotations.map((a) => (
             <button

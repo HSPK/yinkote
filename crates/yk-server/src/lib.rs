@@ -16,6 +16,7 @@ pub mod security;
 pub mod storage;
 pub mod state;
 pub mod naming;
+pub mod notes;
 pub mod runs;
 mod workers;
 
