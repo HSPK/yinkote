@@ -261,7 +261,11 @@ export const api = {
       request<{ deleted: number }>(`/libraries/${lib}/conversations/${key}`, { method: 'DELETE' }),
     messages: (lib: number, key: string) =>
       request<Message[]>(`/libraries/${lib}/conversations/${key}/messages`),
-    append: (lib: number, key: string, body: { role: string; content: string }) =>
+    append: (
+      lib: number,
+      key: string,
+      body: { role: string; content: string; mentions?: string[] },
+    ) =>
       request<Message>(`/libraries/${lib}/conversations/${key}/messages`, {
         method: 'POST',
         ...json(body),

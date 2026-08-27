@@ -19,6 +19,12 @@ import { useStore } from './state/store'
 const sent: string[] = []
 
 let holdMessages = false
+/** What the mention picker will find. */
+let pickable: unknown[] = []
+/** Mentions carried by the last send. */
+const sentMentions: string[][] = []
+/** Scopes set on the conversation. */
+const scoped: (string | null)[] = []
 
 vi.mock('./api/client', () => {
   const build = (path: string): unknown =>
@@ -29,10 +35,20 @@ vi.mock('./api/client', () => {
         // both paths carry the text as the third argument.
         if (path === 'api.conversations.ask') {
           sent.push(String(args[2] ?? ''))
+          sentMentions.push((args[3] as string[] | undefined) ?? [])
           return Promise.resolve({})
         }
+        if (path === 'api.conversations.setScope') {
+          scoped.push(args[2] as string | null)
+          return Promise.resolve({ key: 'K1', libraryId: 1, title: 'T', scope: args[2] })
+        }
+        if (path === 'api.items.list') {
+          return Promise.resolve({ items: pickable, total: pickable.length })
+        }
         if (path === 'api.conversations.append') {
-          sent.push(String((args[2] as { content?: string } | undefined)?.content ?? ''))
+          const body = args[2] as { content?: string; mentions?: string[] } | undefined
+          sent.push(String(body?.content ?? ''))
+          sentMentions.push(body?.mentions ?? [])
           return Promise.resolve({})
         }
         if (path === 'api.conversations.messages') {
@@ -78,6 +94,24 @@ let root: Root
 
 beforeEach(() => {
   sent.length = 0
+  sentMentions.length = 0
+  scoped.length = 0
+  pickable = [
+    {
+      key: 'PAPER001',
+      libraryId: 1,
+      itemType: 'journalArticle',
+      title: 'Attention Is All You Need',
+      creators: [{ creatorType: 'author', lastName: 'Vaswani' }],
+      date: '2017',
+      tags: [],
+      collections: [],
+      version: 1,
+      deleted: false,
+      dateAdded: 0,
+      dateModified: 0,
+    },
+  ]
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -92,6 +126,11 @@ beforeEach(() => {
     tags: [],
     badgeDefs: [],
     conversation: 'K1',
+    // Reset explicitly: a live run left behind by an earlier test makes the
+    // composer think a turn is in flight, and every send silently does
+    // nothing. State that leaks between tests eventually tests the leak.
+    runs: {},
+    asking: false,
     conversations: [
       { key: 'K1', libraryId: 1, title: 'What did I read about attention?' } as Conversation,
     ],
@@ -391,5 +430,113 @@ describe('an answer arriving', () => {
 
     expect(container.textContent).toContain('Three papers, all recent.')
     holdMessages = false
+  })
+})
+
+describe('naming a paper in a question', () => {
+  const box = () => container.querySelector('textarea')!
+
+  /** Type into the composer the way a person does, caret and all. */
+  async function type(text: string) {
+    const el = box()
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        'value',
+      )!.set!
+      setter.call(el, text)
+      el.selectionStart = text.length
+      el.selectionEnd = text.length
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    // The picker searches on a debounce.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 200))
+    })
+  }
+
+  it('opens a list when an @ is typed', async () => {
+    await render()
+    await type('what about @atten')
+
+    // Unit tests cover the parsing; only rendering shows whether the box is
+    // actually wired to it.
+    expect(container.querySelector('.mention-popup')).not.toBeNull()
+    expect(container.querySelector('.mention-row')?.textContent).toContain('Attention')
+  })
+
+  it('does not open on an @ inside a word', async () => {
+    await render()
+    await type('mail bob@example.com')
+    expect(container.querySelector('.mention-popup')).toBeNull()
+  })
+
+  it('attaches the paper as a chip and takes the @ out of the text', async () => {
+    await render()
+    await type('compare @atten')
+
+    const row = container.querySelector('.mention-row') as HTMLElement
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    })
+
+    expect(container.querySelector('.mention-chip')?.textContent).toContain('Attention')
+    expect(box().value).not.toContain('@atten')
+  })
+
+  it('sends the key rather than the text', async () => {
+    await render()
+    await type('compare @atten')
+    const row = container.querySelector('.mention-row') as HTMLElement
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    })
+
+    await act(async () => {
+      box().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+    })
+
+    // The whole point: the assistant is told which paper was meant instead of
+    // searching for a title the user half-typed.
+    expect(sentMentions[0]).toEqual(['PAPER001'])
+  })
+
+  it('clears the chips once the question is sent', async () => {
+    await render()
+    await type('compare @atten')
+    const row = container.querySelector('.mention-row') as HTMLElement
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+    })
+    await act(async () => {
+      box().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+    })
+    // Otherwise the next unrelated question silently carries the same paper.
+    expect(container.querySelector('.mention-chip')).toBeNull()
+  })
+})
+
+describe('scoping a conversation', () => {
+  it('offers the collections and records the choice', async () => {
+    useStore.setState({
+      collections: [
+        { key: 'COLL0001', libraryId: 1, name: 'Diffusion', itemCount: 12 },
+      ] as never,
+    })
+    await render()
+
+    const select = container.querySelector('.chat-scope select') as HTMLSelectElement
+    expect(select).not.toBeNull()
+    expect(select.textContent).toContain('Diffusion')
+
+    await act(async () => {
+      select.value = 'COLL0001'
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    expect(scoped).toEqual(['COLL0001'])
   })
 })

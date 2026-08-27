@@ -159,7 +159,14 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
         const run = await api.conversations.run(s.library, s.conversation).catch(() => null)
         if (run) get().applyRun(s.conversation, run)
       } else {
-        await api.conversations.append(s.library, s.conversation, { role: 'user', content: body })
+        // Mentions travel on this path too. Without a model the workbench is
+        // still a place to keep a thread against a paper, and dropping what
+        // the user attached would lose it silently.
+        await api.conversations.append(s.library, s.conversation, {
+          role: 'user',
+          content: body,
+          mentions,
+        })
       }
       set({ messages: await api.conversations.messages(s.library, s.conversation) })
     } catch (e) {
