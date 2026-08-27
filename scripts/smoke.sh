@@ -250,6 +250,35 @@ check "graph coupling"    "$(j "$BASE/libraries/$LIB/graph/$CITER" \
 check "graph cocitation"  "$(j "$BASE/libraries/$LIB/graph/$CA" \
                              | jq -r --arg k "$CB" '[.edges[] | select(.relation == "cocitation" and .target == $k)] | length | select(. == 1)')"
 
+echo "▸ export"
+EXKEY=$(j -X POST "$BASE/libraries/$LIB/items" \
+          -d '{"itemType":"journalArticle","title":"Exported 100% {Braced} Paper","date":"2018","publicationTitle":"Journal of Tests","pages":"10-20","DOI":"10.1/exp","creators":[{"creatorType":"author","lastName":"Ito","firstName":"Ken"}]}' \
+          | jq -r '.created[0].key')
+BIB=$(curl -sS -H 'Content-Type: application/json' -X POST "$BASE/libraries/$LIB/export" \
+        -d "$(jq -nc --arg k "$EXKEY" '{itemKeys:[$k],format:"bibtex"}')")
+check "bibtex entry"      "$(echo "$BIB" | grep -o '^@article{ito2018exported,' | head -1)"
+check "bibtex pages"      "$(echo "$BIB" | grep -o 'pages = {10--20}')"
+# The characters that break the *file* rather than the entry.
+check "bibtex escapes"    "$(echo "$BIB" | grep -c 'Exported 100\\% \\{Braced\\}' | grep -v '^0$')"
+check "bibtex balanced"   "$(echo "$BIB" | python3 -c "
+import sys
+text = sys.stdin.read()
+# Only unescaped braces count towards balance.
+stripped = text.replace('\\\\{', '').replace('\\\\}', '')
+print('balanced' if stripped.count('{') == stripped.count('}') else '')
+")"
+RIS=$(curl -sS -H 'Content-Type: application/json' -X POST "$BASE/libraries/$LIB/export" \
+        -d "$(jq -nc --arg k "$EXKEY" '{itemKeys:[$k],format:"ris"}')")
+check "ris terminated"    "$(echo "$RIS" | grep -q '^TY  - JOUR$' && echo "$RIS" | grep -q '^ER  - *$' && echo "well formed")"
+CSL=$(curl -sS -H 'Content-Type: application/json' -X POST "$BASE/libraries/$LIB/export" \
+        -d "$(jq -nc --arg k "$EXKEY" '{itemKeys:[$k],format:"csljson"}')")
+check "csl json parses"   "$(echo "$CSL" | jq -r '.[0] | select(.type == "article-journal") | .author[0].family')"
+check "csl json year"     "$(echo "$CSL" | jq -r '.[0].issued["date-parts"][0][0] | select(. == 2018)')"
+check "export refuses"    "$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+                              -X POST "$BASE/libraries/$LIB/export" \
+                              -d "$(jq -nc --arg k "$EXKEY" '{itemKeys:[$k],format:"zotero-rdf"}')" \
+                              | grep -q '^4' && echo "rejected")"
+
 echo "▸ maintenance"
 # Asked, not assumed: the server knows where it keeps its data, and a script
 # that hard-codes the path checks a different machine's backups on the day

@@ -8,8 +8,13 @@ export default defineConfig({
     // Most suites are pure logic and run fastest in Node; only the few that
     // touch the document opt into a DOM.
     environment: 'node',
+    // A suffix rather than a list of filenames: `theme.test.ts` had to be
+    // named here individually, and the next test that touches `document`
+    // would have had to be too — where the symptom is `document is not
+    // defined` and the cause is a config file nobody thought to look at.
     environmentMatchGlobs: [
       ['**/theme.test.ts', 'jsdom'],
+      ['**/*.dom.test.ts', 'jsdom'],
       ['**/*.render.test.tsx', 'jsdom'],
     ],
   },

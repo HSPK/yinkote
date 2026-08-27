@@ -8,6 +8,6 @@ description = "Rendering citations and bibliographies"
 [dependencies]
 yk-core.workspace = true
 serde.workspace = true
-
-[dev-dependencies]
+# For CSL-JSON. The rest of this crate renders text; see `export.rs` for why
+# interchange formats live beside citation styles rather than inside them.
 serde_json.workspace = true

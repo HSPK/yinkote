@@ -70,6 +70,26 @@ async fn announce(
     Ok(version)
 }
 
+/// Fetch items by key, in the order the caller asked for them.
+///
+/// `get_many` answers "these items" and says nothing about order — it returns
+/// them in whatever order the index yields. For anything numbered that is a
+/// silent reordering of somebody's bibliography, which is the same failure
+/// `yk_cite::bibliography` refuses to commit by sorting.
+///
+/// Keys that no longer resolve are dropped rather than erroring: an export of a
+/// selection that includes something just deleted should hand over the rest.
+pub(crate) async fn items_in_order(
+    app: &App,
+    lib: i64,
+    keys: &[Key],
+) -> Result<Vec<yk_core::model::Item>> {
+    let found = app.store().items.get_many(lib, keys).await?;
+    let mut by_key: std::collections::HashMap<String, yk_core::model::Item> =
+        found.into_iter().map(|i| (i.key.to_string(), i)).collect();
+    Ok(keys.iter().filter_map(|k| by_key.remove(k.as_str())).collect())
+}
+
 /// Fire a lifecycle hook without making the client wait for plugins.
 fn notify_plugins(app: &App, hook: &'static str, payload: Value) {
     let plugins = app.plugins.clone();

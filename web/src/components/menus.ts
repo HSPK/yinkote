@@ -8,6 +8,7 @@ import { api } from '../api/client'
 import type { Collection, Item, SmartCollection, Tag } from '../api/types'
 import { hasChosenColour, TAG_COLOURS } from '../lib/tags'
 import { t } from '../i18n'
+import { exportName, saveText } from '../lib/download'
 import { useStore } from '../state/store'
 import { confirmAction, promptFor, toast, withToast, type MenuItem } from '../ui'
 import {
@@ -52,11 +53,39 @@ export function itemMenu(item: Item): MenuItem[] {
     disabled: store.citationStyles.length === 0,
   }
 
+  // Every format, for the same reason every citation style is offered: which
+  // one is wanted depends on where it is going — LaTeX, EndNote, Pandoc — and
+  // that changes per export rather than per user.
+  const exportAs = {
+    label: `${t('menu.export')}${suffix}`,
+    items: (
+      [
+        ['bibtex', 'BibTeX'],
+        ['ris', 'RIS'],
+        ['csljson', 'CSL JSON'],
+      ] as const
+    ).map(([format, label]) => ({
+      label,
+      onSelect: () =>
+        withToast(
+          async () => {
+            const text = await api.exports.run(store.library, selected, format)
+            saveText(exportName(format, selected.length), text)
+          },
+          {
+            success: t('toast.exported', { count: selected.length }),
+            failure: t('toast.exportFailed'),
+          },
+        ),
+    })),
+  }
+
   const inTrash = store.view === 'trash'
 
   return [
     { label: t('reader.open'), onSelect: () => store.openReader(item.key) },
     { label: t('graph.open'), onSelect: () => store.openGraph(item.key) },
+    exportAs,
     {
       // Plural because a paper often has a PDF, a supplement and a dataset, and
       // asking three times is three chances to give up.

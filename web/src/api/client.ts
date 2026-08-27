@@ -187,6 +187,19 @@ export const api = {
       request<GraphNeighbourhood>(`/libraries/${lib}/graph/${key}?limit=${limit}`),
   },
 
+  /** Handing items to another program. Returns the file's text. */
+  exports: {
+    run: async (lib: number, keys: string[], format: string): Promise<string> => {
+      const res = await fetch(`${BASE}/libraries/${lib}/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemKeys: keys, format }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      return res.text()
+    },
+  },
+
   duplicates: {
     groups: (lib: number) =>
       request<{ groups: Item[][]; total: number }>(`/libraries/${lib}/duplicates`),
