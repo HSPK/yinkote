@@ -110,7 +110,10 @@ export function PluginsPage() {
                     {p.calls} / {p.failures}
                   </dd>
                   <dt>{t('plugins.latency')}</dt>
-                  <dd>{p.avgLatencyMs.toFixed(0)}ms</dd>
+                  {/* A missing number must not cost the whole panel: an
+                      older server, or a host that does not time its calls,
+                      would otherwise take every plugin off the screen. */}
+                  <dd>{Number.isFinite(p.avgLatencyMs) ? `${p.avgLatencyMs.toFixed(0)}ms` : '—'}</dd>
                   <dt>{t('plugins.source')}</dt>
                   <dd className="path">{p.source}</dd>
                 </dl>

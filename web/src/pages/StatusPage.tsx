@@ -63,8 +63,13 @@ export function StatusPage() {
     {} as Record<PluginState, number>,
   )
 
-  const embedded = stats?.search.embedded ?? 0
-  const documents = stats?.search.documents ?? 0
+  // `stats?.search.x` guards the wrong thing: it survives no stats at all and
+  // falls over on stats that arrive without their search half — which is what
+  // a server mid-upgrade, or one whose search subsystem failed to start,
+  // sends. This is the page somebody opens *because* something is wrong, so
+  // it is the last one that may go blank on partial data.
+  const embedded = stats?.search?.embedded ?? 0
+  const documents = stats?.search?.documents ?? 0
   const coverage = documents === 0 ? 100 : Math.round((embedded / documents) * 100)
 
   return (
@@ -104,8 +109,8 @@ export function StatusPage() {
             value={`${coverage}%`}
             hint={`${compact(embedded)} / ${compact(documents)}`}
           />
-          <Metric label={t('statusPage.dimensions')} value={String(stats?.search.dimensions ?? 0)} />
-          <Metric label={t('statusPage.provider')} value={stats?.search.provider ?? '—'} />
+          <Metric label={t('statusPage.dimensions')} value={String(stats?.search?.dimensions ?? 0)} />
+          <Metric label={t('statusPage.provider')} value={stats?.search?.provider ?? '—'} />
           <Metric label={t('statusPage.lastQuery')} value={`${tookMs}ms`} />
         </div>
         <div
