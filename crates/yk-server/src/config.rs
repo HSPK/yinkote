@@ -91,7 +91,7 @@ impl Default for Embeddings {
             endpoint: None,
             model: None,
             api_key: None,
-            dimensions: yk_search::embed::LOCAL_DIM,
+            dimensions: yk_ai::providers::LOCAL_DIM,
             batch: default_embed_batch(),
             interval_secs: default_embed_interval(),
         }

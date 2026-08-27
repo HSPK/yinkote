@@ -300,3 +300,63 @@ describe('a turn in flight', () => {
     expect(live?.textContent).toContain('Stop')
   })
 })
+
+describe('a run state with holes in it', () => {
+  it('does not blank the pane when steps are missing', async () => {
+    // This is not hypothetical: the server used to answer `{"running": false}`
+    // for a conversation with no turn — the same type with holes in it — and
+    // the pane crashed on `steps.length`, which the reader saw as "this panel
+    // failed to draw". Both ends were fixed; this holds the client's half.
+    useStore.setState({
+      runs: { K1: { running: true } as never },
+    })
+    await render()
+
+    expect(container.querySelector('.bubble[data-live]')).toBeTruthy()
+    expect(container.textContent).not.toContain('failed to draw')
+  })
+})
+
+describe('an answer arriving', () => {
+  const running = (extra: Record<string, unknown>) => ({
+    runs: {
+      K1: {
+        running: true,
+        question: 'q',
+        steps: [],
+        reply: '',
+        truncated: false,
+        stopped: false,
+        error: null,
+        ...extra,
+      } as never,
+    },
+  })
+
+  it('shows the answer as it arrives rather than after it', async () => {
+    useStore.setState(running({ partial: 'Three papers, all' }))
+    await render()
+
+    // A turn that shows nothing for half a minute is indistinguishable from
+    // one that has hung.
+    expect(container.querySelector('.bubble[data-live]')?.textContent).toContain(
+      'Three papers, all',
+    )
+  })
+
+  it('previews reasoning on one line instead of unrolling it', async () => {
+    useStore.setState(running({ partialReasoning: 'x'.repeat(400) }))
+    await render()
+
+    const preview = container.querySelector('.step-bar[data-static] .step-args')
+    expect(preview).toBeTruthy()
+    // Reasoning can run for pages; it must not push the answer off the screen.
+    expect((preview?.textContent ?? '').length).toBeLessThan(120)
+  })
+
+  it('stops saying “thinking” once anything has arrived', async () => {
+    useStore.setState(running({ partial: 'Here.' }))
+    await render()
+    expect(container.textContent).not.toContain('Thinking…')
+  })
+})

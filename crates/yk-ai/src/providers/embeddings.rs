@@ -1,16 +1,17 @@
-//! Embedding providers.
+//! Turning text into vectors.
 //!
 //! Two implementations ship in the box:
 //!
-//! * [`LocalEmbedder`] — deterministic hashed n-gram projection. Offline, zero
-//!   dependencies, instant. It captures lexical/morphological similarity
-//!   (including CJK) rather than true semantics, and exists so that semantic
-//!   search *always works* out of the box.
-//! * [`RemoteEmbedder`] — any OpenAI-compatible `/embeddings` endpoint
+//! * [`LocalEmbedder`] — a deterministic hashed n-gram projection. Offline,
+//!   instant, no dependencies. It captures lexical and morphological
+//!   similarity (including CJK) rather than true semantics, and exists so that
+//!   semantic search *always works* out of the box — a feature that only works
+//!   once somebody signs up for an API key is a feature most people never see.
+//! * [`OpenAiEmbedder`] — any OpenAI-compatible `/embeddings` endpoint
 //!   (OpenAI, DeepSeek, Qwen, Ollama, vLLM …) for real semantic vectors.
 
 use async_trait::async_trait;
-use yk_core::ports::EmbeddingProvider;
+use crate::provider::EmbeddingProvider;
 use yk_core::{text, Error, Result};
 
 pub const LOCAL_DIM: usize = 256;
@@ -82,7 +83,7 @@ impl EmbeddingProvider for LocalEmbedder {
 }
 
 /// OpenAI-compatible embeddings endpoint.
-pub struct RemoteEmbedder {
+pub struct OpenAiEmbedder {
     client: reqwest::Client,
     endpoint: String,
     model: String,
@@ -91,7 +92,7 @@ pub struct RemoteEmbedder {
     id: String,
 }
 
-impl RemoteEmbedder {
+impl OpenAiEmbedder {
     pub fn new(endpoint: &str, model: &str, api_key: Option<String>, dim: usize) -> Self {
         Self {
             client: reqwest::Client::builder()
@@ -108,7 +109,7 @@ impl RemoteEmbedder {
 }
 
 #[async_trait]
-impl EmbeddingProvider for RemoteEmbedder {
+impl EmbeddingProvider for OpenAiEmbedder {
     fn id(&self) -> &str {
         &self.id
     }

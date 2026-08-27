@@ -2213,6 +2213,21 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "yk-ai",
+ "yk-core",
+]
+
+[[package]]
+name = "yk-ai"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
  "yk-core",
 ]
 
@@ -2294,6 +2309,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "yk-ai",
  "yk-core",
  "yk-store",
 ]
@@ -2322,6 +2338,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "yk-agent",
+ "yk-ai",
  "yk-cite",
  "yk-core",
  "yk-import",

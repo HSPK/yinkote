@@ -27,7 +27,8 @@ use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 use yk_core::event::EventBus;
 use yk_core::ports::{PluginHost, SearchIndex};
-use yk_search::{LocalEmbedder, RemoteEmbedder, SearchEngine};
+use yk_ai::{LocalEmbedder, OpenAiEmbedder};
+use yk_search::SearchEngine;
 use yk_store::Store;
 
 use config::Config;
@@ -99,7 +100,7 @@ fn build_agent(
     if !config.agent.is_configured() {
         return None;
     }
-    match agent::OpenAiProvider::new(&config.agent) {
+    match agent::provider(&config.agent) {
         Ok(provider) => Some(Arc::new(yk_agent::Agent::new(
             Arc::new(provider),
             agent::tools(&services.store, &services.search, &services.scrape),
@@ -112,10 +113,10 @@ fn build_agent(
     }
 }
 
-fn make_embedder(config: &Config) -> Arc<dyn yk_core::ports::EmbeddingProvider> {
+fn make_embedder(config: &Config) -> Arc<dyn yk_ai::EmbeddingProvider> {
     let e = &config.embeddings;
     match (e.provider.as_str(), &e.endpoint, &e.model) {
-        ("remote", Some(endpoint), Some(model)) => Arc::new(RemoteEmbedder::new(
+        ("remote", Some(endpoint), Some(model)) => Arc::new(OpenAiEmbedder::new(
             endpoint,
             model,
             e.api_key.clone(),

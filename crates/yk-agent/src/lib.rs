@@ -11,7 +11,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use serde_json::json;
-use yk_core::ports::{ChatMessage, ChatProvider, ChatRequest, Tool, ToolCall};
+use yk_ai::stream::Delta;
+use yk_ai::{ChatMessage, ChatProvider, ChatRequest, Tool, ToolCall};
 use yk_core::{Error, Result};
 
 /// How many times the model may call tools before we stop.
@@ -49,6 +50,8 @@ pub trait Progress: Send + Sync {
     fn said(&self, _message: &ChatMessage) {}
     /// A tool was called and answered.
     fn tool_done(&self, _call: &ToolCall, _result: &str) {}
+    /// Part of the answer arrived. `kind` is `content` or `reasoning`.
+    fn delta(&self, _kind: &str, _text: &str) {}
     /// Whether the caller has asked for this to stop.
     fn cancelled(&self) -> bool {
         false
@@ -147,7 +150,10 @@ impl Agent {
 
             let reply = self
                 .provider
-                .complete(ChatRequest { messages: messages.clone(), tools: specs.clone() })
+                .complete(
+                    ChatRequest { messages: messages.clone(), tools: specs.clone() },
+                    &|delta: Delta<'_>| progress.delta(delta.kind(), delta.text()),
+                )
                 .await?;
 
             messages.push(reply.clone());
@@ -222,7 +228,8 @@ mod tests {
     use async_trait::async_trait;
     use serde_json::Value;
     use std::sync::Mutex;
-    use yk_core::ports::ToolSpec;
+    use yk_ai::stream::Sink;
+    use yk_ai::ToolSpec;
 
     /// A provider that replays a script, so the loop is tested and not the model.
     struct Scripted {
@@ -241,7 +248,7 @@ mod tests {
         fn model(&self) -> String {
             "scripted".into()
         }
-        async fn complete(&self, request: ChatRequest) -> Result<ChatMessage> {
+        async fn complete(&self, request: ChatRequest, _on: Sink<'_>) -> Result<ChatMessage> {
             self.seen.lock().unwrap().push(request.messages);
             let mut replies = self.replies.lock().unwrap();
             if replies.is_empty() {

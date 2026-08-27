@@ -1962,6 +1962,10 @@ select.ctl { padding: 4px 6px; }
   text-align: left;
 }
 .step-bar:hover { color: var(--fg); border-color: var(--line-2); }
+/* A preview of something still arriving: it is not a control, so it does not
+   pretend to be one. */
+.step-bar[data-static] { cursor: default; }
+.step-bar[data-static]:hover { color: var(--fg-dim); border-color: var(--line); }
 .turn-step[data-writes] .step-bar { border-left-color: var(--accent); }
 
 .step-caret { transition: transform 90ms ease; flex: none; }

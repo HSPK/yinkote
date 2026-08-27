@@ -12,7 +12,7 @@
 //! Their scores live on incomparable scales, so results are combined by
 //! reciprocal rank fusion rather than hand-tuned score normalisation.
 
-pub mod embed;
+
 pub mod fusion;
 pub mod lexical;
 pub mod parse;
@@ -24,13 +24,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use parking_lot::RwLock;
 use rusqlite::{params, params_from_iter, Connection};
-use yk_core::ports::{EmbeddingProvider, SearchIndex};
+use yk_ai::EmbeddingProvider;
+use yk_core::ports::SearchIndex;
 use yk_core::query::*;
 use yk_core::{text, Error, Key, Result};
 use yk_store::filter::Predicate;
 use yk_store::{sql_err, write_tx, Db, Store};
 
-pub use embed::{LocalEmbedder, RemoteEmbedder};
+pub use yk_ai::{LocalEmbedder, OpenAiEmbedder};
 use fusion::RankedList;
 use vector::VectorStore;
 

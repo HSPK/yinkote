@@ -22,7 +22,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use yk_agent::{Cancel, Progress};
 use yk_core::event::{DomainEvent, EventBus};
-use yk_core::ports::{ChatMessage, ToolCall};
+use yk_ai::{ChatMessage, ToolCall};
 
 /// One entry in a turn, in the order it happened.
 ///
@@ -57,6 +57,12 @@ pub struct RunState {
     pub truncated: bool,
     pub stopped: bool,
     pub error: Option<String>,
+    /// The answer as it is arriving, before the model has finished the message.
+    /// Cleared when the message lands as a step, so the same words are never on
+    /// screen twice.
+    pub partial: String,
+    /// The current reasoning, same rule.
+    pub partial_reasoning: String,
 }
 
 /// Every conversation with a turn in flight, and the last state of those that
@@ -66,9 +72,16 @@ pub struct Runs {
     inner: Mutex<HashMap<String, Arc<Run>>>,
 }
 
+/// How often a turn in progress is broadcast.
+///
+/// Fast enough to read as live, slow enough that a model producing three
+/// hundred tokens a second does not turn the event bus into the bottleneck.
+const ANNOUNCE_EVERY: std::time::Duration = std::time::Duration::from_millis(100);
+
 pub struct Run {
     pub state: Mutex<RunState>,
     pub cancel: Cancel,
+    last_announce: Mutex<std::time::Instant>,
     events: EventBus,
     library_id: i64,
     conversation: String,
@@ -98,6 +111,7 @@ impl Runs {
                 ..Default::default()
             }),
             cancel: Cancel::default(),
+            last_announce: Mutex::new(std::time::Instant::now()),
             events: events.clone(),
             library_id,
             conversation: conversation.to_string(),
@@ -158,8 +172,41 @@ impl Run {
     }
 
     fn push(&self, step: Step) {
-        self.state.lock().steps.push(step);
+        {
+            let mut state = self.state.lock();
+            state.steps.push(step);
+            // Whatever was arriving has now arrived as a step.
+            state.partial.clear();
+            state.partial_reasoning.clear();
+        }
         self.announce();
+    }
+
+    /// Append an arriving fragment.
+    ///
+    /// Announced at most every [`ANNOUNCE_EVERY`], because a token is a poor
+    /// unit of anything: a fast model produces hundreds a second, and pushing
+    /// the whole state that often would spend more time serialising than the
+    /// model spends thinking. The last one always goes out, so the text never
+    /// stops short of what arrived.
+    fn delta(&self, kind: &str, text: &str) {
+        let ready = {
+            let mut state = self.state.lock();
+            if kind == "reasoning" {
+                state.partial_reasoning.push_str(text);
+            } else {
+                state.partial.push_str(text);
+            }
+            let mut last = self.last_announce.lock();
+            let ready = last.elapsed() >= ANNOUNCE_EVERY;
+            if ready {
+                *last = std::time::Instant::now();
+            }
+            ready
+        };
+        if ready {
+            self.announce();
+        }
     }
 }
 
@@ -192,6 +239,10 @@ impl Progress for RunProgress {
             result: result.to_string(),
             writes: self.writers.contains(&call.name.as_str()),
         });
+    }
+
+    fn delta(&self, kind: &str, text: &str) {
+        self.run.delta(kind, text);
     }
 
     fn cancelled(&self) -> bool {

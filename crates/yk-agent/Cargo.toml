@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 yk-core = { path = "../yk-core" }
+yk-ai = { path = "../yk-ai" }
 async-trait.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

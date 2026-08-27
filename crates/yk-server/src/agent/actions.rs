@@ -22,7 +22,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use yk_core::model::{CollectionDraft, ItemDraft, ItemTag};
-use yk_core::ports::{Tool, ToolSpec};
+use yk_ai::{Tool, ToolSpec};
 use yk_core::{Error, Key, Result};
 use yk_scrape::ScrapeEngine;
 use yk_store::{CitationDraft, Store};

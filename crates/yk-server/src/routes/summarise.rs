@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::json;
 use yk_core::event::DomainEvent;
 use yk_core::model::{Item, ItemDraft};
-use yk_core::ports::ChatMessage;
+use yk_ai::ChatMessage;
 use yk_core::Error;
 
 use super::{announce, key};

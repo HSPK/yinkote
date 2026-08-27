@@ -49,11 +49,23 @@ function Step({ step }: { step: RunStep }) {
   )
 }
 
+/** The last words of a long fragment, for a one-line preview.
+ *
+ *  The end rather than the beginning: reasoning that is still arriving is most
+ *  interesting where it currently is. */
+function tail(text: string, chars = 90): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > chars ? `…${flat.slice(-chars)}` : flat
+}
+
 /** The steps of a turn, live or as they were recorded. */
-function Steps({ steps }: { steps: RunStep[] }) {
+function Steps({ steps }: { steps?: RunStep[] }) {
+  // Defensive on purpose. A state can arrive from an older server or a future
+  // one, and a chat pane that blanks itself over a missing array is a worse
+  // failure than one that shows nothing for a moment.
   return (
     <>
-      {steps.map((step, i) => (
+      {(steps ?? []).map((step, i) => (
         <Step key={i} step={step} />
       ))}
     </>
@@ -104,7 +116,23 @@ function LiveTurn({ run, onCancel }: { run: RunState; onCancel: () => void }) {
         </button>
       </div>
       <Steps steps={run.steps} />
-      {run.steps.length === 0 && <div className="turn-text dim">{t('chat.thinkingNow')}</div>}
+
+      {/* What is arriving right now. Shown as ordinary text rather than in a
+          step, because it is not finished being one — the moment it is, the
+          step replaces it and the words do not move. */}
+      {run.partialReasoning && (
+        <div className="turn-step">
+          <div className="step-bar" data-static="">
+            <Icon.Bulb size={11} />
+            <span className="step-name">{t('chat.thinking')}</span>
+            <span className="step-args">{tail(run.partialReasoning)}</span>
+          </div>
+        </div>
+      )}
+      {run.partial && <div className="bubble-body">{run.partial}</div>}
+      {!run.steps?.length && !run.partial && !run.partialReasoning && (
+        <div className="turn-text dim">{t('chat.thinkingNow')}</div>
+      )}
     </div>
   )
 }
@@ -127,7 +155,7 @@ export function ChatView() {
 
   useEffect(() => {
     tail.current?.scrollIntoView({ block: 'end' })
-  }, [messages.length, conversation, run?.steps.length])
+  }, [messages.length, conversation, run?.steps?.length])
 
   if (!conversation) {
     return (

@@ -375,4 +375,7 @@ export interface RunState {
   /** True when the user stopped it, as opposed to the loop running out. */
   stopped: boolean
   error: string | null
+  /** The answer as it arrives, before it lands as a step. */
+  partial?: string
+  partialReasoning?: string
 }

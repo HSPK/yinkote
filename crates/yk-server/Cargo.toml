@@ -13,6 +13,7 @@ path = "src/main.rs"
 yk-agent = { path = "../yk-agent" }
 yk-import = { path = "../yk-import" }
 yk-core.workspace = true
+yk-ai.workspace = true
 yk-store.workspace = true
 yk-search.workspace = true
 yk-plugin.workspace = true

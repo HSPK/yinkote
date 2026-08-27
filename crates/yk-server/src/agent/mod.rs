@@ -13,14 +13,26 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use yk_core::ports::{
-    ChatMessage, ChatProvider, ChatRequest, SearchIndex, Tool, ToolCall, ToolSpec,
-};
+use yk_ai::{OpenAiConfig, OpenAiProvider, Tool, ToolSpec};
+use yk_core::ports::SearchIndex;
 use yk_core::query::{ItemFilter, SearchMode, SearchRequest};
 use yk_core::{Error, Result};
 use yk_store::Store;
 
 use crate::config::AgentConfig;
+
+/// Point a provider at whatever the config names.
+///
+/// The dialect itself lives in `yk-ai`; this only translates one config shape
+/// into another, which is all a composition root should ever do.
+pub fn provider(config: &AgentConfig) -> yk_core::Result<OpenAiProvider> {
+    OpenAiProvider::new(&OpenAiConfig {
+        endpoint: config.endpoint.clone().unwrap_or_default(),
+        model: config.model.clone().unwrap_or_default(),
+        api_key: config.api_key.clone(),
+        timeout_secs: config.timeout_secs,
+    })
+}
 
 pub mod actions;
 pub use actions::{Action, LibraryAction, ACTIONS};
@@ -43,143 +55,7 @@ quick_add rather than writing the fields yourself — the publisher's metadata i
 better than your memory of it. And when removing something, use trash_items: it \
 is what the user can undo. Only delete permanently if they say so.";
 
-// ─── provider ───────────────────────────────────────────────────────────────
-
-pub struct OpenAiProvider {
-    http: reqwest::Client,
-    endpoint: String,
-    model: String,
-    api_key: Option<String>,
-}
-
-impl OpenAiProvider {
-    pub fn new(config: &AgentConfig) -> Result<Self> {
-        let endpoint = config
-            .endpoint
-            .clone()
-            .ok_or_else(|| Error::invalid("agent.endpoint is not configured"))?;
-        let model = config
-            .model
-            .clone()
-            .ok_or_else(|| Error::invalid("agent.model is not configured"))?;
-        Ok(Self {
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(config.timeout_secs))
-                .build()
-                .map_err(|e| Error::internal(e.to_string()))?,
-            endpoint: format!("{}/chat/completions", endpoint.trim_end_matches('/')),
-            model,
-            api_key: config.api_key.clone(),
-        })
-    }
-}
-
-/// Our message shape, in the wire's terms.
-fn to_wire(message: &ChatMessage) -> Value {
-    let mut out = json!({ "role": message.role, "content": message.content });
-    if !message.tool_calls.is_empty() {
-        out["tool_calls"] = Value::Array(
-            message
-                .tool_calls
-                .iter()
-                .map(|c| {
-                    json!({
-                        "id": c.id,
-                        "type": "function",
-                        "function": { "name": c.name, "arguments": c.arguments.to_string() },
-                    })
-                })
-                .collect(),
-        );
-    }
-    if let Some(id) = &message.tool_call_id {
-        out["tool_call_id"] = json!(id);
-    }
-    out
-}
-
-/// The wire's message shape, in ours.
-///
-/// Arguments arrive as a JSON *string*, and a model will occasionally produce
-/// one that does not parse. Passing an empty object on rather than failing the
-/// turn lets the tool report the missing argument, which the model can act on.
-fn from_wire(value: &Value) -> ChatMessage {
-    let calls = value["tool_calls"].as_array().map(Vec::as_slice).unwrap_or_default();
-    ChatMessage {
-        role: value["role"].as_str().unwrap_or("assistant").to_string(),
-        content: value["content"].as_str().unwrap_or_default().to_string(),
-        tool_calls: calls
-            .iter()
-            .map(|c| ToolCall {
-                id: c["id"].as_str().unwrap_or_default().to_string(),
-                name: c["function"]["name"].as_str().unwrap_or_default().to_string(),
-                arguments: c["function"]["arguments"]
-                    .as_str()
-                    .and_then(|a| serde_json::from_str(a).ok())
-                    .unwrap_or_else(|| json!({})),
-            })
-            .filter(|c| !c.name.is_empty())
-            .collect(),
-        tool_call_id: None,
-        // Providers disagree about where reasoning lives, and none of them
-        // agree with the base spec. Try the two spellings in the wild and
-        // treat its absence as ordinary — most models expose none.
-        reasoning: value["reasoning_content"]
-            .as_str()
-            .or_else(|| value["reasoning"].as_str())
-            .map(str::to_string)
-            .filter(|r| !r.trim().is_empty()),
-    }
-}
-
-#[async_trait]
-impl ChatProvider for OpenAiProvider {
-    fn model(&self) -> String {
-        self.model.clone()
-    }
-
-    async fn complete(&self, request: ChatRequest) -> Result<ChatMessage> {
-        let body = json!({
-            "model": self.model,
-            "messages": request.messages.iter().map(to_wire).collect::<Vec<_>>(),
-            "tools": request.tools.iter().map(|t| json!({
-                "type": "function",
-                "function": {
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                },
-            })).collect::<Vec<_>>(),
-        });
-
-        let mut req = self.http.post(&self.endpoint).json(&body);
-        if let Some(key) = &self.api_key {
-            req = req.bearer_auth(key);
-        }
-
-        let response = req.send().await.map_err(|e| Error::internal(e.to_string()))?;
-        let status = response.status();
-        let payload: Value = response.json().await.map_err(|e| Error::internal(e.to_string()))?;
-
-        if !status.is_success() {
-            // Providers put the useful part in different places; prefer the
-            // message over the raw body so the UI can show something readable.
-            let detail = payload["error"]["message"]
-                .as_str()
-                .map(str::to_string)
-                .unwrap_or_else(|| payload.to_string());
-            return Err(Error::internal(format!("model returned {status}: {detail}")));
-        }
-
-        payload["choices"][0]["message"]
-            .as_object()
-            .map(|_| from_wire(&payload["choices"][0]["message"]))
-            .ok_or_else(|| Error::internal("model returned no choices"))
-    }
-}
-
-// ─── tools ──────────────────────────────────────────────────────────────────
-
+/// Cut a string without splitting a character in half.
 fn truncate(text: &str, limit: usize) -> String {
     match text.char_indices().nth(limit) {
         Some((cut, _)) => format!("{}…", &text[..cut]),
@@ -351,57 +227,6 @@ pub fn tools(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn wire_round_trips_a_tool_call() {
-        let message = ChatMessage {
-            role: "assistant".into(),
-            content: String::new(),
-            tool_calls: vec![ToolCall {
-                id: "call_1".into(),
-                name: "search_library".into(),
-                arguments: json!({ "query": "diffusion" }),
-            }],
-            tool_call_id: None,
-                    reasoning: None,
-        };
-
-        let wire = to_wire(&message);
-        assert_eq!(wire["tool_calls"][0]["function"]["name"], "search_library");
-        // Arguments go out as a JSON string, which is what the dialect wants.
-        assert!(wire["tool_calls"][0]["function"]["arguments"].is_string());
-
-        assert_eq!(from_wire(&wire), message);
-    }
-
-    #[test]
-    fn unparsable_arguments_become_an_empty_object() {
-        // Models do occasionally emit broken JSON here. Losing the turn over it
-        // is worse than letting the tool report the missing argument.
-        let wire = json!({
-            "role": "assistant",
-            "tool_calls": [{
-                "id": "x",
-                "function": { "name": "get_item", "arguments": "{not json" },
-            }],
-        });
-        assert_eq!(from_wire(&wire).tool_calls[0].arguments, json!({}));
-    }
-
-    #[test]
-    fn a_nameless_tool_call_is_dropped() {
-        let wire = json!({
-            "role": "assistant",
-            "tool_calls": [{ "id": "x", "function": { "arguments": "{}" } }],
-        });
-        assert!(from_wire(&wire).tool_calls.is_empty());
-    }
-
-    #[test]
-    fn plain_content_survives_the_round_trip() {
-        let message = ChatMessage::new("assistant", "Nothing in the library matches.");
-        assert_eq!(from_wire(&to_wire(&message)), message);
-    }
 
     #[test]
     fn truncation_counts_characters_not_bytes() {

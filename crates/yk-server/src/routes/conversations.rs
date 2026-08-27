@@ -10,7 +10,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
 use yk_core::model::{Conversation, Message, MessageDraft};
-use yk_core::ports::ChatMessage;
+use yk_ai::ChatMessage;
 use yk_core::Error;
 
 use super::key;
@@ -166,9 +166,12 @@ async fn run_state(
     Path((_lib, k)): Path<(i64, String)>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let key = key(&k)?;
+    // A whole state even when there is no run. `{"running": false}` is the same
+    // type with holes in it, and the client that trusted the type crashed on
+    // the first missing field — a half-shaped object is a lie told in JSON.
     Ok(Json(match app.runs.get(key.as_str()) {
         Some(run) => json!(run.snapshot()),
-        None => json!({ "running": false }),
+        None => json!(crate::runs::RunState::default()),
     }))
 }
 
