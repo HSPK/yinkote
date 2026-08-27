@@ -27,6 +27,13 @@ pub trait ItemRepository: Send + Sync {
     async fn list(&self, query: &ItemQuery) -> Result<Page<Item>>;
     async fn children(&self, library_id: i64, parent: &Key) -> Result<Vec<Item>>;
 
+    /// The children of many parents at once.
+    ///
+    /// Emptying the trash asks about thousands of items, and one query each is
+    /// thousands of round trips holding a pooled connection — the shape that
+    /// made an unrelated write fail with "database is locked".
+    async fn children_of(&self, library_id: i64, parents: &[Key]) -> Result<Vec<Item>>;
+
     /// Every attachment in the library, with the item it belongs to.
     ///
     /// Paired here rather than fetched per file: a library's attachments run to

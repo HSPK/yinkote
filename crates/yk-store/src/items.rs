@@ -792,6 +792,39 @@ impl ItemRepository for SqliteItemRepository {
             .await
     }
 
+    async fn children_of(&self, library_id: i64, parents: &[Key]) -> Result<Vec<Item>> {
+        if parents.is_empty() {
+            return Ok(Vec::new());
+        }
+        let parents: Vec<String> = parents.iter().map(|k| k.to_string()).collect();
+        self.db
+            .call(move |c| {
+                // In runs, because "select all and empty the trash" passes the
+                // whole library through here and a statement binds one value
+                // per key.
+                let mut out = Vec::new();
+                for run in crate::filter::chunks(&parents) {
+                    let ph = placeholders(run.len());
+                    let sql = format!(
+                        "SELECT {COLS} {FROM} WHERE i.library_id = ? AND p.key IN ({ph})"
+                    );
+                    let mut args: Vec<rusqlite::types::Value> =
+                        vec![rusqlite::types::Value::Integer(library_id)];
+                    args.extend(run.iter().map(|k| rusqlite::types::Value::Text(k.clone())));
+                    let found: Vec<(i64, Item)> = c
+                        .prepare_cached(&sql)
+                        .map_err(sql_err)?
+                        .query_map(params_from_iter(args), map_row)
+                        .map_err(sql_err)?
+                        .collect::<rusqlite::Result<_>>()
+                        .map_err(sql_err)?;
+                    out.extend(found.into_iter().map(|(_, i)| i));
+                }
+                Ok(out)
+            })
+            .await
+    }
+
     async fn attachments(
         &self,
         library_id: i64,

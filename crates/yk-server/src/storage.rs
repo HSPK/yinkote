@@ -151,6 +151,22 @@ impl Storage {
     }
 
     /// Remove everything belonging to an attachment.
+    /// Forget the files of many items at once.
+    ///
+    /// One trip to the blocking pool for the whole set rather than one per
+    /// item: emptying the trash is thousands of directories, and the await
+    /// around each removal costs more than the removal.
+    pub async fn remove_many(&self, keys: &[Key]) {
+        let dirs: Vec<PathBuf> = keys.iter().map(|k| self.dir(k)).collect();
+        let _ = tokio::task::spawn_blocking(move || {
+            for dir in dirs {
+                // A missing directory is an item that never had a file.
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        })
+        .await;
+    }
+
     pub async fn remove(&self, key: &Key) -> Result<()> {
         match tokio::fs::remove_dir_all(self.dir(key)).await {
             Ok(()) => Ok(()),

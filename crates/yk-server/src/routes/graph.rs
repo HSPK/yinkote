@@ -159,21 +159,31 @@ async fn neighbourhood(
 ///
 /// A node with no label is a dot, and a dot is not information.
 async fn titles_for(app: &App, lib: i64, keys: &[Key]) -> HashMap<String, serde_json::Value> {
-    let mut out = HashMap::new();
-    for key in keys {
-        if let Ok(item) = app.store().items.get(lib, key).await {
-            out.insert(
-                key.to_string(),
+    // One query, not one per node. A neighbourhood is dozens of keys, and a
+    // query each is dozens of round trips holding a pooled connection for a
+    // request that should be a single read — the shape that turned an archive
+    // import into "database is locked" elsewhere in the program.
+    //
+    // A key with no item is simply absent: the caller draws what it was given
+    // labels for, and a node nobody can name is a dot.
+    app.store()
+        .items
+        .get_many(lib, keys)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|item| {
+            (
+                item.key.to_string(),
                 json!({
                     "key": item.key,
                     "title": item.title(),
                     "year": item.field("date").and_then(year),
                     "itemType": item.item_type,
                 }),
-            );
-        }
-    }
-    out
+            )
+        })
+        .collect()
 }
 
 fn year(date: &str) -> Option<i64> {

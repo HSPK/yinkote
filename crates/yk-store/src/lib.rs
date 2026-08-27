@@ -1006,6 +1006,56 @@ mod attachment_tests {
     }
 
     #[tokio::test]
+    async fn reading_the_children_of_more_parents_than_sqlite_has_variables() {
+        // "Select all, empty the trash" passes the whole library through here,
+        // and a statement binds one value per key. This is the same ceiling
+        // that made trashing a large selection fail outright.
+        let s = Store::in_memory().unwrap();
+        let lib = s.default_library;
+
+        let parents: Vec<ItemDraft> =
+            (0..OVER_SQLITE_LIMIT).map(|_| ItemDraft::new("journalArticle")).collect();
+        let made = s.items.create_many(lib, parents).await.unwrap();
+        let keys: Vec<yk_core::Key> =
+            made.into_iter().filter_map(|r| r.ok()).map(|i| i.key).collect();
+
+        // One child, on the last parent, so a chunking bug that drops a run
+        // shows up as an empty answer rather than a smaller one.
+        let mut child = ItemDraft::new("attachment").with_field("filename", "x.pdf");
+        child.parent_key = Some(keys.last().unwrap().clone());
+        s.items.create(lib, child).await.unwrap();
+
+        let found = s.items.children_of(lib, &keys).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].field("filename"), Some("x.pdf"));
+    }
+
+    #[tokio::test]
+    async fn the_children_of_many_parents_come_back_together() {
+        let s = Store::in_memory().unwrap();
+        let lib = s.default_library;
+
+        let a = s.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+        let b = s.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+        let lonely = s.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+
+        for (parent, name) in [(&a.key, "a.pdf"), (&a.key, "a2.pdf"), (&b.key, "b.pdf")] {
+            let mut child = ItemDraft::new("attachment").with_field("filename", name);
+            child.parent_key = Some(parent.clone());
+            s.items.create(lib, child).await.unwrap();
+        }
+
+        let found = s.items.children_of(lib, &[a.key.clone(), b.key.clone()]).await.unwrap();
+        assert_eq!(found.len(), 3, "every child of both parents, in one answer");
+
+        // A parent with nothing under it contributes nothing rather than
+        // erroring, which is what a deletion of mixed items looks like.
+        let none = s.items.children_of(lib, &[lonely.key]).await.unwrap();
+        assert!(none.is_empty());
+        assert!(s.items.children_of(lib, &[]).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn an_attachment_whose_parent_is_gone_is_still_listed() {
         let s = Store::in_memory().unwrap();
         let lib = s.default_library;

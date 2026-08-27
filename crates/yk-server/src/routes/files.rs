@@ -357,15 +357,16 @@ fn attachment_filename(item: &yk_core::model::Item) -> Result<String> {
 /// bytes stop being reachable, and without this the disk would keep every PDF
 /// the library ever held.
 pub async fn forget_files(app: &App, lib: i64, keys: &[Key]) {
-    for key in keys {
-        // Children hold the files; the parent may have several.
-        if let Ok(children) = app.store().items.children(lib, key).await {
-            for child in children {
-                let _ = app.storage().remove(&child.key).await;
-            }
-        }
-        let _ = app.storage().remove(key).await;
-    }
+    // One query for every parent's children, and one pass over the disk. Asking
+    // per item is thousands of round trips when somebody empties the trash,
+    // and it happens inside the request that deletes them.
+    let children = app.store().items.children_of(lib, keys).await.unwrap_or_default();
+
+    // Children hold the files; the parent may have several, and may have one of
+    // its own.
+    let mut all: Vec<Key> = children.into_iter().map(|c| c.key).collect();
+    all.extend_from_slice(keys);
+    app.storage().remove_many(&all).await;
 }
 
 #[cfg(test)]
