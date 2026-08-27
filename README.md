@@ -149,6 +149,7 @@ Word / WPS / LibreOffice 共用的**服务端协议 `/api/v1/integration/*` 已�
 详见 `docs/09-roadmap.md`。
 
 已实现并可用：条目与收藏夹、智能收藏夹、混合检索（关键词 / 模糊 / 语义 / 标签）、
+查重与合并（按标识符与题名两把尺子，合并后败者进回收站而非销毁）、
 标签与分面、插件系统（含徽章贡献点）、DOI/arXiv/ISBN 抓取、附件下载与 PDF 阅读标注、
 文献问答与摘要 Agent、Zotero 导入（含附件、笔记、PDF 标注）、
 引文与参考文献渲染（APA / MLA / Chicago / IEEE / GB-T 7714）、

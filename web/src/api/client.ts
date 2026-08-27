@@ -187,6 +187,16 @@ export const api = {
       request<GraphNeighbourhood>(`/libraries/${lib}/graph/${key}?limit=${limit}`),
   },
 
+  duplicates: {
+    groups: (lib: number) =>
+      request<{ groups: Item[][]; total: number }>(`/libraries/${lib}/duplicates`),
+    merge: (lib: number, master: string, others: string[]) =>
+      request<{ item: Item; merged: number }>(`/libraries/${lib}/items/merge`, {
+        method: 'POST',
+        body: JSON.stringify({ master, others }),
+      }),
+  },
+
   references: {
     list: (lib: number, key: string) =>
       request<CitationList>(`/libraries/${lib}/items/${key}/citations`),

@@ -250,6 +250,33 @@ check "graph coupling"    "$(j "$BASE/libraries/$LIB/graph/$CITER" \
 check "graph cocitation"  "$(j "$BASE/libraries/$LIB/graph/$CA" \
                              | jq -r --arg k "$CB" '[.edges[] | select(.relation == "cocitation" and .target == $k)] | length | select(. == 1)')"
 
+echo "▸ duplicates"
+# Two records of one paper, one of which carries the PDF.
+# Unique to this run. The smoke database is kept between runs, so a fixed
+# title would make this run's pair a duplicate of every previous run's pair,
+# and "the group is gone" could never come true again.
+DUPT="A Duplicated Paper $$-$(date +%s)"
+DA=$(j -X POST "$BASE/libraries/$LIB/items" \
+       -d "$(jq -nc --arg t "$DUPT" '{itemType:"journalArticle",title:$t,date:"2019",creators:[{creatorType:"author",lastName:"Kim"}]}')" \
+       | jq -r '.created[0].key')
+DB=$(j -X POST "$BASE/libraries/$LIB/items" \
+       -d "$(jq -nc --arg t "$DUPT" '{itemType:"journalArticle",title:($t|ascii_downcase),date:"2019",creators:[{creatorType:"author",lastName:"Kim"}],DOI:"10.5555/dup-\($t|@base64)"}')" \
+       | jq -r '.created[0].key')
+j -X POST "$BASE/libraries/$LIB/items" \
+  -d "{\"itemType\":\"attachment\",\"parentKey\":\"$DB\",\"contentType\":\"application/pdf\",\"linkMode\":\"imported_file\"}" >/dev/null
+check "duplicate found"   "$(j "$BASE/libraries/$LIB/duplicates" \
+                             | jq -r --arg a "$DA" '[.groups[] | select(any(.[]; .key == $a))] | length | select(. == 1)')"
+# Keep the thin record, so the merge has to carry the other one's PDF across.
+check "merged"            "$(j -X POST "$BASE/libraries/$LIB/items/merge" \
+                             -d "{\"master\":\"$DA\",\"others\":[\"$DB\"]}" \
+                             | jq -r '.merged | select(. == 1)')"
+check "kept the pdf"      "$(j "$BASE/libraries/$LIB/items/$DA" | jq -r '.attachments | join("+") | select(. == "pdf")')"
+check "filled the gap"    "$(j "$BASE/libraries/$LIB/items/$DA" | jq -r '.DOI | select(startswith("10.5555/dup-"))')"
+# Recoverable: the loser is in the trash, not destroyed.
+check "loser is trashed"  "$(j "$BASE/libraries/$LIB/items/$DB" | jq -r '.deleted | select(. == true) | "trashed"')"
+check "group is gone"     "$(j "$BASE/libraries/$LIB/duplicates" \
+                             | jq -r --arg a "$DA" '[.groups[] | select(any(.[]; .key == $a))] | length | select(. == 0) | "resolved"')"
+
 echo "▸ word integration"
 # The protocol every word processor uses. The point of the whole design is that
 # inserting a citation renumbers the ones after it, so that is what is checked.

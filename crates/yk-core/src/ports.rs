@@ -82,6 +82,17 @@ pub trait ItemRepository: Send + Sync {
         keys: &[Key],
     ) -> Result<u64>;
 
+    /// Groups of live top-level items that share a fingerprint.
+    ///
+    /// The library-wide scan, as against [`ItemRepository::find_by_fingerprint`],
+    /// which answers "have I already got this one?" for a single candidate.
+    async fn duplicate_groups(&self, library_id: i64, limit: u32) -> Result<Vec<Vec<Item>>>;
+
+    /// Fold `others` into `master` and put them in the trash.
+    ///
+    /// Returns the master as it now stands.
+    async fn merge(&self, library_id: i64, master: &Key, others: &[Key]) -> Result<Item>;
+
     /// Existing items whose fingerprint matches any of `fingerprints`.
     async fn find_by_fingerprint(
         &self,

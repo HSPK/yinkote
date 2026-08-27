@@ -300,6 +300,72 @@ fn tag_id(tx: &Connection, library_id: i64, name: &str) -> Result<i64> {
     .map_err(sql_err)
 }
 
+/// The library-wide duplicate scan, by identifier.
+///
+/// `INDEXED BY` for the usual reason (see `tests/fingerprint_plans.rs`): read
+/// in fingerprint order the grouping is already done, where driving from
+/// `parent_id IS NULL` sorts the whole library into groups instead — 62ms
+/// against 52ms on the 130k benchmark library.
+///
+/// The empty fingerprint and `t:|a:|y:` are excluded because an item with no
+/// title, author or year matches every other such item: true by the letter of
+/// it, and useless, since there is nothing to compare.
+pub const DUPLICATE_SCAN_SQL: &str = "SELECT group_concat(id) FROM items \
+     INDEXED BY idx_items_fingerprint \
+     WHERE library_id = ?1 AND deleted = 0 AND parent_id IS NULL \
+       AND fingerprint <> '' AND fingerprint <> 't:|a:|y:' \
+     GROUP BY fingerprint HAVING count(*) > 1 \
+     ORDER BY count(*) DESC LIMIT ?2";
+
+/// The same scan, by what is written on the paper.
+///
+/// Both scans are needed, and a smoke check is what proved it. A fingerprint
+/// prefers an identifier, so a record with a DOI and a record without one never
+/// share a fingerprint however identical they are — and "one copy imported from
+/// the publisher, one typed by hand" is the commonest duplicate there is. That
+/// pair is only caught by comparing the title, the first author and the year,
+/// which are already denormalised for sorting.
+///
+/// Deliberately unhinted: `INDEXED BY idx_items_title` was measured and made it
+/// worse (142ms against 108ms), because grouping on three columns still has to
+/// sort within each title. 160ms for both scans on a 130k library, for a screen
+/// that is opened on purpose.
+pub const DUPLICATE_TITLE_SCAN_SQL: &str = "SELECT group_concat(id) FROM items \
+     WHERE library_id = ?1 AND deleted = 0 AND parent_id IS NULL AND sort_title <> '' \
+     GROUP BY sort_title, sort_creator, year HAVING count(*) > 1 \
+     ORDER BY count(*) DESC LIMIT ?2";
+
+/// Merge id sets that share a member.
+///
+/// Two records matched by DOI and two matched by title are one group of three
+/// when they have a record in common; showing that record in two groups would
+/// invite somebody to merge it into two different masters.
+fn coalesce(sets: Vec<Vec<i64>>) -> Vec<Vec<i64>> {
+    let mut out: Vec<Vec<i64>> = Vec::with_capacity(sets.len());
+    for set in sets {
+        // Everything this set touches, folded together with it.
+        let mut merged = set;
+        let mut i = 0;
+        while i < out.len() {
+            if out[i].iter().any(|id| merged.contains(id)) {
+                let taken = out.swap_remove(i);
+                for id in taken {
+                    if !merged.contains(&id) {
+                        merged.push(id);
+                    }
+                }
+                // `swap_remove` moved a new candidate into this slot.
+                i = 0;
+            } else {
+                i += 1;
+            }
+        }
+        merged.sort_unstable();
+        out.push(merged);
+    }
+    out
+}
+
 fn set_tags(tx: &Connection, library_id: i64, id: i64, tags: &[ItemTag]) -> Result<()> {
     tx.execute("DELETE FROM item_tags WHERE item_id = ?1", params![id]).map_err(sql_err)?;
     for t in tags {
@@ -853,6 +919,158 @@ impl ItemRepository for SqliteItemRepository {
                 }
                 tx.commit().map_err(sql_err)?;
                 Ok(out)
+            })
+            .await
+    }
+
+    async fn duplicate_groups(&self, library_id: i64, limit: u32) -> Result<Vec<Vec<Item>>> {
+        self.db
+            .call(move |c| {
+                // Two ways of being the same paper, and an item is in a group
+                // if it matches either. They overlap — three records where two
+                // share a DOI and two share a title are one group of three, not
+                // two groups of two — so the id sets are merged rather than
+                // concatenated.
+                let mut sets: Vec<Vec<i64>> = Vec::new();
+                for sql in [DUPLICATE_SCAN_SQL, DUPLICATE_TITLE_SCAN_SQL] {
+                    let mut stmt = c.prepare_cached(sql).map_err(sql_err)?;
+                    let rows = stmt
+                        .query_map(params![library_id, limit], |r| r.get::<_, String>(0))
+                        .map_err(sql_err)?;
+                    for row in rows {
+                        let ids: Vec<i64> = row
+                            .map_err(sql_err)?
+                            .split(',')
+                            .filter_map(|id| id.parse().ok())
+                            .collect();
+                        if ids.len() > 1 {
+                            sets.push(ids);
+                        }
+                    }
+                }
+                let sets = coalesce(sets);
+                if sets.is_empty() {
+                    return Ok(Vec::new());
+                }
+
+                // Every member of every group in one pass. Tags, collections
+                // and attachments are what a person compares when deciding
+                // which copy to keep, so the rows are hydrated.
+                let ids: Vec<i64> = sets.iter().flatten().copied().collect();
+                let mut by_id: HashMap<i64, Item> = HashMap::new();
+                for run in crate::filter::chunks(&ids) {
+                    let ph = placeholders(run.len());
+                    let sql = format!("SELECT {COLS} {FROM} WHERE i.id IN ({ph})");
+                    let mut rows: Vec<(i64, Item)> = c
+                        .prepare(&sql)
+                        .map_err(sql_err)?
+                        .query_map(params_from_iter(run.iter()), map_row)
+                        .map_err(sql_err)?
+                        .collect::<rusqlite::Result<_>>()
+                        .map_err(sql_err)?;
+                    hydrate(c, &mut rows)?;
+                    by_id.extend(rows);
+                }
+
+                Ok(sets
+                    .into_iter()
+                    .take(limit as usize)
+                    .map(|set| set.iter().filter_map(|id| by_id.remove(id)).collect::<Vec<_>>())
+                    .filter(|group: &Vec<Item>| group.len() > 1)
+                    .collect())
+            })
+            .await
+    }
+
+    async fn merge(&self, library_id: i64, master: &Key, others: &[Key]) -> Result<Item> {
+        let master = master.clone();
+        let others: Vec<Key> = others.iter().filter(|k| **k != master).cloned().collect();
+        if others.is_empty() {
+            return self.get(library_id, &master).await;
+        }
+        self.db
+            .call(move |c| {
+                let tx = write_tx(c)?;
+                let version = bump_version(&tx, library_id)?;
+                let (master_id, mut kept) = load_one(&tx, library_id, &master)?;
+
+                for key in &others {
+                    let (id, other) = load_one(&tx, library_id, key)?;
+
+                    // Attachments and notes move across. They are the reason
+                    // merging is worth doing: the copy somebody is about to
+                    // discard is often the one with the PDF on it.
+                    tx.execute(
+                        "UPDATE items SET parent_id = ?1, version = ?2, date_modified = ?3 \
+                         WHERE parent_id = ?4",
+                        params![master_id, version, yk_core::now_ms(), id],
+                    )
+                    .map_err(sql_err)?;
+
+                    for tag in &other.tags {
+                        if !kept.tags.iter().any(|t| t.tag == tag.tag) {
+                            kept.tags.push(tag.clone());
+                        }
+                    }
+                    for collection in &other.collections {
+                        if !kept.collections.contains(collection) {
+                            kept.collections.push(collection.clone());
+                        }
+                    }
+                    // Fields are filled in, never overwritten: the master is
+                    // the copy the user chose to keep, and the merge is only
+                    // allowed to supply what it was missing — a DOI on one
+                    // record and an abstract on the other is the usual case.
+                    for (name, value) in &other.fields {
+                        let blank = kept
+                            .fields
+                            .get(name)
+                            .map(|v| v.as_str().is_some_and(|s| s.trim().is_empty()))
+                            .unwrap_or(true);
+                        if blank && !value.is_null() {
+                            kept.fields.insert(name.clone(), value.clone());
+                        }
+                    }
+
+                    // Soft, so the whole merge can be undone from the trash.
+                    // Losing a record to a merge is the one mistake in a
+                    // reference manager nobody can put right by hand.
+                    //
+                    // The duplicate keeps its own relations and citations; they
+                    // hang off a trashed item, and every query that reads them
+                    // filters on `deleted = 0`.
+                    tx.execute(
+                        "UPDATE items SET deleted = 1, version = ?1, date_modified = ?2 \
+                         WHERE id = ?3",
+                        params![version, yk_core::now_ms(), id],
+                    )
+                    .map_err(sql_err)?;
+                }
+
+                kept.version = version;
+                kept.date_modified = yk_core::now_ms();
+                let d = denorm(&kept);
+                tx.execute(
+                    "UPDATE items SET fields = ?1, sort_title = ?2, sort_creator = ?3, \
+                         year = ?4, fingerprint = ?5, version = ?6, date_modified = ?7 \
+                     WHERE id = ?8",
+                    params![
+                        serde_json::to_string(&kept.fields)?,
+                        d.sort_title,
+                        d.sort_creator,
+                        d.year,
+                        d.fingerprint,
+                        version,
+                        kept.date_modified,
+                        master_id
+                    ],
+                )
+                .map_err(sql_err)?;
+                set_tags(&tx, library_id, master_id, &kept.tags)?;
+                set_collections(&tx, library_id, master_id, &kept.collections)?;
+                index::reindex(&tx, master_id, &kept)?;
+                tx.commit().map_err(sql_err)?;
+                Ok(kept)
             })
             .await
     }

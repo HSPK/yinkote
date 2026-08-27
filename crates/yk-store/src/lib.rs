@@ -23,7 +23,7 @@ mod items;
 /// ever noticed.
 pub mod plans {
     pub use crate::graph::COCITATION_SQL;
-    pub use crate::items::fingerprint_sql;
+    pub use crate::items::{fingerprint_sql, DUPLICATE_SCAN_SQL};
     pub use crate::relations::{CITES_SQL, MISSING_SQL};
 }
 mod smart;

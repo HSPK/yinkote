@@ -28,6 +28,8 @@ pub fn router() -> Router<App> {
         .route("/libraries/:lib/trash", axum::routing::delete(empty_trash))
         .route("/libraries/:lib/collections/:ckey/items", post(add_to_collection))
         .route("/libraries/:lib/duplicates", post(duplicates))
+        .route("/libraries/:lib/duplicates", get(duplicate_groups))
+        .route("/libraries/:lib/items/merge", post(merge))
 }
 
 /// Let plugins enrich drafts before anything is persisted.
@@ -373,6 +375,68 @@ async fn duplicates(
     Ok(Json(app.store().items.find_by_fingerprint(lib, &body.fingerprints).await?))
 }
 
+
+/// How many duplicate groups one screen asks for.
+///
+/// A library with more duplicate groups than this has a bigger problem than
+/// this screen can solve in one pass, and the user works through them a page at
+/// a time regardless.
+const DUPLICATE_GROUPS: u32 = 200;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct GroupParams {
+    limit: Option<u32>,
+}
+
+/// The duplicates in the library, grouped.
+async fn duplicate_groups(
+    State(app): State<App>,
+    Path(lib): Path<i64>,
+    Query(params): Query<GroupParams>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let limit = params.limit.unwrap_or(DUPLICATE_GROUPS).min(DUPLICATE_GROUPS);
+    let groups = app.store().items.duplicate_groups(lib, limit).await?;
+    Ok(Json(json!({
+        "groups": groups,
+        // What the screen leads with: "you have 31 of these" is the answer, and
+        // the groups are the evidence.
+        "total": groups.len(),
+    })))
+}
+
+#[derive(Deserialize)]
+struct MergeBody {
+    /// The record to keep.
+    master: String,
+    /// The records to fold into it.
+    others: Vec<String>,
+}
+
+/// Fold duplicates into one record.
+///
+/// The losers go to the trash rather than being destroyed: a merge is the one
+/// operation here that a user cannot undo by hand, and "it took my PDF" is not
+/// something to find out about a week later.
+async fn merge(
+    State(app): State<App>,
+    Path(lib): Path<i64>,
+    Json(body): Json<MergeBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let master = key(&body.master)?;
+    let others = parse_keys(&body.others)?;
+    let item = app.store().items.merge(lib, &master, &others).await?;
+
+    let mut keys = vec![master.clone()];
+    keys.extend(others.iter().cloned());
+    let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
+        library_id: lib,
+        keys: keys.clone(),
+        version,
+    })
+    .await?;
+    Ok(Json(json!({ "item": item, "merged": others.len(), "version": version })))
+}
 
 /// List ordered by a plugin-supplied badge.
 ///

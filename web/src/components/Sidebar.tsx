@@ -141,6 +141,16 @@ export function Sidebar() {
           <Icon.Graph className="glyph" />
           <span className="label">{t('gaps.title')}</span>
         </button>
+
+        <button
+          className="nav-item"
+          data-active={activeTab.startsWith('duplicates')}
+          title={t('duplicates.open')}
+          onClick={() => openTab({ id: tabId('duplicates'), kind: 'duplicates', title: '' })}
+        >
+          <Icon.Library className="glyph" />
+          <span className="label">{t('duplicates.title')}</span>
+        </button>
       </div>
 
       <div className="nav-group">
