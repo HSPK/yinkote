@@ -35,13 +35,18 @@ export async function runOptimize(): Promise<void> {
 export async function runBackup(): Promise<void> {
   await withToast(
     async () => {
-      const made = await api.maintenance.backup()
-      return made
+      const { task } = await api.maintenance.backup()
+      const done = await follow(task.id)
+      if (!done || done.phase !== 'done') throw new Error(done?.error ?? t('toast.taskLost'))
+      return done.result as { name: string; bytes: number }
     },
     {
       pending: t('toast.backingUp'),
       success: (made) =>
-        t('toast.backedUp', { name: made.name, size: humanBytes(made.bytes) }),
+        t('toast.backedUp', {
+          name: String(made?.name ?? ''),
+          size: humanBytes(Number(made?.bytes ?? 0)),
+        }),
       failure: t('toast.backupFailed'),
     },
   )

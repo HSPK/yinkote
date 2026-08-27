@@ -25,6 +25,17 @@ skip() { printf '  \033[33mskip\033[0m %-44s %s\n' "$1" "$2"; }
 
 j() { curl -sS -H 'Content-Type: application/json' "$@"; }
 
+# Long jobs hand back a task; this waits for one to stop and says how it went.
+await_task() { # await_task <task-id>
+  for _ in $(seq 1 120); do
+    local phase
+    phase=$(j "$BASE/tasks/$1" | jq -r .phase)
+    [[ "$phase" == "running" ]] || { echo "$phase"; return; }
+    sleep 1
+  done
+  echo "timeout"
+}
+
 echo "▸ system"
 check "ping"             "$(j "$BASE/ping" | jq -r .ok)"
 check "schema types"     "$(j "$BASE/schema" | jq -r '.itemTypes | length')"
@@ -143,13 +154,19 @@ check "import preview"    "$(j -X POST "$BASE/import/zotero/preview" -d "{\"path
 # `total` is what the import read, which is the same on every run; `items` is
 # what was new, which is zero from the second run onwards against a database
 # that persists between smoke runs.
-check "import commits"    "$(j -X POST "$BASE/libraries/$LIB/import/zotero" -d "{\"path\":\"$ZDB\"}" \
-                             | jq -r 'select(.failed == 0) | .total')"
+# A Zotero import is a task like every other long job: a real library takes
+# minutes, and this is the first thing anybody does with the program.
+zotero_import() { # zotero_import -> the result of a finished run
+  local id
+  id=$(j -X POST "$BASE/libraries/$LIB/import/zotero" -d "{\"path\":\"$ZDB\"}" | jq -r .task.id)
+  await_task "$id" > /dev/null
+  j "$BASE/tasks/$id" | jq -r .result
+}
+check "import commits"    "$(zotero_import | jq -r 'select(.failed == 0) | .total')"
 # Running it again updates rather than duplicating; that is why keys are kept.
 # Phrased so a wrong answer is empty, not merely a different word — `check`
 # passes anything non-empty, which once made "failed" read as a success.
-check "import repeatable" "$(j -X POST "$BASE/libraries/$LIB/import/zotero" -d "{\"path\":\"$ZDB\"}" \
-                             | jq -r 'select(.failed == 0 and .updated > 0) | "updated \(.updated)"')"
+check "import repeatable" "$(zotero_import | jq -r 'select(.failed == 0 and .updated > 0) | "updated \(.updated)"')"
 check "import untouched"  "$(test -f "${ZDB}-wal" && echo "journal left" || echo untouched)"
 # A highlight belongs to the file it was drawn on, so it must arrive as a child
 # of the attachment — and with a palette name, not Zotero's hex, or it would not
@@ -357,6 +374,7 @@ check "rubbish reported"  "$(j -X POST "$BASE/libraries/$LIB/import/bibliography
                              -d '{"text":"@article{broken, year = {2019} }"}' \
                              | jq -r 'select(.imported == 0 and .skipped == 1) | .reasons[0]')"
 
+
 echo "▸ maintenance"
 # Asked, not assumed: the server knows where it keeps its data, and a script
 # that hard-codes the path checks a different machine's backups on the day
@@ -365,7 +383,9 @@ DATA=$(j "$BASE/ping" | jq -r .dataDir)
 # A backup is worth what can be restored from it, so the check is that the file
 # opens as a library and holds the same number of items — not that the endpoint
 # returned 200.
-BK=$(j -X POST "$BASE/maintenance/backup")
+BKTASK=$(j -X POST "$BASE/maintenance/backup" | jq -r .task.id)
+check "backup finished"   "$(await_task "$BKTASK" | grep -x done)"
+BK=$(j "$BASE/tasks/$BKTASK" | jq -r .result)
 BKNAME=$(echo "$BK" | jq -r .name)
 check "backup taken"      "$(echo "$BK" | jq -r '.bytes | select(. > 0) | "written"')"
 check "backup named"      "$(echo "$BKNAME" | grep -qE '^yinkote-[0-9]{8}\.db$' && echo "$BKNAME")"
@@ -383,7 +403,9 @@ print("restored" if ok == "ok" and found == 1 and total > 0 else "")
 PY
 )"
 # Taking one twice in a day replaces it rather than failing.
-check "backup repeats"    "$(j -X POST "$BASE/maintenance/backup" | jq -r --arg n "$BKNAME" '.name | select(. == $n)')"
+BK2=$(j -X POST "$BASE/maintenance/backup" | jq -r .task.id)
+await_task "$BK2" > /dev/null
+check "backup repeats"    "$(j "$BASE/tasks/$BK2" | jq -r --arg n "$BKNAME" '.result.name | select(. == $n)')"
 check "backups listed"    "$(j "$BASE/maintenance/backups" | jq -r --arg n "$BKNAME" '[.backups[] | select(.name == $n)] | length | select(. == 1)')"
 check "integrity checked" "$(j "$BASE/maintenance/integrity" | jq -r '.checked | tostring | select(. != "null")')"
 check "integrity reports" "$(j "$BASE/maintenance/integrity" | jq -r 'select((.missing | type) == "array" and (.orphans | type) == "array") | "both directions"')"
@@ -391,15 +413,6 @@ check "integrity reports" "$(j "$BASE/maintenance/integrity" | jq -r 'select((.m
 # it, so the check unpacks the database inside and reads it.
 # Started, not awaited: a big library takes minutes, and a held-open request
 # is a client with nothing to show and a proxy free to time out.
-await_task() { # await_task <task-id>
-  for _ in $(seq 1 120); do
-    local phase
-    phase=$(j "$BASE/tasks/$1" | jq -r .phase)
-    [[ "$phase" == "running" ]] || { echo "$phase"; return; }
-    sleep 1
-  done
-  echo "timeout"
-}
 EXPTASK=$(j -X POST "$BASE/maintenance/export-all" | jq -r .task.id)
 check "export started"    "$EXPTASK"
 check "export finished"   "$(await_task "$EXPTASK" | grep -x done)"

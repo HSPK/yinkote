@@ -13,7 +13,6 @@ use yk_core::event::DomainEvent;
 use yk_core::model::{CollectionDraft, ItemDraft};
 use yk_core::{Error, Key};
 
-use super::announce;
 use crate::error::ApiResult;
 use crate::state::App;
 
@@ -46,15 +45,41 @@ async fn preview(
 /// Zotero's keys are kept, so importing the same library twice updates the
 /// items rather than duplicating them — which is the difference between an
 /// import being repeatable and being a trap.
+/// Bring a Zotero library across.
+///
+/// Started rather than awaited: this is the first thing a new user does and a
+/// real library takes minutes, most of it silent. It reports genuine progress —
+/// items are imported in batches, so there is something honest to count.
 async fn run(
     State(app): State<App>,
     Path(lib): Path<i64>,
     Json(body): Json<Source>,
-) -> ApiResult<Json<serde_json::Value>> {
+) -> Json<serde_json::Value> {
+    let task = app.tasks().start("zotero", "Reading the Zotero library");
+    let worker = app.clone();
+    let handle = task.clone();
     let path = std::path::PathBuf::from(&body.path);
+    tokio::spawn(async move {
+        match import(&worker, lib, path, &handle).await {
+            Ok((result, false)) => worker.tasks().finish(&handle, result),
+            Ok((result, true)) => worker.tasks().stopped(&handle, result),
+            Err(e) => worker.tasks().fail(&handle, e),
+        }
+    });
+    Json(json!({ "task": task.snapshot() }))
+}
+
+/// Returns what arrived, and whether it stopped early because it was asked to.
+async fn import(
+    app: &App,
+    lib: i64,
+    path: std::path::PathBuf,
+    task: &std::sync::Arc<crate::tasks::Task>,
+) -> Result<(serde_json::Value, bool), Error> {
     let library = tokio::task::spawn_blocking(move || yk_import::zotero::read(&path))
         .await
         .map_err(|e| Error::internal(e.to_string()))??;
+    task.progress("Filing collections", 0, library.items.len() as u64);
 
     // Collections first: an item's membership is meaningless until they exist.
     // Parents before children, so a nested collection has something to hang on.
@@ -81,8 +106,16 @@ async fn run(
     let mut updated = 0u64;
     let mut failed = 0u64;
 
+    let mut stopped = false;
+
     // In batches, so a large library does not hold the write lock for minutes.
     for chunk in library.items.chunks(200) {
+        // Between batches, not inside one. Stopping is safe because this import
+        // is repeatable by design: what arrived is what the next run skips.
+        if task.cancelled() {
+            stopped = true;
+            break;
+        }
         let keys: Vec<_> = chunk.iter().map(|d| d.key.clone()).collect();
         let results = app.store().items.create_many(lib, chunk.to_vec()).await?;
 
@@ -90,15 +123,15 @@ async fn run(
             match result {
                 Ok(item) => {
                     added += 1;
-                    file_into_collections(&app, lib, &item.key, &library.membership).await;
+                    file_into_collections(app, lib, &item.key, &library.membership).await;
                 }
                 // An item that is already here has not failed; it was imported
                 // before. Bringing the newer version across is what makes a
                 // repeat import worth running at all.
-                Err(_) => match refresh(&app, lib, key.as_ref(), draft).await {
+                Err(_) => match refresh(app, lib, key.as_ref(), draft).await {
                     Ok(item) => {
                         updated += 1;
-                        file_into_collections(&app, lib, &item.key, &library.membership).await;
+                        file_into_collections(app, lib, &item.key, &library.membership).await;
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "skipped an item during import");
@@ -107,34 +140,45 @@ async fn run(
                 },
             }
         }
+        task.progress("Importing items", added + updated + failed, total as u64);
+        task.detail(json!({ "added": added, "updated": updated, "failed": failed }));
     }
 
-    let files = import_attachments(&app, lib, &library.attachments).await;
-    let notes = import_notes(&app, lib, &library.notes).await;
-    let annotations = import_annotations(&app, lib, &library).await;
+    task.progress("Importing files", added + updated + failed, total as u64);
+    let files = import_attachments(app, lib, &library.attachments).await;
+    task.progress("Importing notes", added + updated + failed, total as u64);
+    let notes = import_notes(app, lib, &library.notes).await;
+    task.progress("Importing annotations", added + updated + failed, total as u64);
+    let annotations = import_annotations(app, lib, &library).await;
 
-    let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
+    // What `announce` does, spelled out: it answers in the HTTP error type, and
+    // this now runs behind the request rather than inside it.
+    let version = app.store().libraries.version(lib).await?;
+    app.events().publish(DomainEvent::ItemsChanged {
         library_id: lib,
         keys: Vec::new(),
         version,
-    })
-    .await?;
+    });
 
-    Ok(Json(json!({
-        "items": added,
-        // Kept apart from `added` so a second run reads as "nothing new" rather
-        // than as a hundred failures, which is what it looked like before.
-        "updated": updated,
-        "collections": collections,
-        "files": files,
-        "notes": notes,
-        "annotations": annotations,
-        // Reported rather than hidden: an import that quietly dropped a tenth
-        // of a library would be found out much later, by its absence.
-        "failed": failed,
-        "total": total,
-        "version": version,
-    })))
+    Ok((
+        json!({
+            "items": added,
+            // Kept apart from `added` so a second run reads as "nothing new"
+            // rather than as a hundred failures, which is what it looked like
+            // before.
+            "updated": updated,
+            "collections": collections,
+            "files": files,
+            "notes": notes,
+            "annotations": annotations,
+            // Reported rather than hidden: an import that quietly dropped a
+            // tenth of a library would be found out much later, by its absence.
+            "failed": failed,
+            "total": total,
+            "version": version,
+        }),
+        stopped,
+    ))
 }
 
 /// Create attachment records and copy across whatever bytes Zotero has.

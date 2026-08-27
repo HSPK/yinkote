@@ -24,6 +24,25 @@ impl Drop for Client {
 }
 
 impl Client {
+    /// Start a long job and wait for it, answering with its result.
+    ///
+    /// Importing, exporting and rebuilding all hand back a task rather than
+    /// holding the request open. Every test that used to read the answer
+    /// straight out of the response goes through here instead, so there is one
+    /// place that knows the shape.
+    async fn await_task(&self, path: &str, body: serde_json::Value) -> Value {
+        let started = self.post(path, body).await;
+        let id = started["task"]["id"].as_str().expect("a task to watch").to_string();
+        loop {
+            let state = self.get(&format!("/tasks/{id}")).await;
+            if state["phase"] != "running" {
+                assert_eq!(state["phase"], "done", "the job did not finish: {state}");
+                return state["result"].clone();
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+
     async fn new() -> (Self, App) {
         let dir = std::env::temp_dir().join(format!(
             "yk-api-{}-{}",
@@ -910,7 +929,7 @@ async fn importing_a_zotero_library_is_previewed_then_committed() {
     assert_eq!(seen["collections"], 1);
     assert_eq!(c.get(&format!("/libraries/{lib}/items")).await["total"], 0, "preview writes nothing");
 
-    let done = c.post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
+    let done = c.await_task(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
     assert_eq!(done["items"], 2);
     assert_eq!(done["failed"], 0);
 
@@ -932,7 +951,7 @@ async fn importing_the_same_library_twice_updates_rather_than_duplicating() {
     let dir = tempfile::tempdir().unwrap();
     let path = zotero_fixture(dir.path()).to_string_lossy().to_string();
 
-    let first = c.post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
+    let first = c.await_task(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
     assert_eq!(first["items"], 2);
     assert_eq!(first["updated"], 0);
 
@@ -941,7 +960,7 @@ async fn importing_the_same_library_twice_updates_rather_than_duplicating() {
     db.execute("UPDATE itemDataValues SET value = 'Retitled' WHERE valueID = 1", []).unwrap();
     drop(db);
 
-    let second = c.post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
+    let second = c.await_task(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path })).await;
     assert_eq!(second["items"], 0, "nothing new arrived");
     assert_eq!(second["updated"], 2, "and nothing is reported as a failure");
     assert_eq!(second["failed"], 0);
@@ -988,7 +1007,7 @@ async fn importing_brings_the_pdfs_across() {
     std::fs::write(stored.join("paper.pdf"), b"%PDF-1.7 imported").unwrap();
 
     let done = c
-        .post(
+        .await_task(
             &format!("/libraries/{lib}/import/zotero"),
             json!({ "path": path.to_string_lossy() }),
         )
@@ -1027,7 +1046,10 @@ async fn importing_brings_the_users_notes_across_and_keeps_them_searchable() {
     drop(db);
 
     let done = c
-        .post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path.to_string_lossy() }))
+        .await_task(
+            &format!("/libraries/{lib}/import/zotero"),
+            json!({ "path": path.to_string_lossy() }),
+        )
         .await;
     assert_eq!(done["notes"], 1);
 
@@ -1068,7 +1090,10 @@ async fn a_note_that_stands_on_its_own_still_comes_across() {
     assert_eq!(preview["notes"], 2, "the count has to include what will arrive");
 
     let done = c
-        .post(&format!("/libraries/{lib}/import/zotero"), json!({ "path": path.to_string_lossy() }))
+        .await_task(
+            &format!("/libraries/{lib}/import/zotero"),
+            json!({ "path": path.to_string_lossy() }),
+        )
         .await;
     assert_eq!(done["notes"], 2);
 

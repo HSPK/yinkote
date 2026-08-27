@@ -32,8 +32,23 @@ pub fn router() -> Router<App> {
         .route("/tasks/:id/cancel", post(cancel_task))
 }
 
-async fn run_backup(State(app): State<App>) -> ApiResult<Json<serde_json::Value>> {
-    Ok(Json(json!(backups::run(&app).await?)))
+/// Take a backup now.
+///
+/// A task like the other long jobs: four seconds on the library this was
+/// measured against, and proportional to it. Uniform because a client that has
+/// to remember which maintenance actions block and which do not will get it
+/// wrong on the one that grew.
+async fn run_backup(State(app): State<App>) -> Json<serde_json::Value> {
+    let task = app.tasks().start("backup", "Copying the library");
+    let running = app.clone();
+    let handle = task.clone();
+    tokio::spawn(async move {
+        match backups::run(&running).await {
+            Ok(made) => running.tasks().finish(&handle, json!(made)),
+            Err(e) => running.tasks().fail(&handle, e),
+        }
+    });
+    Json(json!({ "task": task.snapshot() }))
 }
 
 async fn list_backups(State(app): State<App>) -> ApiResult<Json<serde_json::Value>> {

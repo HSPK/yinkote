@@ -9,7 +9,6 @@ import type {
   MessagePage,
   AgentStatus,
   ImportPreview,
-  ImportResult,
   BadgeDescriptor,
   BadgeValue,
   CitationList,
@@ -322,7 +321,7 @@ export const api = {
     preview: (path: string) =>
       request<ImportPreview>('/import/zotero/preview', { method: 'POST', ...json({ path }) }),
     zotero: (lib: number, path: string) =>
-      request<ImportResult>(`/libraries/${lib}/import/zotero`, {
+      request<{ task: Task }>(`/libraries/${lib}/import/zotero`, {
         method: 'POST',
         ...json({ path }),
       }),
@@ -465,11 +464,7 @@ export const api = {
     reindex: (lib: number) =>
       request<{ task: Task }>(`/maintenance/reindex/${lib}`, { method: 'POST' }),
     optimize: () => request<{ ok: boolean }>('/maintenance/optimize', { method: 'POST' }),
-    backup: () =>
-      request<{ name: string; bytes: number; pruned: string[]; kept: number }>(
-        '/maintenance/backup',
-        { method: 'POST' },
-      ),
+    backup: () => request<{ task: Task }>('/maintenance/backup', { method: 'POST' }),
     exportAll: () => request<{ task: Task }>('/maintenance/export-all', { method: 'POST' }),
     importArchive: (path: string) =>
       request<{ task: Task }>('/maintenance/import-archive', {

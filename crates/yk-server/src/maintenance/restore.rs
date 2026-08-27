@@ -162,14 +162,37 @@ async fn merge(
         }
         task.progress("Restoring items", u64::from(offset), page.total.max(0) as u64);
 
+        // A page at a time, not an item at a time. Asking `get` per item is a
+        // hundred thousand round trips on a real library: it takes minutes, and
+        // it holds a pooled connection almost continuously, so an ordinary
+        // write elsewhere in the program waits out its busy timeout and fails
+        // with "database is locked". The library is not locked; the pool is
+        // busy, and the difference is invisible from the error.
+        let keys: Vec<Key> = page.items.iter().map(|i| i.key.clone()).collect();
+        let present: std::collections::HashSet<String> = app
+            .store()
+            .items
+            .get_many(target, &keys)
+            .await?
+            .into_iter()
+            .map(|i| i.key.to_string())
+            .collect();
+
+        let mut drafts = Vec::with_capacity(page.items.len());
         for item in &page.items {
-            match app.store().items.get(target, &item.key).await {
+            if present.contains(&item.key.to_string()) {
                 // Already here. Leaving it alone is the whole point of merging.
-                Ok(_) => out.skipped += 1,
-                Err(_) => match app.store().items.create(target, draft_of(item)).await {
+                out.skipped += 1;
+            } else {
+                drafts.push(draft_of(item));
+            }
+        }
+        if !drafts.is_empty() {
+            for result in app.store().items.create_many(target, drafts).await? {
+                match result {
                     Ok(_) => out.items += 1,
                     Err(_) => out.failed += 1,
-                },
+                }
             }
         }
         if page.items.len() < 500 {

@@ -1,9 +1,10 @@
 import { useState } from 'react'
 
 import { api } from '../api/client'
-import type { ImportPreview } from '../api/types'
+import type { ImportPreview, ImportResult } from '../api/types'
 import { useT } from '../i18n'
 import { useStore } from '../state/store'
+import { follow, percentOf } from '../lib/tasks'
 import { Button, Input, toast } from '../ui'
 
 /**
@@ -22,6 +23,8 @@ export function ZoteroImport() {
   const [path, setPath] = useState('')
   const [found, setFound] = useState<ImportPreview | null>(null)
   const [busy, setBusy] = useState(false)
+  /** What the run is doing, while it does it. */
+  const [progress, setProgress] = useState<string | null>(null)
 
   const look = async () => {
     setBusy(true)
@@ -32,13 +35,25 @@ export function ZoteroImport() {
       toast.fromError(t('import.failed'), e)
     } finally {
       setBusy(false)
+      setProgress(null)
     }
   }
 
   const run = async () => {
     setBusy(true)
     try {
-      const done = await api.import.zotero(library, path.trim())
+      const { task } = await api.import.zotero(library, path.trim())
+      // Watched, not awaited: a real Zotero library takes minutes, and this is
+      // the first thing somebody does with the program.
+      const state = await follow(task.id, (t) => {
+        const pct = percentOf(t)
+        setProgress(pct === null ? t.message : `${t.message} · ${pct}%`)
+      })
+      setProgress(null)
+      if (!state || state.phase === 'failed') {
+        throw new Error(state?.error ?? t('toast.taskLost'))
+      }
+      const done = state.result as unknown as ImportResult
       // Report what did not arrive as loudly as what did: a library quietly
       // missing a tenth of itself is found out much later, by its absence.
       const message = done.failed
@@ -88,7 +103,7 @@ export function ZoteroImport() {
             })}
           </span>
           <Button tone="primary" disabled={busy} onClick={() => void run()}>
-            {busy ? t('import.working') : t('import.confirm')}
+            {busy ? (progress ?? t('import.working')) : t('import.confirm')}
           </Button>
         </div>
       )}
