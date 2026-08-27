@@ -16,6 +16,7 @@
 //! reach a model reads like every other failure.
 
 pub mod provider;
+pub mod retry;
 pub mod providers;
 pub mod stream;
 pub mod types;

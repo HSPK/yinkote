@@ -4,8 +4,6 @@
 //! DeepSeek, Qwen and most hosted services expose. Speaking it means "which
 //! model" is a URL and a name in a config file rather than a code change.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use serde_json::{json, Value};
@@ -83,51 +81,6 @@ impl OpenAiProvider {
     }
 }
 
-/// How many times to wait out a busy service before giving up.
-///
-/// Three, because a limit that has not cleared after three waits is not a
-/// blip, and a user staring at a spinner deserves to be told.
-const MAX_RETRIES: u32 = 3;
-
-/// The longest a single wait may be, whatever the service asks for.
-///
-/// A provider that says "retry after 300 seconds" is telling the truth, but
-/// nobody is waiting five minutes inside one request.
-const MAX_WAIT: Duration = Duration::from_secs(20);
-
-/// Whether a failure is worth waiting out.
-///
-/// 429 is the common one; 502/503/504 are a proxy or a model still loading,
-/// which is the same kind of "try again shortly". A 400 or a 401 will fail
-/// identically no matter how long anyone waits.
-fn is_transient(status: u16) -> bool {
-    matches!(status, 429 | 502 | 503 | 504)
-}
-
-/// What the service asked for, if it asked.
-///
-/// `Retry-After` is either seconds or an HTTP date; only the seconds form is
-/// read, because the date form needs a clock both ends agree on and is not
-/// what these APIs send.
-fn retry_after(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
-    let raw = headers
-        .get(reqwest::header::RETRY_AFTER)
-        .or_else(|| headers.get("x-ratelimit-reset-requests"))?
-        .to_str()
-        .ok()?;
-    let seconds: f64 = raw.trim().trim_end_matches('s').parse().ok()?;
-    if !seconds.is_finite() || seconds < 0.0 {
-        return None;
-    }
-    // A service that says "0 seconds" means "now", not "spin".
-    Some(Duration::from_millis(((seconds * 1000.0) as u64).max(200)).min(MAX_WAIT))
-}
-
-/// Doubling, for a service that did not say.
-fn backoff(attempt: u32) -> Duration {
-    Duration::from_millis(500u64 << attempt.min(5)).min(MAX_WAIT)
-}
-
 #[async_trait]
 impl ChatProvider for OpenAiProvider {
     fn model(&self) -> String {
@@ -151,28 +104,10 @@ impl ChatProvider for OpenAiProvider {
         // rather than by the caller, because only this layer can read
         // `Retry-After`, and because every caller would otherwise need the
         // same loop.
-        let mut attempt = 0u32;
-        let response = loop {
-            let sent = self.send(&body).send().await.map_err(|e| Error::internal(e.to_string()))?;
-            let status = sent.status();
-            if status.is_success() {
-                break sent;
-            }
-
-            if attempt < MAX_RETRIES && is_transient(status.as_u16()) {
-                let wait = retry_after(sent.headers()).unwrap_or_else(|| backoff(attempt));
-                tracing::warn!(
-                    status = status.as_u16(),
-                    attempt = attempt + 1,
-                    wait_ms = wait.as_millis() as u64,
-                    "model busy; retrying"
-                );
-                tokio::time::sleep(wait).await;
-                attempt += 1;
-                continue;
-            }
-
-            let payload: Value = sent.json().await.unwrap_or_default();
+        let response = crate::retry::send(|| self.send(&body)).await?;
+        let status = response.status();
+        if !status.is_success() {
+            let payload: Value = response.json().await.unwrap_or_default();
             // Providers put the useful part in different places; prefer the
             // message over the raw body so the UI can show something readable.
             let detail = payload["error"]["message"]
@@ -180,7 +115,7 @@ impl ChatProvider for OpenAiProvider {
                 .map(str::to_string)
                 .unwrap_or_else(|| payload.to_string());
             return Err(Error::internal(format!("model returned {status}: {detail}")));
-        };
+        }
 
         let mut assembled = Assembled::default();
         let mut buffer = String::new();

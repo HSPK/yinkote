@@ -122,18 +122,21 @@ impl EmbeddingProvider for OpenAiEmbedder {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
-        let mut req = self
-            .client
-            .post(format!("{}/embeddings", self.endpoint))
-            .json(&serde_json::json!({ "model": self.model, "input": texts }));
-        if let Some(k) = &self.api_key {
-            req = req.bearer_auth(k);
-        }
-
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| Error::Unavailable(format!("embeddings request failed: {e}")))?;
+        // Same treatment as a chat call: an embedding pass is a background job
+        // over thousands of items, so giving up on one rate limit means the
+        // whole batch has to be found and redone later.
+        let resp = crate::retry::send(|| {
+            let mut req = self
+                .client
+                .post(format!("{}/embeddings", self.endpoint))
+                .json(&serde_json::json!({ "model": self.model, "input": texts }));
+            if let Some(k) = &self.api_key {
+                req = req.bearer_auth(k);
+            }
+            req
+        })
+        .await
+        .map_err(|e| Error::Unavailable(format!("embeddings request failed: {e}")))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
