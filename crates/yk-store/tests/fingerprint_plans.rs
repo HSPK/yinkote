@@ -10,6 +10,9 @@
 //!   * `CITES_SQL`              1585 ms → 0.14 ms
 //!   * the duplicate check      66 ms  → 0.15 ms
 //!
+//! The fourth, co-citation, was written with the hint already in place —
+//! which is what the list is for.
+//!
 //! Three separate discoveries, months of latency apart, each found by
 //! accident while measuring something else. So the rule is a list rather than
 //! a habit: a query that joins `items` by fingerprint goes in here, and this
@@ -25,6 +28,7 @@ fn fingerprint_statements() -> Vec<(&'static str, String, usize)> {
         ("missing works", yk_store::plans::MISSING_SQL.to_string(), 2),
         ("bibliography", yk_store::plans::CITES_SQL.to_string(), 3),
         ("duplicate check", yk_store::plans::fingerprint_sql("?,?"), 3),
+        ("co-citation", yk_store::plans::COCITATION_SQL.to_string(), 5),
     ]
 }
 

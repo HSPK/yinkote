@@ -540,6 +540,7 @@ export const enUS: Record<MessageKey, string> = {
   'graph.footer': '{nodes} nodes · {edges} edges',
   'graph.hint': 'Double-click a neighbour to centre on it',
   'graph.relation.coupling': 'Shared references',
+  'graph.relation.cocitation': 'Cited alongside',
   'graph.relation.tag': 'Shared tags',
   'graph.relation.author': 'Same author',
   'graph.relation.collection': 'Filed together',

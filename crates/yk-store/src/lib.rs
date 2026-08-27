@@ -22,6 +22,7 @@ mod items;
 /// results were right every time, which is why nothing but a plan assertion
 /// ever noticed.
 pub mod plans {
+    pub use crate::graph::COCITATION_SQL;
     pub use crate::items::fingerprint_sql;
     pub use crate::relations::{CITES_SQL, MISSING_SQL};
 }

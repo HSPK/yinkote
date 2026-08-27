@@ -207,9 +207,13 @@ fn the_author_query_seeks_by_name_before_it_sorts_by_year() {
 use crate::relations::CitationDraft;
 
 /// A reference the publisher gave an identifier to.
+///
+/// The fingerprint is normalised, exactly as `Resolved::fingerprint` and
+/// `Item::fingerprint` both do it — a fixture that skips that step matches
+/// nothing, and looks like the feature is broken.
 fn cites(doi: &str) -> CitationDraft {
     CitationDraft {
-        fingerprint: format!("doi:{doi}"),
+        fingerprint: format!("doi:{}", yk_core::text::normalize(doi)),
         doi: doi.into(),
         label: format!("Work {doi}"),
         year: Some(2020),
@@ -309,4 +313,83 @@ fn the_coupling_query_is_driven_by_the_references_not_by_the_library() {
     let plan = plan(crate::graph::COUPLING_SQL, 5);
     assert!(plan.contains("SEARCH theirs"), "the reference index must lead: {plan}");
     assert!(!plan.contains("SCAN i"), "{plan}");
+}
+
+// ---------------------------------------------------------------------------
+// Co-citation
+// ---------------------------------------------------------------------------
+
+/// A paper the library holds *and* other papers can cite, i.e. one with a DOI.
+async fn identified(s: &Store, lib: i64, title: &str, doi: &str) -> yk_core::Key {
+    s.items
+        .create(lib, ItemDraft::new("journalArticle").with_field("title", title).with_field("DOI", doi))
+        .await
+        .unwrap()
+        .key
+}
+
+#[tokio::test]
+async fn relates_papers_that_are_cited_alongside_each_other() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+
+    // Two papers the library holds, both with identifiers so a bibliography
+    // can refer to them.
+    let focus = identified(&s, lib, "Focus", "10.1/focus").await;
+    let partner = identified(&s, lib, "Always cited with it", "10.1/partner").await;
+    let stranger = identified(&s, lib, "Cited once alongside", "10.1/stranger").await;
+
+    // Three later papers cite the focus; two of them also cite the partner.
+    for (i, also) in [Some("10.1/partner"), Some("10.1/partner"), Some("10.1/stranger")]
+        .into_iter()
+        .enumerate()
+    {
+        let citing = s.items.create(lib, plain(&format!("Citing {i}"))).await.unwrap();
+        let mut refs = vec![cites("10.1/focus")];
+        if let Some(doi) = also {
+            refs.push(cites(doi));
+        }
+        s.relations.set_citations(lib, &citing.key, refs).await.unwrap();
+    }
+
+    let found = s.graph.neighbours(lib, &focus, 10).await.unwrap();
+    let cocited: Vec<_> =
+        found.iter().filter(|n| n.relation == crate::graph::Relation::Cocitation).collect();
+
+    // "People who cite this also cite" — a different recommendation from
+    // "this cites the same things", and often a better one.
+    assert_eq!(cocited.len(), 1, "{cocited:?}");
+    assert_eq!(cocited[0].key, partner);
+    assert_eq!(cocited[0].weight, 2.0);
+
+    // One paper citing both is a bibliography, not a pattern.
+    assert!(!cocited.iter().any(|n| n.key == stranger), "{cocited:?}");
+}
+
+#[tokio::test]
+async fn a_paper_with_no_identifier_has_no_co_citations() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+
+    // A reference list refers to a paper by its identifier. Without one, the
+    // only thing left to match on is the title, and two bibliographies rarely
+    // spell the same paper the same way.
+    let focus = s.items.create(lib, plain("No DOI")).await.unwrap();
+    let citing = s.items.create(lib, plain("Cites things")).await.unwrap();
+    s.relations
+        .set_citations(lib, &citing.key, vec![cites("10.1/a"), cites("10.1/b")])
+        .await
+        .unwrap();
+
+    let found = s.graph.neighbours(lib, &focus.key, 10).await.unwrap();
+    assert!(found.iter().all(|n| n.relation != crate::graph::Relation::Cocitation));
+}
+
+#[test]
+fn the_cocitation_query_seeks_by_fingerprint() {
+    // Fourth query on this table to resolve a fingerprint, and the third that
+    // needed the hint spelled out. See `tests/fingerprint_plans.rs`.
+    let plan = plan(crate::graph::COCITATION_SQL, 5);
+    assert!(plan.contains("idx_items_fingerprint"), "{plan}");
+    assert!(!plan.contains("idx_items_year"), "{plan}");
 }

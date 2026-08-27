@@ -40,6 +40,14 @@ pub enum Relation {
     /// that way. It is the one edge here the library does not already imply —
     /// it comes from the reference lists, which are facts from the world.
     Coupling,
+    /// Cited alongside this one.
+    ///
+    /// Co-citation, the mirror of coupling: coupling looks at what two papers
+    /// point *back* to and is fixed the day they are published; co-citation
+    /// looks at who points *forward* to both and grows as a field reads them
+    /// together. "People who cite this also cite" — which is a different, and
+    /// often better, recommendation than "this cites the same things".
+    Cocitation,
 }
 
 /// One item related to the focus.
@@ -113,6 +121,7 @@ impl GraphRepository for SqliteGraphRepository {
             out.extend(by_author(&conn, library_id, id, limit)?);
             out.extend(by_collection(&conn, library_id, id, limit)?);
             out.extend(by_coupling(&conn, library_id, id, limit)?);
+            out.extend(by_cocitation(&conn, library_id, id, limit)?);
             Ok(out)
         })
         .await
@@ -329,6 +338,55 @@ pub(crate) const COUPLING_SQL: &str =
                            <= ?4)
                  AND theirs.source_id != ?2
                  AND i.library_id = ?1 AND i.deleted = 0 AND i.parent_id IS NULL
+               GROUP BY i.id
+               HAVING shared >= ?5
+               ORDER BY shared DESC, i.year DESC
+               LIMIT ?3";
+
+/// Papers cited alongside this one.
+///
+/// Only for a paper the library's own bibliographies name — which needs it to
+/// have an identifier, since that is how a reference list refers to anything.
+/// A paper nobody here cites has no co-citations, and saying so is better than
+/// a match on a title that would sometimes be the wrong paper.
+fn by_cocitation(
+    conn: &rusqlite::Connection,
+    library_id: i64,
+    id: i64,
+    limit: u32,
+) -> Result<Vec<Neighbour>> {
+    let fingerprint: String = conn
+        .query_row("SELECT fingerprint FROM items WHERE id=?1", params![id], |r| r.get(0))
+        .map_err(sql_err)?;
+    if !fingerprint.starts_with("doi:") {
+        return Ok(Vec::new());
+    }
+
+    query(
+        conn,
+        COCITATION_SQL,
+        params![library_id, id, limit, fingerprint, MIN_COCITATIONS],
+        Relation::Cocitation,
+    )
+}
+
+/// How many papers must cite both before the pair means anything.
+///
+/// Two, for the same reason coupling needs two shared references: one paper
+/// citing both is a bibliography, not a pattern.
+const MIN_COCITATIONS: i64 = 2;
+
+pub const COCITATION_SQL: &str =
+    "SELECT i.key, i.fields, i.item_type, i.year, count(*) AS shared
+               FROM item_relations alongside
+               CROSS JOIN items i INDEXED BY idx_items_fingerprint
+                    ON i.library_id = ?1 AND i.fingerprint = alongside.target_key
+               WHERE alongside.source_id IN (
+                     SELECT citing.source_id FROM item_relations citing
+                     WHERE citing.target_key = ?4)
+                 AND alongside.target_key != ?4
+                 AND alongside.target_key != ''
+                 AND i.deleted = 0 AND i.parent_id IS NULL AND i.id != ?2
                GROUP BY i.id
                HAVING shared >= ?5
                ORDER BY shared DESC, i.year DESC

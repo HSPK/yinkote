@@ -1886,6 +1886,7 @@ select.ctl { padding: 4px 6px; }
 .graph-edge[data-relation='author']     { stroke: #d6a44c; }
 .graph-edge[data-relation='collection'] { stroke: #5fb236; }
 .graph-edge[data-relation='coupling']   { stroke: #2fa8a0; }
+.graph-edge[data-relation='cocitation'] { stroke: #c98bd6; }
 .graph-edge[data-relation='similar']    { stroke: #a28ae5; }
 .graph-edge[data-relation='cites']      { stroke: #c0554b; }
 .graph-edge[data-lit] { opacity: 1; stroke-width: 1.6; }
@@ -1941,6 +1942,7 @@ select.ctl { padding: 4px 6px; }
 .graph-swatch[data-relation='author']     { background: #d6a44c; }
 .graph-swatch[data-relation='collection'] { background: #5fb236; }
 .graph-swatch[data-relation='coupling']   { background: #2fa8a0; }
+.graph-swatch[data-relation='cocitation'] { background: #c98bd6; }
 .graph-swatch[data-relation='similar']    { background: #a28ae5; }
 .graph-swatch[data-relation='cites']      { background: #c0554b; }
 .graph-hint { display: flex; align-items: center; gap: 6px; margin-top: 2px; opacity: 0.7; }
