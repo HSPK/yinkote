@@ -472,6 +472,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_patch_changes_only_what_it_names() {
+        use yk_core::model::ConversationPatch;
+
+        let s = store();
+        let lib = s.default_library;
+        let convo = s.conversations.create(lib, "Diffusion", Some("COLL1234")).await.unwrap();
+
+        // Renaming must not detach the conversation from its collection.
+        let renamed = s
+            .conversations
+            .update(
+                lib,
+                &convo.key,
+                ConversationPatch { title: Some("Diffusion models".into()), ..Default::default() },
+            )
+            .await
+            .unwrap();
+        assert_eq!(renamed.title, "Diffusion models");
+        assert_eq!(renamed.scope.as_deref(), Some("COLL1234"));
+
+        // Scoping must not rewrite the title.
+        let scoped = s
+            .conversations
+            .update(
+                lib,
+                &convo.key,
+                ConversationPatch { scope: Some(Some("OTHER456".into())), ..Default::default() },
+            )
+            .await
+            .unwrap();
+        assert_eq!(scoped.title, "Diffusion models");
+        assert_eq!(scoped.scope.as_deref(), Some("OTHER456"));
+
+        // Null clears it — which is a different request from not mentioning it.
+        let cleared = s
+            .conversations
+            .update(lib, &convo.key, ConversationPatch { scope: Some(None), ..Default::default() })
+            .await
+            .unwrap();
+        assert_eq!(cleared.scope, None);
+        assert_eq!(cleared.title, "Diffusion models");
+    }
+
+    #[tokio::test]
+    async fn an_empty_scope_is_the_same_as_none() {
+        use yk_core::model::ConversationPatch;
+
+        let s = store();
+        let lib = s.default_library;
+        let convo = s.conversations.create(lib, "t", Some("COLL1234")).await.unwrap();
+
+        // Otherwise the same state would have two representations, and every
+        // check for "is this scoped" would have to know about both.
+        let updated = s
+            .conversations
+            .update(
+                lib,
+                &convo.key,
+                ConversationPatch { scope: Some(Some("  ".into())), ..Default::default() },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.scope, None);
+    }
+
+    #[tokio::test]
     async fn a_paper_can_be_asked_what_was_said_about_it() {
         let s = store();
         let lib = s.default_library;

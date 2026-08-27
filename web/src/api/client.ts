@@ -251,6 +251,12 @@ export const api = {
         method: 'PATCH',
         ...json({ title }),
       }),
+    /** Point a conversation at a collection, or `null` to detach it. */
+    setScope: (lib: number, key: string, scope: string | null) =>
+      request<Conversation>(`/libraries/${lib}/conversations/${key}`, {
+        method: 'PATCH',
+        ...json({ scope }),
+      }),
     remove: (lib: number, key: string) =>
       request<{ deleted: number }>(`/libraries/${lib}/conversations/${key}`, { method: 'DELETE' }),
     messages: (lib: number, key: string) =>

@@ -2246,3 +2246,8 @@ select.ctl { padding: 4px 6px; }
   font-size: 10px;
   color: var(--fg-dim);
 }
+
+.chat-head { display: flex; align-items: center; gap: 10px; }
+.chat-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-scope { display: flex; align-items: center; gap: 4px; font-size: 10px; }
+.chat-scope select { font-size: 10px; max-width: 160px; }

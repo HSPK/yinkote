@@ -435,6 +435,27 @@ pub struct Message {
     pub created_at: i64,
 }
 
+/// What may be changed about a conversation.
+///
+/// `scope` is doubly optional on purpose: absent means "leave it", and
+/// `Some(None)` means "clear it" — the difference between not mentioning the
+/// collection and detaching from it.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ConversationPatch {
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub scope: Option<Option<String>>,
+}
+
+/// Distinguish an absent field from a null one.
+fn double_option<'de, D>(deserializer: D) -> std::result::Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct MessageDraft {
     pub role: String,

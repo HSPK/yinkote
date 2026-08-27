@@ -104,7 +104,16 @@ pub trait ConversationRepository: Send + Sync {
     async fn get(&self, library_id: i64, key: &Key) -> Result<Conversation>;
     async fn create(&self, library_id: i64, title: &str, scope: Option<&str>)
         -> Result<Conversation>;
-    async fn rename(&self, library_id: i64, key: &Key, title: &str) -> Result<Conversation>;
+    /// Change a conversation's title, its scope, or both.
+    ///
+    /// One method rather than one per field: a conversation has two mutable
+    /// properties and two nearly identical UPDATE statements would drift.
+    async fn update(
+        &self,
+        library_id: i64,
+        key: &Key,
+        patch: ConversationPatch,
+    ) -> Result<Conversation>;
     async fn delete(&self, library_id: i64, key: &Key) -> Result<u64>;
 
     async fn messages(&self, library_id: i64, key: &Key) -> Result<Vec<Message>>;

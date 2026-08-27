@@ -341,17 +341,12 @@ async fn create(
     Ok(Json(app.store().conversations.create(lib, title, body.scope.as_deref()).await?))
 }
 
-#[derive(Deserialize)]
-struct RenameBody {
-    title: String,
-}
-
 async fn rename(
     State(app): State<App>,
     Path((lib, k)): Path<(i64, String)>,
-    Json(body): Json<RenameBody>,
+    Json(patch): Json<yk_core::model::ConversationPatch>,
 ) -> ApiResult<Json<Conversation>> {
-    Ok(Json(app.store().conversations.rename(lib, &key(&k)?, &body.title).await?))
+    Ok(Json(app.store().conversations.update(lib, &key(&k)?, patch).await?))
 }
 
 async fn remove(

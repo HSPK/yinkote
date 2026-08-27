@@ -30,6 +30,8 @@ export interface ChatSlice {
   cancelRun: () => Promise<void>
   newConversation: () => Promise<void>
   renameConversation: (key: string, title: string) => Promise<void>
+  /** Point the current conversation at a collection, or clear it. */
+  setConversationScope: (scope: string | null) => Promise<void>
   removeConversation: (key: string) => Promise<void>
   sendMessage: (text: string, mentions?: string[]) => Promise<void>
   askAbout: (itemKey: string) => Promise<void>
@@ -66,6 +68,15 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
         set({ runs: { ...get().runs, [conversation]: run }, messages })
       })
       .catch(record)
+  },
+
+  async setConversationScope(scope) {
+    const s = get()
+    if (!s.conversation) return
+    const updated = await api.conversations.setScope(s.library, s.conversation, scope)
+    set({
+      conversations: s.conversations.map((c) => (c.key === updated.key ? updated : c)),
+    })
   },
 
   async cancelRun() {

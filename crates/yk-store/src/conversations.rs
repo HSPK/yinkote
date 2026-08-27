@@ -129,22 +129,58 @@ impl ConversationRepository for SqliteConversationRepository {
             .await
     }
 
-    async fn rename(&self, library_id: i64, key: &Key, title: &str) -> Result<Conversation> {
-        let (key, title) = (key.clone(), title.trim().to_string());
-        if title.is_empty() {
-            return Err(Error::invalid("conversation title must not be empty"));
-        }
+    async fn update(
+        &self,
+        library_id: i64,
+        key: &Key,
+        patch: ConversationPatch,
+    ) -> Result<Conversation> {
+        let key = key.clone();
+        let title = match &patch.title {
+            Some(t) if t.trim().is_empty() => {
+                return Err(Error::invalid("conversation title must not be empty"))
+            }
+            Some(t) => Some(t.trim().to_string()),
+            None => None,
+        };
+        // An empty scope string means the same thing as no scope; storing it
+        // would give the same state two representations.
+        let scope = patch.scope.map(|s| s.filter(|v| !v.trim().is_empty()));
+
         self.db
             .call(move |c| {
-                let n = c
-                    .execute(
-                        "UPDATE conversations SET title=?1, updated_at=?2 \
-                         WHERE library_id=?3 AND key=?4",
-                        params![title, now_ms(), library_id, key.as_str()],
-                    )
-                    .map_err(sql_err)?;
-                if n == 0 {
-                    return Err(Error::not_found(format!("conversation {key}")));
+                // Built from what was actually asked for, so a patch that only
+                // sets the scope cannot quietly rewrite the title.
+                let mut sets: Vec<&str> = Vec::new();
+                let mut args: Vec<rusqlite::types::Value> = Vec::new();
+                if let Some(title) = &title {
+                    sets.push("title=?");
+                    args.push(title.clone().into());
+                }
+                if let Some(scope) = &scope {
+                    sets.push("scope=?");
+                    args.push(match scope {
+                        Some(v) => v.clone().into(),
+                        None => rusqlite::types::Value::Null,
+                    });
+                }
+                if !sets.is_empty() {
+                    sets.push("updated_at=?");
+                    args.push(now_ms().into());
+                    args.push(library_id.into());
+                    args.push(key.to_string().into());
+                    let n = c
+                        .execute(
+                            &format!(
+                                "UPDATE conversations SET {} WHERE library_id=? AND key=?",
+                                sets.join(", ")
+                            ),
+                            rusqlite::params_from_iter(args),
+                        )
+                        .map_err(sql_err)?;
+                    if n == 0 {
+                        return Err(Error::not_found(format!("conversation {key}")));
+                    }
                 }
                 let sql = format!("{SELECT} WHERE c.library_id=?1 AND c.key=?2");
                 c.query_row(&sql, params![library_id, key.as_str()], map).map_err(sql_err)

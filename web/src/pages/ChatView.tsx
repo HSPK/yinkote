@@ -187,6 +187,8 @@ export function ChatView() {
   // agree with the first.
   const run = useStore((st) => (conversation ? st.runs[conversation] : undefined))
   const cancelRun = useStore((st) => st.cancelRun)
+  const collections = useStore((st) => st.collections)
+  const setConversationScope = useStore((st) => st.setConversationScope)
   const busy = sending || !!run?.running
   const tail = useRef<HTMLDivElement>(null)
 
@@ -202,7 +204,9 @@ export function ChatView() {
     )
   }
 
-  const title = conversations.find((c) => c.key === conversation)?.title || t('chat.untitled')
+  const current = conversations.find((c) => c.key === conversation)
+  const title = current?.title || t('chat.untitled')
+  const scope = current?.scope
 
   const submit = async () => {
     const text = draft.trim()
@@ -231,7 +235,25 @@ export function ChatView() {
 
   return (
     <div className="pane main chat">
-      <div className="chat-head">{title}</div>
+      <div className="chat-head">
+        <span className="chat-title">{title}</span>
+        {/* What the conversation is standing on. A scoped chat searches
+            inside that collection, so it is stated rather than remembered. */}
+        <label className="chat-scope">
+          <span className="dim">{t('chat.scope')}</span>
+          <select
+            value={scope ?? ''}
+            onChange={(e) => void setConversationScope(e.target.value || null)}
+          >
+            <option value="">{t('chat.scopeAll')}</option>
+            {collections.map((c) => (
+              <option key={c.key} value={c.key}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       <div className="chat-log">
         {messages.length === 0 && <Empty>{t('chat.start')}</Empty>}
