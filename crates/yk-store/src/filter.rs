@@ -60,9 +60,19 @@ impl Predicate {
             if ids.is_empty() {
                 clauses.push("0".into());
             } else {
+                // `IN` over the membership list, not a correlated `EXISTS`.
+                //
+                // `EXISTS` reads as the natural phrasing — "items that are in
+                // this collection" — and makes SQLite drive from `items`,
+                // walking the whole library and probing memberships for each
+                // row. `IN` drives the other way: it materialises the
+                // collection's members once and probes `items`. Identical
+                // results, 41.8ms against 2.0ms on a hundred-thousand-item
+                // library. Same shape as the tag clause below, and the same
+                // reason `graph::TAG_SQL` spells out `CROSS JOIN`.
                 clauses.push(format!(
-                    "EXISTS (SELECT 1 FROM collection_items ci WHERE ci.item_id = i.id \
-                     AND ci.collection_id IN ({}))",
+                    "i.id IN (SELECT ci.item_id FROM collection_items ci \
+                     WHERE ci.collection_id IN ({}))",
                     placeholders(ids.len())
                 ));
                 params.extend(ids.iter().map(|id| SqlValue::Integer(*id)));

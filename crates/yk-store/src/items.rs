@@ -1131,6 +1131,30 @@ mod plan_tests {
     }
 
     #[test]
+    fn a_collection_page_is_driven_by_its_memberships() {
+        // The natural phrasing — `EXISTS (… WHERE ci.item_id = i.id)` — makes
+        // SQLite walk the whole library and probe memberships per row: 41.8ms
+        // against 2.0ms, with identical results. Only the plan shows it.
+        let query = ItemQuery {
+            filter: yk_core::query::ItemFilter { library_id: 1, ..Default::default() },
+            ..Default::default()
+        };
+        let p = Predicate::build(&query.filter, Some(&[7]));
+        let order = order_by(query.sort, query.direction);
+        let sql = format!(
+            "SELECT {COLS} {FROM} WHERE i.id IN (                SELECT i.id FROM items i WHERE {} {order} LIMIT ? OFFSET ?) {order}",
+            p.sql,
+        );
+
+        let plan = plan(&sql, 4);
+        assert!(plan.contains("SEARCH ci USING"), "memberships must lead: {plan}");
+        assert!(
+            !plan.contains("CORRELATED"),
+            "a correlated subquery here means one probe per library row: {plan}"
+        );
+    }
+
+    #[test]
     fn a_duplicate_check_seeks_by_fingerprint() {
         // Third time on this table. Left to itself the planner searched
         // `idx_items_year` — a predicate matching the whole library — and

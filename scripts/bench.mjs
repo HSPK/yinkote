@@ -9,7 +9,12 @@
  * that sit in the interactive path.
  */
 
-const BASE = (process.argv[2] ?? 'http://127.0.0.1:23130') + '/api/v1'
+// Honour `YK_PORT`, because that is what the runbook sets and a script that
+// silently ignores the variable you gave it will happily measure the wrong
+// server for weeks. This one did: every `YK_PORT=23140 node bench.mjs` was
+// benchmarking the smoke database on 23130, and seeded its collections there.
+const PORT = process.env.YK_PORT ?? '23130'
+const BASE = (process.argv[2] ?? `http://127.0.0.1:${PORT}`) + '/api/v1'
 const TARGET = Number(process.argv[3] ?? 100_000)
 const BATCH = 500
 const CONCURRENCY = 8
@@ -131,16 +136,73 @@ async function seed(lib) {
   console.log(`\r  seeded ${todo} items in ${secs.toFixed(1)}s (${(todo / secs).toFixed(0)} items/s)`)
 }
 
+/** How many collections a real shelf has, and how deep it nests. */
+const COLLECTIONS = 40
+const NESTED = 12
+/** Share of the library filed somewhere. Most people file most things. */
+const FILED_SHARE = 0.6
+/** Items per membership call. */
+const FILE_BATCH = 500
+
+/** Give the corpus the shape a real library has.
+ *
+ *  A hundred thousand items in *no collections* is not a library, it is a
+ *  list — and it hid a real defect for months: the statistics endpoint counted
+ *  collections by listing them, which attaches a membership count to each and
+ *  costs a pass over `collection_items`. With no memberships to walk it
+ *  measured 0.33ms and looked fine; at a hundred thousand it is about 29ms.
+ *
+ *  A benchmark that cannot see a defect is worse than none, because it
+ *  certifies performance the program does not have.
+ */
+async function seedShelves(lib) {
+  const existing = await get(`/libraries/${lib}/collections`)
+  if (existing.length >= COLLECTIONS) {
+    console.log(`▸ library already has ${existing.length} collections, skipping`)
+    return existing
+  }
+
+  const started = performance.now()
+  const made = []
+  for (let i = 0; i < COLLECTIONS; i++) {
+    // Some nested, because a flat list of forty is not what anybody's
+    // shelves look like and recursive queries are the interesting ones.
+    const parent = i >= COLLECTIONS - NESTED ? made[i % (COLLECTIONS - NESTED)]?.key : undefined
+    made.push(await post(`/libraries/${lib}/collections`, { name: `Shelf ${i}`, parent }))
+  }
+
+  const total = (await get(`/libraries/${lib}/items?limit=1`)).total
+  const toFile = Math.floor(total * FILED_SHARE)
+  let filed = 0
+  for (let offset = 0; filed < toFile; offset += FILE_BATCH) {
+    const page = await get(`/libraries/${lib}/items?limit=${FILE_BATCH}&offset=${offset}`)
+    if (!page.items.length) break
+    const keys = page.items.map((i) => i.key)
+    const shelf = made[Math.floor(offset / FILE_BATCH) % made.length]
+    await post(`/libraries/${lib}/collections/${shelf.key}/items`, { keys })
+    filed += keys.length
+    if (offset % (FILE_BATCH * 20) === 0) {
+      process.stdout.write(`\r  filing ${filed}/${toFile}   `)
+    }
+  }
+  const secs = (performance.now() - started) / 1000
+  console.log(`\r  filed ${filed} items into ${made.length} shelves in ${secs.toFixed(1)}s`)
+  return made
+}
+
 async function main() {
   const ping = await get('/ping')
   const lib = ping.defaultLibrary
-  console.log(`▸ yinkote ${ping.version}, library ${lib}\n`)
+  // Printed, so a run can never again be attributed to the wrong database.
+  console.log(`▸ yinkote ${ping.version}, library ${lib}, at ${BASE}\n`)
 
   await seed(lib)
+  const shelves = await seedShelves(lib)
 
   const stat0 = await get('/stats')
   console.log(
     `\n▸ corpus: ${stat0.items} items, ${stat0.tags} tags, ` +
+      `${stat0.collections} collections, ` +
       `${stat0.search.embedded}/${stat0.search.documents} embedded (${stat0.search.provider})\n`,
   )
 
@@ -150,6 +212,18 @@ async function main() {
   await measure('list sorted by title', `/libraries/${lib}/items?limit=100&sort=title`)
   await measure('list filtered by tag', `/libraries/${lib}/items?limit=100&tag=survey`)
   await measure('facets', `/libraries/${lib}/facets?limit=60`)
+  // Browsing a shelf, which is how most people navigate a library and which
+  // went entirely unmeasured while the corpus had no collections in it.
+  const shelf = shelves[0]?.key
+  if (shelf) {
+    await measure('list one collection', `/libraries/${lib}/items?limit=100&collection=${shelf}`)
+    await measure(
+      'list collection + children',
+      `/libraries/${lib}/items?limit=100&collection=${shelf}&recursive=true`,
+    )
+  }
+  // The statistics the workbench asks for on every load.
+  await measure('stats', '/stats')
 
   console.log('\n▸ search')
   await measure('keyword (1 term)', `/libraries/${lib}/search?q=transformer&mode=keyword`)
