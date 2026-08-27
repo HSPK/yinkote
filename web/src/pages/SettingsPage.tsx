@@ -9,7 +9,13 @@ import { ZoteroImport } from '../components/ZoteroImport'
 import { filterSettings, type SettingSection } from '../lib/settings'
 import { THEMES } from '../lib/theme'
 import { useStore } from '../state/store'
-import { runBackup, runIntegrity, runOptimize, runReindex } from '../lib/maintenance'
+import {
+  runBackup,
+  runExportAll,
+  runIntegrity,
+  runOptimize,
+  runReindex,
+} from '../lib/maintenance'
 import { Badge, Button, Field, Icon, Input, Section, Select, toast } from '../ui'
 
 const DENSITIES = ['compact', 'comfortable'] as const
@@ -290,6 +296,7 @@ runOptimize()
                 </Button>
                 <Button onClick={() => void runBackup()}>{t('settings.backup')}</Button>
                 <Button onClick={() => void runIntegrity()}>{t('settings.integrity')}</Button>
+                <Button onClick={() => void runExportAll()}>{t('settings.exportAll')}</Button>
               </div>
             ),
           },

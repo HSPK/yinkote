@@ -33,7 +33,7 @@ use std::sync::Arc;
 
 pub use cache::CachingTagRepository;
 pub use collections::{SqliteCollectionRepository, SqliteLibraryRepository, SqliteTagRepository};
-pub use db::{sql_err, write_tx, Db, Pool, PooledConn};
+pub use db::{item_count_of, sql_err, write_tx, Db, Pool, PooledConn};
 pub use items::{SqliteItemRepository, SqliteSettingsRepository};
 pub use conversations::SqliteConversationRepository;
 pub use graph::{GraphRepository, Neighbour, Relation, SqliteGraphRepository};

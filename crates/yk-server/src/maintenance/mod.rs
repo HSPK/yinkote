@@ -8,6 +8,7 @@
 //! finds out until they need it.
 
 pub mod backups;
+pub mod export;
 pub mod integrity;
 
 use axum::extract::State;
@@ -23,6 +24,7 @@ pub fn router() -> Router<App> {
         .route("/maintenance/backup", post(run_backup))
         .route("/maintenance/backups", get(list_backups))
         .route("/maintenance/integrity", get(check_integrity))
+        .route("/maintenance/export-all", post(export_all))
 }
 
 async fn run_backup(State(app): State<App>) -> ApiResult<Json<serde_json::Value>> {
@@ -35,4 +37,9 @@ async fn list_backups(State(app): State<App>) -> ApiResult<Json<serde_json::Valu
 
 async fn check_integrity(State(app): State<App>) -> ApiResult<Json<serde_json::Value>> {
     Ok(Json(json!(integrity::check(&app).await?)))
+}
+
+/// The whole library as one file, for moving to another machine.
+async fn export_all(State(app): State<App>) -> ApiResult<Json<serde_json::Value>> {
+    Ok(Json(json!(export::run(&app).await?)))
 }

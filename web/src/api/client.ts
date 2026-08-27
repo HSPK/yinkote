@@ -465,6 +465,11 @@ export const api = {
         '/maintenance/backup',
         { method: 'POST' },
       ),
+    exportAll: () =>
+      request<{ name: string; bytes: number; files: number; missing: number }>(
+        '/maintenance/export-all',
+        { method: 'POST' },
+      ),
     integrity: () =>
       request<{
         checked: number

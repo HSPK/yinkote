@@ -35,6 +35,7 @@ rand.workspace = true
 sha2.workspace = true
 hex.workspace = true
 parking_lot.workspace = true
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 rusqlite = { workspace = true }

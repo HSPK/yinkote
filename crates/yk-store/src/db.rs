@@ -42,6 +42,21 @@ pub struct Db {
     path: Option<PathBuf>,
 }
 
+/// How many items a database file holds, without opening it as a library.
+///
+/// For describing a snapshot that has just been written: counting the *live*
+/// library instead answers a different question, because it has moved on since
+/// the snapshot was taken, and a manifest that disagrees with the database it
+/// travels with is worse than no manifest.
+///
+/// Lives here because this is the crate that owns SQLite; the server reaching
+/// for `rusqlite` directly would put database handling in two places.
+pub fn item_count_of(path: &std::path::Path) -> i64 {
+    rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .and_then(|c| c.query_row("SELECT count(*) FROM items", [], |r| r.get(0)))
+        .unwrap_or(0)
+}
+
 impl Db {
     /// Open (and migrate) a database file. Pass `None` for an in-memory
     /// database, which is what tests use.

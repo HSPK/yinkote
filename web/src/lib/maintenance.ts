@@ -72,3 +72,13 @@ export function humanBytes(bytes: number): string {
   }
   return `${n < 10 && unit > 0 ? n.toFixed(1) : Math.round(n)} ${units[unit]}`
 }
+
+/** Pack the whole library — database and files — into one movable archive. */
+export async function runExportAll(): Promise<void> {
+  await withToast(async () => await api.maintenance.exportAll(), {
+    pending: t('toast.exportingAll'),
+    success: (made) =>
+      t('toast.exportedAll', { name: made.name, size: humanBytes(made.bytes) }),
+    failure: t('toast.exportAllFailed'),
+  })
+}

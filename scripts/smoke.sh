@@ -387,6 +387,31 @@ check "backup repeats"    "$(j -X POST "$BASE/maintenance/backup" | jq -r --arg 
 check "backups listed"    "$(j "$BASE/maintenance/backups" | jq -r --arg n "$BKNAME" '[.backups[] | select(.name == $n)] | length | select(. == 1)')"
 check "integrity checked" "$(j "$BASE/maintenance/integrity" | jq -r '.checked | tostring | select(. != "null")')"
 check "integrity reports" "$(j "$BASE/maintenance/integrity" | jq -r 'select((.missing | type) == "array" and (.orphans | type) == "array") | "both directions"')"
+# The whole library as one file. An archive is worth what can be opened from
+# it, so the check unpacks the database inside and reads it.
+EXP=$(j -X POST "$BASE/maintenance/export-all")
+EXPNAME=$(echo "$EXP" | jq -r .name)
+check "exported"          "$(echo "$EXP" | jq -r '.bytes | select(. > 0) | "written"')"
+check "archive opens"     "$(python3 - "$DATA/exports/$EXPNAME" <<'PY'
+import zipfile, sqlite3, sys, tempfile, os, json
+z = zipfile.ZipFile(sys.argv[1])
+if z.testzip() is not None:
+    print(""); raise SystemExit
+names = z.namelist()
+manifest = json.loads(z.read("manifest.json"))
+with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+    f.write(z.read("db.sqlite")); tmp = f.name
+db = sqlite3.connect(f"file:{tmp}?mode=ro", uri=True)
+ok = list(db.execute("PRAGMA integrity_check"))[0][0]
+n = list(db.execute("SELECT count(*) FROM items"))[0][0]
+db.close(); os.unlink(tmp)
+# The manifest must agree with the database it travels with: both are counted
+# from the same snapshot, so a mismatch means one of them is from another
+# moment in time.
+good = ok == "ok" and n > 0 and manifest["items"] == n and "manifest.json" in names
+print("opens" if good else "")
+PY
+)"
 
 echo "▸ duplicates"
 # Two records of one paper, one of which carries the PDF.
