@@ -556,3 +556,53 @@ describe('scoping a conversation', () => {
     expect(scoped).toEqual(['COLL0001'])
   })
 })
+
+describe('a long conversation', () => {
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      message(i + 1, i % 2 === 0 ? 'user' : 'assistant', `Message ${i + 1}`),
+    )
+
+  it('draws a handful of messages, not four hundred', async () => {
+    useStore.setState({ messages: many(400) })
+    await render()
+
+    // A working thread runs to hundreds of messages and a tool trace can be
+    // hundreds of lines on its own; rendering all of it is what made opening
+    // an old conversation slow.
+    const drawn = container.querySelectorAll('.chat-log .bubble')
+    expect(drawn.length).toBeGreaterThan(0)
+    expect(drawn.length).toBeLessThan(60)
+  })
+
+  it('offers a rail once scrolling stops being enough', async () => {
+    useStore.setState({ messages: many(400) })
+    await render()
+
+    // One tick per question: what somebody is looking for is something they
+    // asked, and the answers between are what makes it hard to find.
+    const ticks = container.querySelectorAll('.jump-tick')
+    expect(ticks.length).toBe(200)
+  })
+
+  it('stays out of the way of a short one', async () => {
+    useStore.setState({ messages: many(4) })
+    await render()
+    // On a four-message thread a rail is chrome explaining a problem nobody
+    // has.
+    expect(container.querySelector('.jump-rail')).toBeNull()
+  })
+
+  it('previews the question a tick stands for', async () => {
+    useStore.setState({ messages: many(400) })
+    await render()
+
+    const tick = container.querySelector('.jump-tick') as HTMLElement
+    await act(async () => {
+      // React synthesises `onMouseEnter` from delegated `mouseover`; a
+      // dispatched `mouseenter` does not bubble and never reaches it.
+      tick.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    expect(container.querySelector('.jump-preview')?.textContent).toContain('Message 1')
+  })
+})

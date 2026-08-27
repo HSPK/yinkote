@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useT } from '../i18n'
 import type { Item, Message, RunState, RunStep } from '../api/types'
 import { MentionPicker, mentionQuery, stripMention } from '../components/MentionPicker'
+import { JumpRail, RAIL_THRESHOLD, railMarks } from '../components/JumpRail'
+import { VirtualList } from '../components/VirtualList'
 import { elapsed } from '../lib/format'
 import { Markdown } from '../lib/markdown'
 import { useStore } from '../state/store'
@@ -189,6 +191,16 @@ function LiveTurn({ run, onCancel }: { run: RunState; onCancel: () => void }) {
   )
 }
 
+/** Everything the log draws, in order.
+ *
+ *  The live turn used to sit outside the scroller; inside it, the virtualiser
+ *  measures it like anything else and it cannot overlap the message above.
+ */
+type Entry =
+  | { kind: 'message'; id: string; message: Message }
+  | { kind: 'live'; id: string; run: RunState }
+  | { kind: 'error'; id: string; error: string }
+
 export function ChatView() {
   const t = useT()
   const conversation = useStore((s) => s.conversation)
@@ -212,11 +224,34 @@ export function ChatView() {
   const collections = useStore((st) => st.collections)
   const setConversationScope = useStore((st) => st.setConversationScope)
   const busy = sending || !!run?.running
-  const tail = useRef<HTMLDivElement>(null)
 
+  /** Which entry to bring into view: the tail as it grows, or a rail jump. */
+  const [jumpTo, setJumpTo] = useState<number | undefined>(undefined)
+  const [firstVisible, setFirstVisible] = useState(0)
+
+  // One list of things to draw. The live turn and an error are entries like
+  // any other, so the virtualiser measures them too rather than having them
+  // float outside it and overlap the last message.
+  const entries = useMemo<Entry[]>(() => {
+    const out: Entry[] = messages.map((message) => ({
+      kind: 'message',
+      id: `m${message.id}`,
+      message,
+    }))
+    if (run?.running) out.push({ kind: 'live', id: 'live', run })
+    if (run?.error) out.push({ kind: 'error', id: 'error', error: run.error })
+    return out
+  }, [messages, run])
+
+  const marks = useMemo(() => railMarks(messages), [messages])
+
+  // Follow the tail as it grows. A conversation is read from the bottom, and
+  // a new message that lands off screen looks like nothing happened.
+  const count = entries.length
+  const steps = run?.steps?.length ?? 0
   useEffect(() => {
-    tail.current?.scrollIntoView({ block: 'end' })
-  }, [messages.length, conversation, run?.steps?.length])
+    setJumpTo(count ? count - 1 : undefined)
+  }, [count, steps, conversation])
 
   if (!conversation) {
     return (
@@ -261,14 +296,36 @@ export function ChatView() {
         <span className="chat-title">{title}</span>
       </div>
 
-      <div className="chat-log">
-        {messages.length === 0 && <Empty>{t('chat.start')}</Empty>}
-        {messages.map((m) => (
-          <Turn key={m.id} message={m} />
-        ))}
-        {run?.running && <LiveTurn run={run} onCancel={() => void cancelRun()} />}
-        {run?.error && <div className="bubble-note">{run.error}</div>}
-        <div ref={tail} />
+      {/* The log is virtualised because a conversation is not bounded: a
+          working thread runs to hundreds of messages, and a tool trace can be
+          hundreds of lines on its own. Heights are measured rather than
+          assumed, since a one-line answer and a bibliography dump sit next to
+          each other. */}
+      <div className="chat-body">
+        <VirtualList
+          rows={entries}
+          keyOf={(entry) => entry.id}
+          className="chat-log"
+          dynamic
+          rowHeight={90}
+          scrollTo={jumpTo}
+          empty={<Empty>{t('chat.start')}</Empty>}
+          onVisibleChange={setFirstVisible}
+        >
+          {(entry) =>
+            entry.kind === 'message' ? (
+              <Turn message={entry.message} />
+            ) : entry.kind === 'live' ? (
+              <LiveTurn run={entry.run} onCancel={() => void cancelRun()} />
+            ) : (
+              <div className="bubble-note">{entry.error}</div>
+            )
+          }
+        </VirtualList>
+
+        {marks.length >= RAIL_THRESHOLD && (
+          <JumpRail marks={marks} active={firstVisible} onJump={setJumpTo} />
+        )}
       </div>
 
       {/* One control, not three stacked. What the question is about — the
