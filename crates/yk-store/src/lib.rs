@@ -713,6 +713,83 @@ mod attachment_tests {
         assert_eq!(found_parent.as_ref().map(|p| p.title()), Some("A paper"));
     }
 
+    /// How many keys a "select all, then trash" sends on a large library.
+    ///
+    /// SQLite allows 32766 bound variables. Anything that builds one
+    /// placeholder per key therefore has a ceiling, and the ceiling is not a
+    /// slowdown — it is an error on an operation that has always worked, met
+    /// only by whoever's library is the first to be big enough.
+    const OVER_SQLITE_LIMIT: usize = 40_000;
+
+    #[tokio::test]
+    async fn trashing_more_items_than_sqlite_has_variables() {
+        let s = Store::in_memory().unwrap();
+        let lib = s.default_library;
+
+        let drafts: Vec<ItemDraft> = (0..OVER_SQLITE_LIMIT)
+            .map(|i| ItemDraft::new("journalArticle").with_field("title", format!("Paper {i}")))
+            .collect();
+        let created = s.items.create_many(lib, drafts).await.unwrap();
+        let keys: Vec<yk_core::Key> =
+            created.into_iter().filter_map(|r| r.ok()).map(|i| i.key).collect();
+        assert_eq!(keys.len(), OVER_SQLITE_LIMIT);
+
+        // Selecting everything and trashing it is one gesture in the workbench.
+        let trashed = s.items.set_trashed(lib, &keys, true).await.unwrap();
+        assert_eq!(trashed as usize, OVER_SQLITE_LIMIT);
+
+        // And it is one transaction: every one of them, or none.
+        let q = yk_core::query::ItemQuery {
+            filter: yk_core::query::ItemFilter {
+                library_id: lib,
+                trash: yk_core::query::TrashScope::Only,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(s.items.list(&q).await.unwrap().total as usize, OVER_SQLITE_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn reading_more_items_than_sqlite_has_variables() {
+        let s = Store::in_memory().unwrap();
+        let lib = s.default_library;
+
+        let drafts: Vec<ItemDraft> = (0..OVER_SQLITE_LIMIT)
+            .map(|i| ItemDraft::new("journalArticle").with_field("title", format!("Paper {i}")))
+            .collect();
+        let created = s.items.create_many(lib, drafts).await.unwrap();
+        let keys: Vec<yk_core::Key> =
+            created.into_iter().filter_map(|r| r.ok()).map(|i| i.key).collect();
+
+        // `get_many` hydrates tags and collections with one placeholder per
+        // row, so the shared helper has the same ceiling as the writes did.
+        let got = s.items.get_many(lib, &keys).await.unwrap();
+        assert_eq!(got.len(), OVER_SQLITE_LIMIT);
+    }
+
+    #[tokio::test]
+    async fn listing_more_attachments_than_sqlite_has_variables() {
+        let s = Store::in_memory().unwrap();
+        let lib = s.default_library;
+
+        let parent = s.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+        let drafts: Vec<ItemDraft> = (0..OVER_SQLITE_LIMIT)
+            .map(|i| {
+                let mut d = ItemDraft::new("attachment").with_field("filename", format!("{i}.pdf"));
+                d.parent_key = Some(parent.key.clone());
+                d
+            })
+            .collect();
+        s.items.create_many(lib, drafts).await.unwrap();
+
+        // The rename preview asks for every attachment at once, and each one
+        // contributes a placeholder to the parent lookup.
+        let page = s.items.attachments(lib, u32::MAX, 0).await.unwrap();
+        assert_eq!(page.items.len(), OVER_SQLITE_LIMIT);
+        assert!(page.items.iter().all(|(_, p)| p.is_some()));
+    }
+
     #[tokio::test]
     async fn an_attachment_whose_parent_is_gone_is_still_listed() {
         let s = Store::in_memory().unwrap();

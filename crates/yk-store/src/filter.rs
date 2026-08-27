@@ -42,6 +42,11 @@ impl Predicate {
             params.extend(filter.item_types.iter().map(|t| SqlValue::Text(t.clone())));
         }
 
+        // A predicate is one statement, so these two clauses cannot be split
+        // the way a plain `IN` list can — see `chunks`. Both are bounded
+        // today (a page is at most MAX_LIMIT keys; a collection subtree is
+        // far short of SQLite's own limit), but a caller that grows past that
+        // has to page rather than widen the list.
         if let Some(keys) = &filter.keys {
             if keys.is_empty() {
                 clauses.push("0".into());
@@ -88,6 +93,25 @@ impl Predicate {
 
         Predicate { sql: clauses.join(" AND "), params }
     }
+}
+
+/// The most values one statement may bind.
+///
+/// SQLite's own limit is 32766 in current builds and 999 in older ones. This
+/// sits below both, because the cost of another round of a prepared statement
+/// is microseconds and the cost of guessing wrong is an error on an operation
+/// that has always worked — met by whoever's library happens to be the first
+/// one big enough. "Select all and move to trash" on forty thousand items
+/// reproduced it exactly.
+pub const MAX_BOUND: usize = 900;
+
+/// Break a list into runs small enough to bind in one statement.
+///
+/// Chunking happens *inside* the caller's transaction, so an operation over
+/// forty thousand keys is still all-or-nothing — the ceiling goes away without
+/// atomicity going with it.
+pub fn chunks<T>(values: &[T]) -> impl Iterator<Item = &[T]> {
+    values.chunks(MAX_BOUND.max(1))
 }
 
 pub fn placeholders(n: usize) -> String {

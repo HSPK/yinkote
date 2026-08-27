@@ -6,6 +6,9 @@ set -uo pipefail
 BASE="${1:-http://127.0.0.1:23130}/api/v1"
 PASS=0
 FAIL=0
+# Names of the checks that failed, so the summary says *which* — scrolled-off
+# output cost a real investigation once.
+FAILED=()
 
 check() { # check <name> <value>
   if [[ -n "${2:-}" && "$2" != "null" && "$2" != "false" && "$2" != "0" ]]; then
@@ -14,6 +17,7 @@ check() { # check <name> <value>
   else
     printf '  \033[31mFAIL\033[0m %-44s %s\n' "$1" "${2:-<empty>}"
     FAIL=$((FAIL + 1))
+    FAILED+=("$1")
   fi
 }
 
@@ -406,5 +410,8 @@ if [[ $FAIL -eq 0 ]]; then
   printf '\033[32m%d checks passed\033[0m\n' "$PASS"
 else
   printf '\033[31m%d passed, %d failed\033[0m\n' "$PASS" "$FAIL"
+  for name in "${FAILED[@]}"; do
+    printf '\033[31m  failed: %s\033[0m\n' "$name"
+  done
   exit 1
 fi

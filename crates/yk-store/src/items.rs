@@ -53,43 +53,48 @@ fn hydrate(conn: &Connection, rows: &mut [(i64, Item)]) -> Result<()> {
         return Ok(());
     }
     let ids: Vec<i64> = rows.iter().map(|(id, _)| *id).collect();
-    let ph = placeholders(ids.len());
     let mut by_id: HashMap<i64, usize> = HashMap::with_capacity(rows.len());
     for (idx, (id, _)) in rows.iter().enumerate() {
         by_id.insert(*id, idx);
     }
 
-    let mut stmt = conn
-        .prepare_cached(&format!(
-            "SELECT it.item_id, t.name, it.type FROM item_tags it \
-             JOIN tags t ON t.id = it.tag_id WHERE it.item_id IN ({ph}) ORDER BY t.name"
-        ))
-        .map_err(sql_err)?;
-    let mut cur = stmt.query(params_from_iter(ids.iter())).map_err(sql_err)?;
-    while let Some(r) = cur.next().map_err(sql_err)? {
-        let id: i64 = r.get(0).map_err(sql_err)?;
-        if let Some(&idx) = by_id.get(&id) {
-            rows[idx].1.tags.push(ItemTag {
-                tag: r.get(1).map_err(sql_err)?,
-                r#type: r.get::<_, i64>(2).map_err(sql_err)? as u8,
-            });
-        }
-    }
-    drop(cur);
-    drop(stmt);
+    // In runs. One placeholder per row means a ceiling, and a ceiling on a
+    // shared helper is a failure waiting for whichever caller grows first.
+    for run in crate::filter::chunks(&ids) {
+        let ph = placeholders(run.len());
 
-    let mut stmt = conn
-        .prepare_cached(&format!(
-            "SELECT ci.item_id, c.key FROM collection_items ci \
-             JOIN collections c ON c.id = ci.collection_id WHERE ci.item_id IN ({ph})"
-        ))
-        .map_err(sql_err)?;
-    let mut cur = stmt.query(params_from_iter(ids.iter())).map_err(sql_err)?;
-    while let Some(r) = cur.next().map_err(sql_err)? {
-        let id: i64 = r.get(0).map_err(sql_err)?;
-        if let Some(&idx) = by_id.get(&id) {
-            if let Ok(k) = Key::parse(&r.get::<_, String>(1).map_err(sql_err)?) {
-                rows[idx].1.collections.push(k);
+        let mut stmt = conn
+            .prepare_cached(&format!(
+                "SELECT it.item_id, t.name, it.type FROM item_tags it \
+                 JOIN tags t ON t.id = it.tag_id WHERE it.item_id IN ({ph}) ORDER BY t.name"
+            ))
+            .map_err(sql_err)?;
+        let mut cur = stmt.query(params_from_iter(run.iter())).map_err(sql_err)?;
+        while let Some(r) = cur.next().map_err(sql_err)? {
+            let id: i64 = r.get(0).map_err(sql_err)?;
+            if let Some(&idx) = by_id.get(&id) {
+                rows[idx].1.tags.push(ItemTag {
+                    tag: r.get(1).map_err(sql_err)?,
+                    r#type: r.get::<_, i64>(2).map_err(sql_err)? as u8,
+                });
+            }
+        }
+        drop(cur);
+        drop(stmt);
+
+        let mut stmt = conn
+            .prepare_cached(&format!(
+                "SELECT ci.item_id, c.key FROM collection_items ci \
+                 JOIN collections c ON c.id = ci.collection_id WHERE ci.item_id IN ({ph})"
+            ))
+            .map_err(sql_err)?;
+        let mut cur = stmt.query(params_from_iter(run.iter())).map_err(sql_err)?;
+        while let Some(r) = cur.next().map_err(sql_err)? {
+            let id: i64 = r.get(0).map_err(sql_err)?;
+            if let Some(&idx) = by_id.get(&id) {
+                if let Ok(k) = Key::parse(&r.get::<_, String>(1).map_err(sql_err)?) {
+                    rows[idx].1.collections.push(k);
+                }
             }
         }
     }
@@ -436,18 +441,24 @@ impl ItemRepository for SqliteItemRepository {
         let keys: Vec<String> = keys.iter().map(|k| k.to_string()).collect();
         self.db
             .call(move |c| {
-                let ph = placeholders(keys.len());
-                let sql =
-                    format!("SELECT {COLS} {FROM} WHERE i.library_id = ? AND i.key IN ({ph})");
-                let mut stmt = c.prepare(&sql).map_err(sql_err)?;
-                let mut args: Vec<rusqlite::types::Value> =
-                    vec![rusqlite::types::Value::Integer(library_id)];
-                args.extend(keys.iter().map(|k| rusqlite::types::Value::Text(k.clone())));
-                let mut rows: Vec<(i64, Item)> = stmt
-                    .query_map(params_from_iter(args), map_row)
-                    .map_err(sql_err)?
-                    .collect::<rusqlite::Result<_>>()
-                    .map_err(sql_err)?;
+                // In runs: one placeholder per key, and callers pass whatever
+                // the user selected.
+                let mut rows: Vec<(i64, Item)> = Vec::with_capacity(keys.len());
+                for run in crate::filter::chunks(&keys) {
+                    let ph = placeholders(run.len());
+                    let sql =
+                        format!("SELECT {COLS} {FROM} WHERE i.library_id = ? AND i.key IN ({ph})");
+                    let mut stmt = c.prepare_cached(&sql).map_err(sql_err)?;
+                    let mut args: Vec<rusqlite::types::Value> =
+                        vec![rusqlite::types::Value::Integer(library_id)];
+                    args.extend(run.iter().map(|k| rusqlite::types::Value::Text(k.clone())));
+                    let found = stmt
+                        .query_map(params_from_iter(args), map_row)
+                        .map_err(sql_err)?
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                        .map_err(sql_err)?;
+                    rows.extend(found);
+                }
                 hydrate(c, &mut rows)?;
                 Ok(rows.into_iter().map(|(_, i)| i).collect())
             })
@@ -564,17 +575,19 @@ impl ItemRepository for SqliteItemRepository {
                     rows.iter().filter_map(|(_, i)| i.parent_key.clone()).collect();
                 let mut by_key: std::collections::HashMap<String, Item> =
                     std::collections::HashMap::new();
-                if !parents.is_empty() {
+                // In runs: one placeholder per parent, and a rename preview
+                // asks about every attachment in the library at once.
+                for run in crate::filter::chunks(&parents) {
                     // One placeholder per key. The library id has its own `?`
                     // in the statement; counting it here too is how this
                     // produced "got 3, needed 4" on the first real request.
-                    let places = vec!["?"; parents.len()].join(",");
+                    let places = vec!["?"; run.len()].join(",");
                     let sql = format!(
                         "SELECT {COLS} {FROM} WHERE i.library_id = ? AND i.key IN ({places})"
                     );
                     let mut args: Vec<Box<dyn rusqlite::ToSql>> =
                         vec![Box::new(library_id)];
-                    for key in &parents {
+                    for key in run {
                         args.push(Box::new(key.to_string()));
                     }
                     let found: Vec<(i64, Item)> = c
@@ -724,23 +737,32 @@ impl ItemRepository for SqliteItemRepository {
             .call(move |c| {
                 let tx = write_tx(c)?;
                 let version = bump_version(&tx, library_id)?;
-                let ph = placeholders(keys.len());
-                let mut args: Vec<rusqlite::types::Value> = vec![
-                    rusqlite::types::Value::Integer(i64::from(trashed)),
-                    rusqlite::types::Value::Integer(version),
-                    rusqlite::types::Value::Integer(yk_core::now_ms()),
-                    rusqlite::types::Value::Integer(library_id),
-                ];
-                args.extend(keys.iter().map(|k| rusqlite::types::Value::Text(k.clone())));
-                let n = tx
-                    .execute(
-                        &format!(
-                            "UPDATE items SET deleted=?1, version=?2, date_modified=?3 \
-                             WHERE library_id=?4 AND key IN ({ph})"
-                        ),
-                        params_from_iter(args),
-                    )
-                    .map_err(sql_err)? as u64;
+
+                // In runs, inside the one transaction. A statement binds one
+                // value per key, and SQLite will not bind more than a few
+                // thousand — "select all, move to trash" on a large library
+                // failed outright before this, on a gesture that had always
+                // worked.
+                let mut n = 0u64;
+                for run in crate::filter::chunks(&keys) {
+                    let ph = placeholders(run.len());
+                    let mut args: Vec<rusqlite::types::Value> = vec![
+                        rusqlite::types::Value::Integer(i64::from(trashed)),
+                        rusqlite::types::Value::Integer(version),
+                        rusqlite::types::Value::Integer(yk_core::now_ms()),
+                        rusqlite::types::Value::Integer(library_id),
+                    ];
+                    args.extend(run.iter().map(|k| rusqlite::types::Value::Text(k.clone())));
+                    n += tx
+                        .execute(
+                            &format!(
+                                "UPDATE items SET deleted=?1, version=?2, date_modified=?3 \
+                                 WHERE library_id=?4 AND key IN ({ph})"
+                            ),
+                            params_from_iter(args),
+                        )
+                        .map_err(sql_err)? as u64;
+                }
 
                 // Keep the search index consistent with visibility.
                 for k in &keys {
