@@ -148,3 +148,66 @@ fn a_link_is_told_from_a_downloaded_page_by_its_link_mode() {
     assert_eq!(AttachmentKind::classify(None, Some("linked_url")), AttachmentKind::Link);
     assert_eq!(AttachmentKind::classify(None, None), AttachmentKind::File);
 }
+
+/// The file browser needs the parent beside each file, and it now comes from
+/// the same join that finds the file. A second pass over the parents used to
+/// cost a third of a rename preview, so the risk in removing it is that the
+/// parent quietly turns up empty — which only a test that looks at it catches.
+#[tokio::test]
+async fn a_listed_file_arrives_with_its_parent() {
+    let root = Root::new("attach-parent");
+    let store = Store::open(Some(&root.db())).unwrap();
+    let lib = store.default_library;
+
+    let paper = store
+        .items
+        .create(
+            lib,
+            ItemDraft::new("journalArticle")
+                .with_field("title", "Parent paper")
+                .with_field("date", "2019"),
+        )
+        .await
+        .unwrap();
+    store
+        .items
+        .create(
+            lib,
+            ItemDraft {
+                parent_key: Some(paper.key.clone()),
+                ..ItemDraft::new("attachment")
+                    .with_field("filename", "paper.pdf")
+                    .with_field("contentType", "application/pdf")
+            },
+        )
+        .await
+        .unwrap();
+    // A loose file, to prove the `LEFT` in the join is still doing its job.
+    store
+        .items
+        .create(lib, ItemDraft::new("attachment").with_field("filename", "orphan.pdf"))
+        .await
+        .unwrap();
+
+    let page = store.items.attachments(lib, 100, 0).await.unwrap();
+    assert_eq!(page.total, 2);
+
+    let (_, parent) = page
+        .items
+        .iter()
+        .find(|(a, _)| a.field("filename") == Some("paper.pdf"))
+        .expect("the attached file");
+    let parent = parent.as_ref().expect("its parent");
+    assert_eq!(parent.key, paper.key);
+    // Renaming reads the parent's title and year, so those fields have to have
+    // survived the trip, not just the key.
+    assert_eq!(parent.title(), "Parent paper");
+    assert_eq!(parent.field("date"), Some("2019"));
+
+    let (_, none) = page
+        .items
+        .iter()
+        .find(|(a, _)| a.field("filename") == Some("orphan.pdf"))
+        .expect("the loose file");
+    assert!(none.is_none(), "a file with no parent must not invent one");
+}

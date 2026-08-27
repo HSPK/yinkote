@@ -112,6 +112,27 @@ impl Storage {
         tokio::fs::metadata(self.path(key, filename)).await.ok().map(|m| m.len())
     }
 
+    /// The sizes of a whole page of files, in the order asked.
+    ///
+    /// One handoff to the blocking pool for the page rather than one per file.
+    /// `stat` costs a microsecond or two; the async wrapper around it costs
+    /// fifty, and awaiting five hundred of them one after another was most of
+    /// the file browser's response time. Missing files report zero — a file the
+    /// database believes in and the disk does not is what the browser is for
+    /// showing, not an error.
+    pub async fn sizes(&self, files: &[(Key, String)]) -> Vec<u64> {
+        let paths: Vec<PathBuf> = files.iter().map(|(k, f)| self.path(k, f)).collect();
+        let wanted = paths.len();
+        tokio::task::spawn_blocking(move || {
+            paths
+                .iter()
+                .map(|p| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0))
+                .collect::<Vec<_>>()
+        })
+        .await
+        .unwrap_or_else(|_| vec![0; wanted])
+    }
+
     /// Give a stored file a different name, in place.
     ///
     /// Refuses to overwrite: two attachments of one paper can render to the

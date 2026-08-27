@@ -48,8 +48,17 @@ async fn list(
 ) -> ApiResult<Json<serde_json::Value>> {
     let page = app.store().items.attachments(lib, PAGE, paging.offset).await?;
 
+    // Every size in one pass before building the response: a `stat` per row,
+    // awaited in turn, was thirty times the cost of the query that found them.
+    let named: Vec<(Key, String)> = page
+        .items
+        .iter()
+        .map(|(a, _)| (a.key.clone(), a.field("filename").unwrap_or_default().to_string()))
+        .collect();
+    let sizes = app.storage().sizes(&named).await;
+
     let mut files = Vec::with_capacity(page.items.len());
-    for (attachment, parent) in &page.items {
+    for (i, (attachment, parent)) in page.items.iter().enumerate() {
         let filename = attachment.field("filename").unwrap_or_default();
         files.push(json!({
             "key": attachment.key,
@@ -64,7 +73,7 @@ async fn list(
             // From disk rather than from the record: a file the database
             // believes in and the disk does not is exactly what this view is
             // for finding.
-            "bytes": app.storage().size(&attachment.key, filename).await.unwrap_or(0),
+            "bytes": sizes.get(i).copied().unwrap_or(0),
         }));
     }
 

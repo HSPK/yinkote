@@ -19,6 +19,40 @@ const COLS: &str = "i.id, i.key, i.library_id, i.item_type, p.key, i.fields, i.c
                     i.version, i.deleted, i.date_added, i.date_modified";
 const FROM: &str = "FROM items i LEFT JOIN items p ON p.id = i.parent_id";
 
+/// The parent's own columns, for the one caller that wants the whole parent
+/// rather than just its key. The join in [`FROM`] already reaches the row, so
+/// asking for these costs nothing beyond the bytes; fetching the parents in a
+/// second pass — which is what this replaced — cost a third of a rename
+/// preview and an `IN (…)` list the width of the library.
+const PARENT_COLS: &str = "p.id, p.library_id, p.item_type, p.fields, p.creators, \
+                           p.version, p.deleted, p.date_added, p.date_modified";
+
+/// Read a parent item from the columns [`PARENT_COLS`] adds, starting at
+/// `base`. `None` when the attachment is loose — the join is a `LEFT` one.
+fn map_parent(row: &Row<'_>, base: usize, key: Option<Key>) -> rusqlite::Result<Option<Item>> {
+    let Some(key) = key else { return Ok(None) };
+    if row.get::<_, Option<i64>>(base)?.is_none() {
+        return Ok(None);
+    }
+    let fields_raw: String = row.get(base + 3)?;
+    let creators_raw: String = row.get(base + 4)?;
+    Ok(Some(Item {
+        key,
+        library_id: row.get(base + 1)?,
+        item_type: row.get(base + 2)?,
+        parent_key: None,
+        fields: serde_json::from_str(&fields_raw).unwrap_or_default(),
+        creators: serde_json::from_str(&creators_raw).unwrap_or_default(),
+        tags: Vec::new(),
+        collections: Vec::new(),
+        version: row.get(base + 5)?,
+        deleted: row.get::<_, i64>(base + 6)? != 0,
+        attachments: Vec::new(),
+        date_added: row.get(base + 7)?,
+        date_modified: row.get(base + 8)?,
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Row mapping
 // ---------------------------------------------------------------------------
@@ -620,15 +654,24 @@ impl ItemRepository for SqliteItemRepository {
                     )
                     .map_err(sql_err)?;
 
+                // The attachment and its parent in one statement. The join is
+                // already there for `parent_key`; taking the rest of the parent
+                // from it turns two passes into one.
                 let sql = format!(
-                    "SELECT {COLS} {FROM} \
+                    "SELECT {COLS}, {PARENT_COLS} {FROM} \
                      WHERE i.library_id = ?1 AND i.deleted = 0 AND i.item_type = 'attachment' \
                      ORDER BY i.date_added DESC LIMIT ?2 OFFSET ?3"
                 );
-                let rows: Vec<(i64, Item)> = c
+                let items: Vec<(Item, Option<Item>)> = c
                     .prepare_cached(&sql)
                     .map_err(sql_err)?
-                    .query_map(params![library_id, limit, offset], map_row)
+                    .query_map(params![library_id, limit, offset], |row| {
+                        let (_, attachment) = map_row(row)?;
+                        // `map_row` reads eleven columns; the parent's begin
+                        // straight after, which is what `PARENT_COLS` appends.
+                        let parent = map_parent(row, 11, attachment.parent_key.clone())?;
+                        Ok((attachment, parent))
+                    })
                     .map_err(sql_err)?
                     .collect::<rusqlite::Result<_>>()
                     .map_err(sql_err)?;
@@ -636,56 +679,12 @@ impl ItemRepository for SqliteItemRepository {
                 // Deliberately *not* hydrated. Nothing that lists files wants
                 // an attachment's tags or collections — the browser shows the
                 // name, the parent, the address and the size; renaming wants
-                // the parent's title, creators and year, and creators travel in
+                // the parent's title, creators and year, and those travel in
                 // the row itself. Loading them anyway cost most of a rename
                 // preview, and did it through an `IN (…)` of thirty thousand
                 // placeholders — a hundred and sixty short of SQLite's limit,
                 // so a slightly larger library would not have been slow, it
                 // would have failed.
-
-                // The parents in one pass. One query per attachment would be a
-                // thousand round trips for a page nobody would wait for.
-                let parents: Vec<Key> =
-                    rows.iter().filter_map(|(_, i)| i.parent_key.clone()).collect();
-                let mut by_key: std::collections::HashMap<String, Item> =
-                    std::collections::HashMap::new();
-                // In runs: one placeholder per parent, and a rename preview
-                // asks about every attachment in the library at once.
-                for run in crate::filter::chunks(&parents) {
-                    // One placeholder per key. The library id has its own `?`
-                    // in the statement; counting it here too is how this
-                    // produced "got 3, needed 4" on the first real request.
-                    let places = vec!["?"; run.len()].join(",");
-                    let sql = format!(
-                        "SELECT {COLS} {FROM} WHERE i.library_id = ? AND i.key IN ({places})"
-                    );
-                    let mut args: Vec<Box<dyn rusqlite::ToSql>> =
-                        vec![Box::new(library_id)];
-                    for key in run {
-                        args.push(Box::new(key.to_string()));
-                    }
-                    let found: Vec<(i64, Item)> = c
-                        .prepare(&sql)
-                        .map_err(sql_err)?
-                        .query_map(rusqlite::params_from_iter(args.iter().map(|a| a.as_ref())), map_row)
-                        .map_err(sql_err)?
-                        .collect::<rusqlite::Result<_>>()
-                        .map_err(sql_err)?;
-                    for (_, item) in found {
-                        by_key.insert(item.key.to_string(), item);
-                    }
-                }
-
-                let items = rows
-                    .into_iter()
-                    .map(|(_, attachment)| {
-                        let parent = attachment
-                            .parent_key
-                            .as_ref()
-                            .and_then(|k| by_key.get(k.as_str()).cloned());
-                        (attachment, parent)
-                    })
-                    .collect();
 
                 Ok(Page { items, total, limit, offset })
             })
