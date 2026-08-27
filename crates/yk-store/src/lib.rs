@@ -672,3 +672,60 @@ mod tests {
         assert_eq!(n, 1);
     }
 }
+
+#[cfg(test)]
+mod attachment_tests {
+    use super::*;
+    use yk_core::model::{ItemDraft, ItemTag};
+
+    #[tokio::test]
+    async fn attachments_come_back_without_their_tags_and_shelves() {
+        let s = Store::in_memory().unwrap();
+        let lib = s.default_library;
+
+        let mut parent = ItemDraft::new("journalArticle").with_field("title", "A paper");
+        parent.tags = vec![ItemTag { tag: "keep".into(), r#type: 0 }];
+        let parent = s.items.create(lib, parent).await.unwrap();
+
+        let mut file = ItemDraft::new("attachment").with_field("filename", "paper.pdf");
+        file.parent_key = Some(parent.key.clone());
+        file.tags = vec![ItemTag { tag: "scanned".into(), r#type: 0 }];
+        s.items.create(lib, file).await.unwrap();
+
+        let page = s.items.attachments(lib, 100, 0).await.unwrap();
+        let (attachment, found_parent) = &page.items[0];
+
+        // Deliberately absent, and asserted so nobody adds it back without
+        // meaning to. Nothing that lists files wants an attachment's tags: the
+        // browser shows the name, the parent, the address and the size, and
+        // renaming wants the parent's title, creators and year — creators
+        // travel in the row itself.
+        //
+        // Loading them cost most of a rename preview, and did it through an
+        // `IN (…)` of one placeholder per attachment. SQLite allows 32766 of
+        // them, so at thirty thousand files this was not slow, it was a
+        // hundred and sixty short of failing outright.
+        assert!(attachment.tags.is_empty(), "attachments are listed, not inspected");
+        assert!(attachment.collections.is_empty());
+
+        // What the caller actually needs is all there.
+        assert_eq!(attachment.field("filename"), Some("paper.pdf"));
+        assert_eq!(found_parent.as_ref().map(|p| p.title()), Some("A paper"));
+    }
+
+    #[tokio::test]
+    async fn an_attachment_whose_parent_is_gone_is_still_listed() {
+        let s = Store::in_memory().unwrap();
+        let lib = s.default_library;
+
+        let mut orphan = ItemDraft::new("attachment").with_field("filename", "lost.pdf");
+        orphan.parent_key = None;
+        s.items.create(lib, orphan).await.unwrap();
+
+        // A file with nothing to belong to is exactly what a file browser is
+        // for finding; dropping it from the list would hide the problem.
+        let page = s.items.attachments(lib, 100, 0).await.unwrap();
+        assert_eq!(page.items.len(), 1);
+        assert!(page.items[0].1.is_none());
+    }
+}

@@ -540,14 +540,23 @@ impl ItemRepository for SqliteItemRepository {
                      WHERE i.library_id = ?1 AND i.deleted = 0 AND i.item_type = 'attachment' \
                      ORDER BY i.date_added DESC LIMIT ?2 OFFSET ?3"
                 );
-                let mut rows: Vec<(i64, Item)> = c
+                let rows: Vec<(i64, Item)> = c
                     .prepare_cached(&sql)
                     .map_err(sql_err)?
                     .query_map(params![library_id, limit, offset], map_row)
                     .map_err(sql_err)?
                     .collect::<rusqlite::Result<_>>()
                     .map_err(sql_err)?;
-                hydrate(c, &mut rows)?;
+
+                // Deliberately *not* hydrated. Nothing that lists files wants
+                // an attachment's tags or collections — the browser shows the
+                // name, the parent, the address and the size; renaming wants
+                // the parent's title, creators and year, and creators travel in
+                // the row itself. Loading them anyway cost most of a rename
+                // preview, and did it through an `IN (…)` of thirty thousand
+                // placeholders — a hundred and sixty short of SQLite's limit,
+                // so a slightly larger library would not have been slow, it
+                // would have failed.
 
                 // The parents in one pass. One query per attachment would be a
                 // thousand round trips for a page nobody would wait for.
@@ -568,14 +577,13 @@ impl ItemRepository for SqliteItemRepository {
                     for key in &parents {
                         args.push(Box::new(key.to_string()));
                     }
-                    let mut found: Vec<(i64, Item)> = c
+                    let found: Vec<(i64, Item)> = c
                         .prepare(&sql)
                         .map_err(sql_err)?
                         .query_map(rusqlite::params_from_iter(args.iter().map(|a| a.as_ref())), map_row)
                         .map_err(sql_err)?
                         .collect::<rusqlite::Result<_>>()
                         .map_err(sql_err)?;
-                    hydrate(c, &mut found)?;
                     for (_, item) in found {
                         by_key.insert(item.key.to_string(), item);
                     }
