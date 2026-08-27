@@ -33,6 +33,13 @@ pub enum Relation {
     Author,
     /// Filed together.
     Collection,
+    /// Cites some of the same works.
+    ///
+    /// Bibliographic coupling: two papers that lean on the same references
+    /// are working on the same problem, whether or not anyone has tagged them
+    /// that way. It is the one edge here the library does not already imply —
+    /// it comes from the reference lists, which are facts from the world.
+    Coupling,
 }
 
 /// One item related to the focus.
@@ -105,6 +112,7 @@ impl GraphRepository for SqliteGraphRepository {
             out.extend(by_tag(&conn, library_id, id, ceiling, limit)?);
             out.extend(by_author(&conn, library_id, id, limit)?);
             out.extend(by_collection(&conn, library_id, id, limit)?);
+            out.extend(by_coupling(&conn, library_id, id, limit)?);
             Ok(out)
         })
         .await
@@ -274,6 +282,57 @@ fn title_of(fields: &str) -> String {
         .and_then(|v| v.get("title").and_then(|t| t.as_str()).map(str::to_string))
         .unwrap_or_default()
 }
+
+/// A reference shared by more than this many papers says nothing.
+///
+/// Every paper in a field cites its field's founding text; an edge drawn from
+/// that is an edge between everything and everything. The same reasoning as
+/// `COMMON_TAG_SHARE`, and the same shape of guard.
+const COMMON_REFERENCE_CEILING: i64 = 50;
+
+/// At least this many shared references before an edge is worth drawing.
+///
+/// One reference in common is a coincidence — two papers in a field will share
+/// a review article without being about the same thing. Two is a pattern.
+const MIN_SHARED_REFERENCES: i64 = 2;
+
+/// Papers that cite some of the same works.
+///
+/// Only references the publisher gave an identifier to: an entry with no DOI
+/// is matched by nothing but its label, and two bibliographies rarely spell
+/// the same paper the same way. Coupling on a mistyped label is a wrong edge
+/// stated with confidence, which is worse than a missing one.
+fn by_coupling(
+    conn: &rusqlite::Connection,
+    library_id: i64,
+    id: i64,
+    limit: u32,
+) -> Result<Vec<Neighbour>> {
+    query(
+        conn,
+        COUPLING_SQL,
+        params![library_id, id, limit, COMMON_REFERENCE_CEILING, MIN_SHARED_REFERENCES],
+        Relation::Coupling,
+    )
+}
+
+pub(crate) const COUPLING_SQL: &str =
+    "SELECT i.key, i.fields, i.item_type, i.year, count(*) AS shared
+               FROM item_relations theirs
+               CROSS JOIN items i ON i.id = theirs.source_id
+               WHERE theirs.target_key IN (
+                     SELECT mine.target_key FROM item_relations mine
+                     WHERE mine.source_id = ?2 AND mine.target_key != ''
+                       AND (SELECT count(*) FROM
+                            (SELECT 1 FROM item_relations c
+                             WHERE c.target_key = mine.target_key LIMIT ?4 + 1))
+                           <= ?4)
+                 AND theirs.source_id != ?2
+                 AND i.library_id = ?1 AND i.deleted = 0 AND i.parent_id IS NULL
+               GROUP BY i.id
+               HAVING shared >= ?5
+               ORDER BY shared DESC, i.year DESC
+               LIMIT ?3";
 
 #[cfg(test)]
 mod tests;

@@ -139,7 +139,9 @@ plugins/       示例插件（见 plugins/README.md）
 
 ## 路线（尚未实现）
 
-设计已完成、代码待补：**Word 插件、共被引/文献耦合（cocitation / coupling）、多端同步**。
+设计已完成、代码待补：**Word 插件、共被引（cocitation）、多端同步**。
+
+文献耦合（bibliographic coupling）已实现：引用了相同参考文献的论文会在关系图谱中连边。
 详见 `docs/09-roadmap.md`。
 
 已实现并可用：条目与收藏夹、智能收藏夹、混合检索（关键词 / 模糊 / 语义 / 标签）、

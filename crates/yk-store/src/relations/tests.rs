@@ -442,3 +442,26 @@ fn the_missing_query_asks_the_index_that_can_answer() {
     assert!(plan.contains("idx_items_fingerprint"), "{plan}");
     assert!(plan.contains("idx_cited_works_rank"), "the ranking must stream: {plan}");
 }
+
+#[test]
+fn a_bibliography_resolves_through_the_fingerprint_index() {
+    // Same fault as `MISSING_SQL`, found separately and much later: left to
+    // itself the planner joined through `idx_items_year` — a predicate
+    // matching the whole library — and scanned it once per reference. 1585 ms
+    // against 0.14 ms for thirty rows, with identical results. Every test that
+    // checks only the answer passed throughout.
+    let store = Store::in_memory().unwrap();
+    let conn = store.db().conn().unwrap();
+    let mut stmt = conn
+        .prepare(&format!("EXPLAIN QUERY PLAN {}", crate::relations::CITES_SQL))
+        .unwrap();
+    let plan = stmt
+        .query_map(rusqlite::params![1i64, 1i64, "cites"], |r| r.get::<_, String>(3))
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect::<Vec<_>>()
+        .join(" | ");
+
+    assert!(plan.contains("idx_items_fingerprint"), "{plan}");
+    assert!(!plan.contains("idx_items_year"), "{plan}");
+}

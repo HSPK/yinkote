@@ -46,6 +46,10 @@ export function snippetParts(snippet: string): { text: string; mark: boolean }[]
 }
 
 export function compact(n: number): string {
+  // A count that never arrived reads as "—", not "NaNM". Every surface shows
+  // one of these beside a label, and a formatter is the wrong place to make
+  // a missing number look like a very large one.
+  if (!Number.isFinite(n)) return '—'
   if (n < 1000) return String(n)
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`
   return `${(n / 1_000_000).toFixed(1)}M`

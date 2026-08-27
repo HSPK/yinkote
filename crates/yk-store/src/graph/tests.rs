@@ -9,6 +9,10 @@ fn tagged(title: &str, tags: &[&str]) -> ItemDraft {
     draft
 }
 
+fn plain(title: &str) -> ItemDraft {
+    ItemDraft::new("journalArticle").with_field("title", title)
+}
+
 fn by(title: &str, surname: &str) -> ItemDraft {
     ItemDraft::new("journalArticle").with_field("title", title).with_creator(Creator {
         last_name: Some(surname.into()),
@@ -194,4 +198,115 @@ fn the_author_query_seeks_by_name_before_it_sorts_by_year() {
     // case, since most authors appear once.
     let plan = plan(crate::graph::AUTHOR_SQL, 5);
     assert!(plan.contains("idx_items_creator"), "must seek by name: {plan}");
+}
+
+// ---------------------------------------------------------------------------
+// Bibliographic coupling
+// ---------------------------------------------------------------------------
+
+use crate::relations::CitationDraft;
+
+/// A reference the publisher gave an identifier to.
+fn cites(doi: &str) -> CitationDraft {
+    CitationDraft {
+        fingerprint: format!("doi:{doi}"),
+        doi: doi.into(),
+        label: format!("Work {doi}"),
+        year: Some(2020),
+    }
+}
+
+#[tokio::test]
+async fn relates_papers_that_lean_on_the_same_references() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+
+    let focus = s.items.create(lib, plain("Focus")).await.unwrap();
+    let close = s.items.create(lib, plain("Reads the same things")).await.unwrap();
+    let brushes = s.items.create(lib, plain("Shares only one")).await.unwrap();
+    let apart = s.items.create(lib, plain("Reads something else")).await.unwrap();
+
+    let shared = vec![cites("10.1/a"), cites("10.1/b"), cites("10.1/c")];
+    s.relations.set_citations(lib, &focus.key, shared.clone()).await.unwrap();
+    s.relations.set_citations(lib, &close.key, shared).await.unwrap();
+    s.relations
+        .set_citations(lib, &brushes.key, vec![cites("10.1/a"), cites("10.9/x")])
+        .await
+        .unwrap();
+    s.relations.set_citations(lib, &apart.key, vec![cites("10.9/y")]).await.unwrap();
+
+    let found = s.graph.neighbours(lib, &focus.key, 10).await.unwrap();
+    let coupled: Vec<_> =
+        found.iter().filter(|n| n.relation == crate::graph::Relation::Coupling).collect();
+
+    // Two papers citing the same three works are working on the same problem,
+    // whether or not anybody has tagged them that way.
+    assert_eq!(coupled.len(), 1, "{coupled:?}");
+    assert_eq!(coupled[0].title, "Reads the same things");
+    assert_eq!(coupled[0].weight, 3.0);
+
+    // One shared reference is a coincidence — two papers in a field share a
+    // review without being about the same thing.
+    let titles: Vec<&str> = coupled.iter().map(|n| n.title.as_str()).collect();
+    assert!(!titles.contains(&"Shares only one"), "{titles:?}");
+    assert!(!titles.contains(&"Reads something else"), "{titles:?}");
+}
+
+#[tokio::test]
+async fn a_reference_everybody_cites_draws_no_edges() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+
+    // Every paper in a field cites its founding text. An edge drawn from that
+    // is an edge between everything and everything.
+    let founding = vec![cites("10.1/founding"), cites("10.1/second")];
+    let focus = s.items.create(lib, plain("Focus")).await.unwrap();
+    s.relations.set_citations(lib, &focus.key, founding.clone()).await.unwrap();
+
+    for i in 0..60 {
+        let other = s.items.create(lib, plain(&format!("Paper {i}"))).await.unwrap();
+        s.relations.set_citations(lib, &other.key, founding.clone()).await.unwrap();
+    }
+
+    let found = s.graph.neighbours(lib, &focus.key, 100).await.unwrap();
+    let coupled = found.iter().filter(|n| n.relation == crate::graph::Relation::Coupling).count();
+    assert_eq!(coupled, 0, "a reference on sixty papers relates none of them");
+}
+
+#[tokio::test]
+async fn a_reference_with_no_identifier_couples_nothing() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+
+    // Two bibliographies rarely spell the same paper the same way, so an
+    // entry with no DOI would couple on a typo — a wrong edge stated with
+    // confidence, which is worse than a missing one.
+    let vague = |label: &str| CitationDraft {
+        fingerprint: String::new(),
+        doi: String::new(),
+        label: label.into(),
+        year: Some(1999),
+    };
+    let focus = s.items.create(lib, plain("Focus")).await.unwrap();
+    let other = s.items.create(lib, plain("Other")).await.unwrap();
+    s.relations
+        .set_citations(lib, &focus.key, vec![vague("Smith 1999"), vague("Jones 1998")])
+        .await
+        .unwrap();
+    s.relations
+        .set_citations(lib, &other.key, vec![vague("Smith 1999"), vague("Jones 1998")])
+        .await
+        .unwrap();
+
+    let found = s.graph.neighbours(lib, &focus.key, 10).await.unwrap();
+    assert!(found.iter().all(|n| n.relation != crate::graph::Relation::Coupling), "{found:?}");
+}
+
+#[test]
+fn the_coupling_query_is_driven_by_the_references_not_by_the_library() {
+    // Same class as the tag query: left alone the planner will happily scan
+    // every item and probe the reference table for each one.
+    let plan = plan(crate::graph::COUPLING_SQL, 5);
+    assert!(plan.contains("SEARCH theirs"), "the reference index must lead: {plan}");
+    assert!(!plan.contains("SCAN i"), "{plan}");
 }

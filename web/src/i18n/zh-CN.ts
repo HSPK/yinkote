@@ -516,6 +516,7 @@ export const zhCN = {
   'graph.empty': '这个条目还没有任何关联——加标签、放入收藏夹，或等待索引完成',
   'graph.footer': '{nodes} 个节点 · {edges} 条边',
   'graph.hint': '双击邻居可以以它为中心',
+  'graph.relation.coupling': '共享参考文献',
   'graph.relation.tag': '共享标签',
   'graph.relation.author': '同一作者',
   'graph.relation.collection': '同一收藏夹',

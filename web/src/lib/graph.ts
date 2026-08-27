@@ -12,7 +12,7 @@
  */
 import type { GraphEdge, GraphNode } from '../api/types'
 
-export const RELATIONS = ['tag', 'author', 'collection', 'similar', 'cites'] as const
+export const RELATIONS = ['tag', 'author', 'collection', 'coupling', 'similar', 'cites'] as const
 
 export type Relation = (typeof RELATIONS)[number]
 

@@ -520,6 +520,7 @@ export const enUS: Record<MessageKey, string> = {
   'graph.empty': 'Nothing connects to this item yet — tag it, file it, or wait for it to be indexed',
   'graph.footer': '{nodes} nodes · {edges} edges',
   'graph.hint': 'Double-click a neighbour to centre on it',
+  'graph.relation.coupling': 'Shared references',
   'graph.relation.tag': 'Shared tags',
   'graph.relation.author': 'Same author',
   'graph.relation.collection': 'Filed together',

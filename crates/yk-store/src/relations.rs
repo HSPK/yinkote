@@ -137,6 +137,24 @@ fn id_of(conn: &rusqlite::Connection, library_id: i64, key: &Key) -> Result<i64>
     .map_err(|_| Error::not_found(format!("item {key}")))
 }
 
+/// A bibliography, with the works this library holds resolved to their items.
+///
+/// `INDEXED BY` is not decoration. Left to itself the planner joined through
+/// `idx_items_year` — a predicate matching the whole library — and scanned it
+/// once per reference: **1585 ms against 0.14 ms** on a library with 1.8
+/// million citations, for a query returning thirty rows. Identical results,
+/// four orders of magnitude apart, and invisible to every test that only
+/// checks the answer. Same fault as `MISSING_SQL`, same table, same column;
+/// there is a plan test for each.
+pub(crate) const CITES_SQL: &str =
+    "SELECT r.position, r.target_key, r.target_label, r.target_year, i.key, r.target_doi
+     FROM item_relations r
+     LEFT JOIN items i INDEXED BY idx_items_fingerprint
+          ON i.library_id = ?1 AND i.deleted = 0
+         AND r.target_key != '' AND i.fingerprint = r.target_key
+     WHERE r.source_id = ?2 AND r.kind = ?3
+     ORDER BY r.position";
+
 #[async_trait]
 impl RelationRepository for SqliteRelationRepository {
     async fn set_citations(
@@ -248,18 +266,7 @@ impl RelationRepository for SqliteRelationRepository {
             // The left join is the resolution: a cited work that is in the
             // library comes back with its key, one that is not comes back with
             // the label the publisher gave it. Neither case is special.
-            let mut stmt = conn
-                .prepare_cached(
-                    "SELECT r.position, r.target_key, r.target_label, r.target_year, i.key,
-                            r.target_doi
-                     FROM item_relations r
-                     LEFT JOIN items i
-                          ON i.library_id = ?1 AND i.deleted = 0
-                         AND r.target_key != '' AND i.fingerprint = r.target_key
-                     WHERE r.source_id = ?2 AND r.kind = ?3
-                     ORDER BY r.position",
-                )
-                .map_err(sql_err)?;
+            let mut stmt = conn.prepare_cached(CITES_SQL).map_err(sql_err)?;
 
             let rows = stmt
                 .query_map(params![library_id, id, CITES], map_citation)

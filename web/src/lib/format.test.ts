@@ -111,6 +111,13 @@ describe('snippetParts', () => {
 })
 
 describe('compact', () => {
+  it('says nothing rather than NaN when the number never arrived', () => {
+    // `(undefined / 1_000_000).toFixed(1)` is "NaN", so the counts beside
+    // every sidebar label would have read "NaNM" on a slow first load.
+    expect(compact(undefined as unknown as number)).toBe('—')
+    expect(compact(NaN)).toBe('—')
+  })
+
   it.each([
     [0, '0'],
     [999, '999'],
