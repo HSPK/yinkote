@@ -622,12 +622,37 @@ describe('a long conversation', () => {
     expect(container.querySelector('.chat-older')).toBeNull()
   })
 
-  it('stays out of the way of a short one', async () => {
+  it('is there on a short conversation too', async () => {
     useStore.setState({ messages: many(4) })
     await render()
-    // On a four-message thread a rail is chrome explaining a problem nobody
-    // has.
+    // It used to hide below a dozen messages, which meant it appeared
+    // unannounced part-way through a conversation. A control that comes and
+    // goes is harder to rely on than one that is always in the same place.
+    expect(container.querySelector('.jump-rail')).not.toBeNull()
+    expect(container.querySelectorAll('.jump-tick')).toHaveLength(2)
+  })
+
+  it('shows nothing to aim at until a question has been asked', async () => {
+    useStore.setState({ messages: [] })
+    await render()
     expect(container.querySelector('.jump-rail')).toBeNull()
+  })
+
+  it('dates the question it previews', async () => {
+    const at = new Date()
+    at.setHours(9, 5, 0, 0)
+    useStore.setState({
+      messages: many(4).map((m) => ({ ...m, createdAt: at.getTime() })),
+    })
+    await render()
+
+    const tick = container.querySelector('.jump-tick') as HTMLElement
+    await act(async () => {
+      tick.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    // Same day, so the date would be noise; two questions an hour apart are
+    // still told apart.
+    expect(container.querySelector('.jump-preview-time')?.textContent).toBe('09:05')
   })
 
   it('previews the question a tick stands for', async () => {

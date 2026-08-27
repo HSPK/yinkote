@@ -64,6 +64,41 @@ impl ItemTag {
     }
 }
 
+/// What an item has hanging off it, at the resolution a reader cares about:
+/// is there a PDF, is there a saved page, is it only a link out.
+///
+/// Derived from the child attachments on read and never stored — the
+/// attachments themselves are the truth, and a cached summary of them would be
+/// one more thing that can disagree with the library.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AttachmentKind {
+    Pdf,
+    /// A saved copy of a web page.
+    Snapshot,
+    /// A URL only: nothing was downloaded.
+    Link,
+    /// Some other file — an image, a dataset, a supplement.
+    File,
+}
+
+impl AttachmentKind {
+    /// Classify one attachment from the two fields Zotero uses to describe it.
+    pub fn classify(content_type: Option<&str>, link_mode: Option<&str>) -> Self {
+        if link_mode == Some("linked_url") {
+            return Self::Link;
+        }
+        match content_type {
+            Some("application/pdf") => Self::Pdf,
+            Some("text/html") | Some("application/xhtml+xml") => Self::Snapshot,
+            _ => Self::File,
+        }
+    }
+
+    /// Most telling first, so a row with a PDF and three images reads as "PDF".
+    pub const ORDER: [Self; 4] = [Self::Pdf, Self::Snapshot, Self::Link, Self::File];
+}
+
 /// A bibliographic item. Notes, attachments and annotations are items too,
 /// distinguished by `item_type`, which keeps versioning and tagging uniform.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -90,6 +125,9 @@ pub struct Item {
     pub date_added: i64,
     #[serde(rename = "dateModified")]
     pub date_modified: i64,
+    /// Derived on read, never written. See [`AttachmentKind`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<AttachmentKind>,
 }
 
 impl Item {
@@ -242,6 +280,7 @@ impl ItemDraft {
             collections: self.collections,
             version,
             deleted: false,
+            attachments: Vec::new(),
             date_added: ts,
             date_modified: ts,
         }

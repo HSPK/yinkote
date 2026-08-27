@@ -171,6 +171,7 @@ mod tests {
             collections: Vec::new(),
             version: 1,
             deleted: false,
+            attachments: Vec::new(),
             date_added: 0,
             date_modified: 0,
         }

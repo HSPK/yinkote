@@ -23,6 +23,9 @@ export interface SearchHit {
 }
 
 /** Fields are schema-driven, so anything unknown is still carried through. */
+/** What a row has attached. Derived by the server from the child attachments. */
+export type AttachmentKind = 'pdf' | 'snapshot' | 'link' | 'file'
+
 export interface Item extends Record<string, unknown> {
   key: string
   libraryId: number
@@ -39,6 +42,8 @@ export interface Item extends Record<string, unknown> {
   date?: string
   abstractNote?: string
   match?: SearchHit
+  /** Absent when the row has nothing attached. */
+  attachments?: AttachmentKind[]
 }
 
 export interface Collection {

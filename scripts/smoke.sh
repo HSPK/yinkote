@@ -250,6 +250,25 @@ check "graph coupling"    "$(j "$BASE/libraries/$LIB/graph/$CITER" \
 check "graph cocitation"  "$(j "$BASE/libraries/$LIB/graph/$CA" \
                              | jq -r --arg k "$CB" '[.edges[] | select(.relation == "cocitation" and .target == $k)] | length | select(. == 1)')"
 
+echo "▸ attachment marks"
+# A listed row must say what it has attached without a second request: the
+# table draws a glyph per kind, and a per-row lookup for a hundred rows is the
+# thing this replaced.
+MARKED=$(j -X POST "$BASE/libraries/$LIB/items" \
+           -d '{"itemType":"journalArticle","title":"Row with a PDF"}' | jq -r '.created[0].key')
+j -X POST "$BASE/libraries/$LIB/items" \
+  -d "{\"itemType\":\"attachment\",\"parentKey\":\"$MARKED\",\"contentType\":\"application/pdf\",\"linkMode\":\"imported_file\"}" >/dev/null
+j -X POST "$BASE/libraries/$LIB/items" \
+  -d "{\"itemType\":\"attachment\",\"parentKey\":\"$MARKED\",\"contentType\":\"text/html\",\"linkMode\":\"linked_url\"}" >/dev/null
+# Ordered by how telling the kind is, so a row leads with its PDF.
+check "marks on the row"  "$(j "$BASE/libraries/$LIB/items/$MARKED" \
+                             | jq -r '.attachments | join("+") | select(. == "pdf+link")')"
+check "marks in the list" "$(j "$BASE/libraries/$LIB/items?limit=200" \
+                             | jq -r --arg k "$MARKED" '.items[] | select(.key == $k) | .attachments | join("+") | select(. == "pdf+link")')"
+# Absent, not empty: a row with nothing attached should not carry the key.
+check "no marks, no key"  "$(j "$BASE/libraries/$LIB/items/$KEY" \
+                             | jq -r 'select(has("attachments") | not) | "absent"')"
+
 echo "▸ file browser"
 check "files listed"      "$(j "$BASE/libraries/$LIB/files" \
                              | jq -r 'select((.files | type) == "array") | "listed"')"

@@ -169,6 +169,39 @@ export const Icon = {
       <path d="M3.6 6 8 10.4 12.4 6" />
     </Svg>
   ),
+  /** A paperclip: this row has something attached. */
+  Paperclip: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M11.5 6.5 6.8 11.2a1.9 1.9 0 0 1-2.7-2.7l5-5a3 3 0 0 1 4.3 4.3l-5 5a4.1 4.1 0 0 1-5.8-5.8L7 2.4" />
+    </Svg>
+  ),
+
+  /** A page with a fold: a PDF. Lettering would be illegible at 14px. */
+  Pdf: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M9.2 1.8H4.4a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7.2a1 1 0 0 0 1-1V5.2z" />
+      <path d="M9.2 1.8v3.4h3.4" />
+      <path d="M5.8 8.6h4.4M5.8 11h3" />
+    </Svg>
+  ),
+
+  /** A globe: a saved page or a link out. */
+  Globe: (p: IconProps) => (
+    <Svg {...p}>
+      <circle cx="8" cy="8" r="6.1" />
+      <path d="M1.9 8h12.2" />
+      <path d="M8 1.9a9.4 9.4 0 0 1 0 12.2 9.4 9.4 0 0 1 0-12.2z" />
+    </Svg>
+  ),
+
+  /** A plain page: some other file. */
+  File: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M9.2 1.8H4.4a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7.2a1 1 0 0 0 1-1V5.2z" />
+      <path d="M9.2 1.8v3.4h3.4" />
+    </Svg>
+  ),
+
   Dot: (p: IconProps) => (
     <Svg {...p}>
       <circle cx="8" cy="8" r="2" fill="currentColor" stroke="none" />

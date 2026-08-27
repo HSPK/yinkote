@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
-import type { BadgeValue, Item, MatchSource } from '../api/types'
-import { useSchemaLabel, useT } from '../i18n'
+import type { AttachmentKind, BadgeValue, Item, MatchSource } from '../api/types'
+import { type MessageKey, useSchemaLabel, useT } from '../i18n'
 import {
   allColumns,
   badgeColumn,
@@ -16,7 +16,7 @@ import { beginDrag, endDrag } from '../lib/dnd'
 import { creatorSummary, shortDate, snippetParts, year } from '../lib/format'
 import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
-import { contextMenu, type MenuItem } from '../ui'
+import { contextMenu, Icon, type MenuItem } from '../ui'
 import { itemMenu } from './menus'
 import { VirtualList } from './VirtualList'
 
@@ -56,6 +56,39 @@ interface CellContext {
   typeLabel: string
   badges: BadgeValue[]
   untitled: string
+  t: ReturnType<typeof useT>
+}
+
+/** One glyph per kind of attachment, so a row's contents read at a glance. */
+const ATTACH_ICONS: Record<AttachmentKind, (p: { size?: number }) => React.ReactNode> = {
+  pdf: Icon.Pdf,
+  snapshot: Icon.Globe,
+  link: Icon.Globe,
+  file: Icon.File,
+}
+
+const ATTACH_LABELS: Record<AttachmentKind, MessageKey> = {
+  pdf: 'attach.pdf',
+  snapshot: 'attach.snapshot',
+  link: 'attach.link',
+  file: 'attach.file',
+}
+
+function AttachmentCell({ item, t }: CellContext) {
+  const kinds = item.attachments ?? []
+  if (!kinds.length) return null
+  return (
+    <>
+      {kinds.map((k) => {
+        const Glyph = ATTACH_ICONS[k]
+        return (
+          <span key={k} className="attach-mark" data-kind={k} title={t(ATTACH_LABELS[k])}>
+            <Glyph size={12} />
+          </span>
+        )
+      })}
+    </>
+  )
 }
 
 function TitleCell({ item, untitled }: CellContext) {
@@ -95,6 +128,10 @@ const CELLS: Record<
   author: { className: 'dim', render: ({ item }) => creatorSummary(item) },
   year: { className: 'num', render: ({ item }) => year(item) },
   type: { className: 'dim', render: ({ typeLabel }) => typeLabel },
+  attachments: {
+    className: 'attach-cell',
+    render: AttachmentCell,
+  },
   tags: {
     className: 'dim',
     render: ({ item }) => <TagDots tags={item.tags.map((t) => t.tag)} />,
@@ -157,6 +194,7 @@ function Row({
     typeLabel: label(typeDef, item.itemType),
     badges: badges ?? [],
     untitled: t('detail.untitled'),
+    t,
   }
 
   return (
@@ -216,6 +254,11 @@ export function ItemTable() {
       ? (badgeDefs.find((b) => `badge:${b.pluginId}:${b.id}` === c.id)?.label ?? c.badge)
       : t(c.labelKey)
 
+  /** What the header draws. A label always names the column for the tooltip and
+   *  for screen readers; a few columns are too narrow to draw the word. */
+  const headerContent = (c: ColumnDef) =>
+    c.id === 'attachments' ? <Icon.Paperclip size={12} /> : headerLabel(c)
+
   // Reads the live order at click time: a menu's items are captured when it
   // opens, so anything acting on `order` from the closure would be stale.
   const reorder = (id: string, delta: number) =>
@@ -265,7 +308,7 @@ export function ItemTable() {
             title={headerLabel(c)}
             onClick={() => c.sort && setSort(c.sort)}
           >
-            <span className="head-label">{headerLabel(c)}</span>
+            <span className="head-label">{headerContent(c)}</span>
             {sort === c.sort && (
               <span className="sort-arrow">{direction === 'asc' ? '↑' : '↓'}</span>
             )}

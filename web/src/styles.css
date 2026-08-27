@@ -1101,6 +1101,19 @@ select.ctl { padding: 4px 6px; }
 .chat-log { flex: 1; min-height: 0; padding: 10px 12px; }
 .chat-log .vlist-slot { padding-bottom: 10px; }
 
+/* Attachment marks. Glyphs, not words: the column is 58px and the point is to
+   be readable at a glance while scanning a list, not to be read. */
+.cell.attach-cell {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  overflow: hidden;
+}
+.attach-mark { display: flex; color: var(--fg-mute); }
+.attach-mark[data-kind='pdf'] { color: var(--accent); }
+.attach-mark[data-kind='snapshot'],
+.attach-mark[data-kind='link'] { color: var(--fg-dim); }
+
 /* One tick per question. A long conversation is navigated by what was asked,
    not by distance — the answers between are what make scrolling useless. */
 .jump-rail {
@@ -1110,7 +1123,7 @@ select.ctl { padding: 4px 6px; }
   flex-direction: column;
   gap: 3px;
   align-items: center;
-  width: 16px;
+  width: 22px;
   padding: 12px 0;
   overflow-y: auto;
   border-left: 1px solid var(--line);
@@ -1118,24 +1131,47 @@ select.ctl { padding: 4px 6px; }
 }
 .jump-rail::-webkit-scrollbar { width: 0; }
 
+/* The mark is 2px tall but the button is 9px: `content-box` painting means the
+   padding is a transparent hit area, so the pointer catches a tick without
+   having to land on a hairline. Grow on hover for the same reason. */
 .jump-tick {
   flex: none;
-  width: 8px;
+  box-sizing: content-box;
+  width: 9px;
   height: 2px;
-  padding: 0;
+  padding: 3px 4px;
   background: var(--line-2);
+  background-clip: content-box;
   border: 0;
   cursor: pointer;
+  transition: width 90ms ease, height 90ms ease, background-color 90ms ease;
 }
-.jump-tick:hover { width: 12px; background: var(--accent); }
-.jump-tick[data-current] { width: 12px; background: var(--fg-dim); }
+.jump-tick:hover,
+.jump-tick[data-hovered] {
+  width: 13px;
+  height: 4px;
+  padding: 2px 2px;
+  background: var(--accent);
+  background-clip: content-box;
+}
+.jump-tick[data-current] {
+  width: 13px;
+  background: var(--fg-dim);
+  background-clip: content-box;
+}
 
 .jump-preview {
   position: absolute;
-  right: 20px;
-  top: 8px;
+  right: 22px;
   z-index: 30;
-  max-width: 320px;
+  /* `top` is set from the hovered tick's offset so the preview lines up with
+     the thing it describes rather than floating at a fixed height. */
+  margin-top: -6px;
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  width: max-content;
+  max-width: 340px;
   padding: 5px 7px;
   background: var(--bg-1);
   border: 1px solid var(--line-2);
@@ -1145,6 +1181,8 @@ select.ctl { padding: 4px 6px; }
   color: var(--fg-dim);
   pointer-events: none;
 }
+.jump-preview-time { flex: none; font: 10px/1.5 var(--mono); color: var(--fg-mute); }
+.jump-preview-text { min-width: 0; }
 
 .bubble { max-width: 760px; margin: 0 0 10px; }
 .bubble[data-role='user'] { margin-left: auto; }

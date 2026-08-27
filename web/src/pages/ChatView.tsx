@@ -3,13 +3,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useT } from '../i18n'
 import type { Item, Message, RunState, RunStep } from '../api/types'
 import { MentionPicker, mentionQuery, stripMention } from '../components/MentionPicker'
-import { JumpRail, RAIL_THRESHOLD, railMarks } from '../components/JumpRail'
+import { JumpRail, railMarks } from '../components/JumpRail'
 import { VirtualList } from '../components/VirtualList'
 import { elapsed } from '../lib/format'
 import { shouldFollow, type Tail } from '../lib/follow'
 import { Markdown } from '../lib/markdown'
 import { useStore } from '../state/store'
-import { Empty, Icon } from '../ui'
+import { Empty, Icon, Select } from '../ui'
 
 /**
  * One step of a turn.
@@ -378,9 +378,7 @@ export function ChatView() {
           }
         </VirtualList>
 
-        {marks.length >= RAIL_THRESHOLD && (
-          <JumpRail marks={marks} active={firstVisible} onJump={setJumpTo} />
-        )}
+        {marks.length > 0 && <JumpRail marks={marks} active={firstVisible} onJump={setJumpTo} />}
       </div>
 
       {/* One control, not three stacked. What the question is about — the
@@ -431,33 +429,20 @@ export function ChatView() {
           />
 
           <div className="composer-bar">
+            {/* The shared control, not a bare `<select>`: the browser's
+                default is a white box in a dark interface, and every other
+                select in the program already knows what it should look like. */}
             <label className="chat-scope" title={t('chat.scope')}>
               <Icon.Folder size={11} className="glyph" />
-              <select
+              <Select
                 value={scope ?? ''}
                 onChange={(e) => void setConversationScope(e.target.value || null)}
-              >
-                <option value="">{t('chat.scopeAll')}</option>
-                {collections.map((c) => (
-                  <option key={c.key} value={c.key}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: t('chat.scopeAll') },
+                  ...collections.map((c) => ({ value: c.key, label: c.name })),
+                ]}
+              />
             </label>
-
-            <button
-              className="composer-mention"
-              title={t('chat.mentionHint')}
-              onClick={() => {
-                const next = `${draft}${draft && !draft.endsWith(' ') ? ' ' : ''}@`
-                setDraft(next)
-                setMention({ query: '', caret: next.length })
-                box.current?.focus()
-              }}
-            >
-              @
-            </button>
 
             <span className="spacer" />
 

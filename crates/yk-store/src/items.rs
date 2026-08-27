@@ -40,6 +40,7 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<(i64, Item)> {
         collections: Vec::new(),
         version: row.get(7)?,
         deleted: row.get::<_, i64>(8)? != 0,
+        attachments: Vec::new(),
         date_added: row.get(9)?,
         date_modified: row.get(10)?,
     };
@@ -111,6 +112,38 @@ fn hydrate(conn: &Connection, rows: &mut [(i64, Item)]) -> Result<()> {
                     rows[idx].1.collections.push(k);
                 }
             }
+        }
+        drop(cur);
+        drop(stmt);
+
+        // What each row has attached. One query for the page, driven by
+        // `idx_items_parent`; the alternative — asking per row — is the same
+        // mistake the tag and collection passes above already avoid.
+        let mut stmt = conn
+            .prepare_cached(&format!(
+                "SELECT a.parent_id, json_extract(a.fields, '$.contentType'),                         json_extract(a.fields, '$.linkMode')                  FROM items a                  WHERE a.parent_id IN ({ph}) AND a.deleted = 0 AND a.item_type = 'attachment'"
+            ))
+            .map_err(sql_err)?;
+        let mut cur = stmt.query(params_from_iter(run.iter())).map_err(sql_err)?;
+        while let Some(r) = cur.next().map_err(sql_err)? {
+            let id: i64 = r.get(0).map_err(sql_err)?;
+            let Some(&idx) = by_id.get(&id) else { continue };
+            let content_type: Option<String> = r.get(1).map_err(sql_err)?;
+            let link_mode: Option<String> = r.get(2).map_err(sql_err)?;
+            let kind = AttachmentKind::classify(content_type.as_deref(), link_mode.as_deref());
+            let marks = &mut rows[idx].1.attachments;
+            if !marks.contains(&kind) {
+                marks.push(kind);
+            }
+        }
+    }
+
+    // A stable, meaningful order: a row with a PDF and two images should lead
+    // with the PDF however the rows happened to come back.
+    for (_, item) in rows.iter_mut() {
+        if item.attachments.len() > 1 {
+            item.attachments
+                .sort_by_key(|k| AttachmentKind::ORDER.iter().position(|o| o == k).unwrap_or(9));
         }
     }
     Ok(())
