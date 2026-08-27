@@ -6,6 +6,8 @@
 //! outside this crate, which is why the loop can be tested against a scripted
 //! provider with no network and no database.
 
+pub mod skills;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -20,7 +22,12 @@ use yk_core::{Error, Result};
 /// A model that keeps calling tools is either exploring usefully or stuck in a
 /// loop, and from the outside those look identical. Stopping at a bound turns
 /// the second case into a slightly short answer instead of an unbounded bill.
-pub const MAX_STEPS: usize = 6;
+///
+/// Sixteen rather than a handful because real jobs are several steps deep: a
+/// literature search reads its skill, orients, searches inside and outside,
+/// and adds what it found, and a budget that runs out mid-way produces a
+/// half-finished answer that looks like a bad one.
+pub const MAX_STEPS: usize = 16;
 
 /// What the loop produced.
 #[derive(Debug, Clone)]
@@ -99,12 +106,19 @@ pub struct Agent {
     provider: Arc<dyn ChatProvider>,
     tools: HashMap<String, Arc<dyn Tool>>,
     system: String,
+    max_steps: usize,
 }
 
 impl Agent {
     pub fn new(provider: Arc<dyn ChatProvider>, tools: Vec<Arc<dyn Tool>>, system: String) -> Self {
         let tools = tools.into_iter().map(|t| (t.spec().name, t)).collect();
-        Self { provider, tools, system }
+        Self { provider, tools, system, max_steps: MAX_STEPS }
+    }
+
+    /// Override the step budget. Zero is meaningless, so it is clamped away.
+    pub fn with_max_steps(mut self, steps: usize) -> Self {
+        self.max_steps = steps.max(1);
+        self
     }
 
     /// The tools this agent was built with, sorted so the list is stable.
@@ -143,7 +157,7 @@ impl Agent {
 
         let mut transcript = Vec::new();
 
-        for step in 0..MAX_STEPS {
+        for step in 0..self.max_steps {
             if progress.cancelled() {
                 return Ok(cut_short(transcript, "stopped"));
             }

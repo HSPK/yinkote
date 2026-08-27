@@ -60,6 +60,22 @@ pub struct AgentConfig {
     pub api_key: Option<String>,
     #[serde(default = "default_agent_timeout")]
     pub timeout_secs: u64,
+    /// Let the assistant run shell commands in its workspace directory.
+    ///
+    /// Off by default, and the flag *is* the boundary: a command runs with
+    /// whatever rights the server has. There is no allowlist because a
+    /// convincing one cannot be written — `python -c` defeats any list of
+    /// program names — and a boundary that looks stronger than it is would be
+    /// worse than an honest switch.
+    #[serde(default)]
+    pub allow_commands: bool,
+    /// How many tool calls one turn may make. See `yk_agent::MAX_STEPS`.
+    #[serde(default = "default_max_steps")]
+    pub max_steps: usize,
+}
+
+fn default_max_steps() -> usize {
+    yk_agent::MAX_STEPS
 }
 
 impl AgentConfig {
@@ -168,11 +184,29 @@ impl Config {
         if let Some(k) = std::env::var("YK_AGENT_API_KEY").ok().filter(|s| !s.is_empty()) {
             cfg.agent.api_key = Some(k);
         }
+        // Anything but an explicit "true" leaves it off: a capability this
+        // broad should never be turned on by a typo.
+        if let Ok(v) = std::env::var("YK_AGENT_ALLOW_COMMANDS") {
+            cfg.agent.allow_commands = v.eq_ignore_ascii_case("true") || v == "1";
+        }
         cfg
     }
 
     pub fn data_dir(&self) -> PathBuf {
         self.data_dir.clone().unwrap_or_else(default_data_dir)
+    }
+
+    /// Where the assistant's skills live.
+    ///
+    /// Under the data directory so that adding one is copying a folder, and
+    /// so that a user's skills survive an upgrade.
+    pub fn skills_dir(&self) -> PathBuf {
+        self.data_dir().join("skills")
+    }
+
+    /// The one directory the assistant may read, write and run things in.
+    pub fn workspace_dir(&self) -> PathBuf {
+        self.data_dir().join("workspace")
     }
 
     pub fn database_path(&self) -> PathBuf {

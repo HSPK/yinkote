@@ -35,7 +35,10 @@ pub fn provider(config: &AgentConfig) -> yk_core::Result<OpenAiProvider> {
 }
 
 pub mod actions;
+pub mod skills;
+pub mod workspace;
 pub use actions::{Action, LibraryAction, ACTIONS};
+pub use workspace::Workspace;
 
 /// How much of an abstract to show a model. Enough to judge relevance, short
 /// enough that ten results still fit in a modest context.
@@ -53,7 +56,11 @@ the user asks without asking permission for ordinary edits, but say afterwards \
 what you changed. Two habits matter. When you have a DOI, arXiv id or URL, use \
 quick_add rather than writing the fields yourself — the publisher's metadata is \
 better than your memory of it. And when removing something, use trash_items: it \
-is what the user can undo. Only delete permanently if they say so.";
+is what the user can undo. Only delete permanently if they say so.
+
+You have a workspace directory of your own for notes, drafts and results that \
+should outlive a message. Use write_file when a result is a table or a list \
+worth keeping, and say where you put it.";
 
 /// Cut a string without splitting a character in half.
 fn truncate(text: &str, limit: usize) -> String {

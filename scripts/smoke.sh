@@ -333,6 +333,10 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
        | jq -r '.created[0].key')
   # An agent that can change the library must be able to prove it did.
   check "agent tools"    "$(j "$BASE/agent" | jq -r '.tools // empty | length | tostring | select(. != "0")')"
+  # Skills and the workspace are separate wirings, and either can go missing
+  # without the other noticing; name them rather than trusting the count.
+  check "skill tool"     "$(j "$BASE/agent" | jq -r '.tools | index("read_skill") | tostring | select(. != "null")')"
+  check "file tools"     "$(j "$BASE/agent" | jq -r '[.tools[] | select(. == "read_file" or . == "write_file" or . == "list_files")] | length | select(. == 3)')"
   # A turn belongs to the conversation, not to the request that started it.
   CK2=$(j -X POST "$BASE/libraries/$LIB/conversations" -d '{"title":"Run smoke"}' | jq -r .key)
   check "ask returns now"  "$(j -X POST "$BASE/libraries/$LIB/conversations/$CK2/ask" \

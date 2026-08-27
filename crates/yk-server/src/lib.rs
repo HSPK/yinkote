@@ -101,12 +101,38 @@ fn build_agent(
     if !config.agent.is_configured() {
         return None;
     }
+    // Skills are documents on disk, so a lab can teach the assistant its own
+    // procedure without rebuilding anything. The built-ins are written out
+    // once and then left alone — an edited skill is the user's.
+    let skills_dir = config.skills_dir();
+    if let Err(error) = agent::skills::install_builtins(&skills_dir) {
+        tracing::warn!(%error, "could not write the built-in skills");
+    }
+    let skills = Arc::new(yk_agent::skills::Skills::load_dir(&skills_dir));
+    tracing::info!(skills = skills.len(), dir = %skills_dir.display(), "agent skills");
+
+    let workspace = match agent::Workspace::new(config.workspace_dir()) {
+        Ok(workspace) => Some(workspace),
+        Err(error) => {
+            tracing::warn!(%error, "agent workspace unavailable; file tools disabled");
+            None
+        }
+    };
+
     match agent::provider(&config.agent) {
-        Ok(provider) => Some(Arc::new(yk_agent::Agent::new(
-            Arc::new(provider),
-            agent::tools(&services.store, &services.search, &services.scrape),
-            agent::SYSTEM_PROMPT.to_string(),
-        ))),
+        Ok(provider) => {
+            let mut tools = agent::tools(&services.store, &services.search, &services.scrape);
+            if !skills.is_empty() {
+                tools.push(Arc::new(yk_agent::skills::ReadSkill { skills: skills.clone() }));
+            }
+            if let Some(workspace) = &workspace {
+                tools.extend(agent::workspace::tools(workspace, config.agent.allow_commands));
+            }
+            let system = format!("{}{}", agent::SYSTEM_PROMPT, skills.prompt_section());
+            let agent = yk_agent::Agent::new(Arc::new(provider), tools, system)
+                .with_max_steps(config.agent.max_steps);
+            Some(Arc::new(agent))
+        }
         Err(error) => {
             tracing::warn!(%error, "agent disabled");
             None
