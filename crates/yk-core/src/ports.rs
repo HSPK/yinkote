@@ -89,6 +89,13 @@ pub trait ItemRepository: Send + Sync {
 #[async_trait]
 pub trait CollectionRepository: Send + Sync {
     async fn list(&self, library_id: i64) -> Result<Vec<Collection>>;
+    /// How many collections the library has.
+    ///
+    /// Separate from `list` for the same reason `TagRepository::count` is:
+    /// listing attaches a membership count to every collection, so it costs
+    /// one pass over `collection_items` — about 29ms on a library with a
+    /// hundred thousand memberships — while this is a row count.
+    async fn count(&self, library_id: i64) -> Result<i64>;
     async fn get(&self, library_id: i64, key: &Key) -> Result<Collection>;
     async fn create(&self, library_id: i64, draft: CollectionDraft) -> Result<Collection>;
     async fn update(&self, library_id: i64, key: &Key, patch: CollectionPatch)

@@ -969,3 +969,52 @@ mod attachment_tests {
         assert!(page.items[0].1.is_none());
     }
 }
+
+#[cfg(test)]
+mod counting_tests {
+    use super::*;
+    use yk_core::model::{CollectionDraft, ItemDraft, ItemTag};
+
+    /// Counting must not be a listing with `.len()` on it.
+    ///
+    /// The statistics endpoint answered "how many tags" by grouping over every
+    /// `item_tags` row — 303ms on a hundred-thousand-item library to learn the
+    /// number 33 — and "how many collections" by attaching a membership count
+    /// to each one. Both questions are row counts.
+    #[tokio::test]
+    async fn counts_tags_and_collections_without_aggregating_their_contents() {
+        let s = Store::in_memory().unwrap();
+        let lib = s.default_library;
+
+        for name in ["survey", "diffusion", "attention"] {
+            let mut draft = ItemDraft::new("journalArticle");
+            draft.tags = vec![ItemTag { tag: name.into(), r#type: 0 }];
+            s.items.create(lib, draft).await.unwrap();
+        }
+        for name in ["To read", "Done"] {
+            s.collections
+                .create(lib, CollectionDraft { name: name.into(), ..Default::default() })
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(s.tags.count(lib).await.unwrap(), 3);
+        assert_eq!(s.collections.count(lib).await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_tag_on_nothing_still_counts_as_a_tag() {
+        let s = Store::in_memory().unwrap();
+        let lib = s.default_library;
+
+        let mut draft = ItemDraft::new("journalArticle");
+        draft.tags = vec![ItemTag { tag: "orphan".into(), r#type: 0 }];
+        let item = s.items.create(lib, draft).await.unwrap();
+        s.items.delete(lib, &[item.key]).await.unwrap();
+
+        // The row survives its last use, and the count describes the rows.
+        // Saying so here because the *listing* filters these out, and the two
+        // numbers are allowed to differ.
+        assert_eq!(s.tags.count(lib).await.unwrap(), 1);
+    }
+}
