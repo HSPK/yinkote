@@ -1112,6 +1112,9 @@ option {
 .chat-log { flex: 1; min-height: 0; padding: 10px 12px; }
 .chat-log .vlist-slot { padding-bottom: 10px; }
 
+/* A file picker is unstyleable, so the button beside it does the talking. */
+.hidden-input { display: none; }
+
 /* Duplicates. Grouped rather than tabulated: the comparison is *within* a
    group — which of these two copies do I keep — and a flat table would put the
    two rows being compared next to rows that have nothing to do with them. */

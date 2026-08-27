@@ -10,8 +10,8 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
 use yk_core::event::DomainEvent;
-use yk_core::model::CollectionDraft;
-use yk_core::Error;
+use yk_core::model::{CollectionDraft, ItemDraft};
+use yk_core::{Error, Key};
 
 use super::announce;
 use crate::error::ApiResult;
@@ -21,6 +21,7 @@ pub fn router() -> Router<App> {
     Router::new()
         .route("/import/zotero/preview", post(preview))
         .route("/libraries/:lib/import/zotero", post(run))
+        .route("/libraries/:lib/import/bibliography", post(bibliography))
 }
 
 #[derive(Deserialize)]
@@ -301,4 +302,81 @@ async fn file_into_collections(
             .add_to_collection(lib, collection, std::slice::from_ref(key))
             .await;
     }
+}
+
+#[derive(Deserialize)]
+struct Bibliography {
+    /// The file's text. BibTeX or RIS, worked out from the content.
+    text: String,
+    /// File it here as well as in the library.
+    #[serde(default)]
+    collection: Option<String>,
+}
+
+/// Read a `.bib` or `.ris` file into the library.
+///
+/// The counterpart to export, and how most references arrive: every publisher
+/// offers one of these two behind a "download citation" button.
+///
+/// Records that cannot be read are reported rather than refused — see
+/// `yk_cite::import` for why — so the answer says how many of each, and a
+/// caller can show "38 imported, 2 skipped" instead of an error.
+async fn bibliography(
+    State(app): State<App>,
+    Path(lib): Path<i64>,
+    Json(body): Json<Bibliography>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let parsed = yk_cite::import::parse(&body.text);
+    if parsed.items.is_empty() {
+        return Ok(Json(json!({
+            "imported": 0,
+            "skipped": parsed.rejected.len(),
+            "reasons": reasons(&parsed.rejected),
+        })));
+    }
+
+    let collection = match body.collection.as_deref() {
+        Some(k) if !k.trim().is_empty() => Some(super::key(k)?),
+        _ => None,
+    };
+    let drafts: Vec<ItemDraft> = parsed
+        .items
+        .into_iter()
+        .map(|mut draft| {
+            if let Some(c) = &collection {
+                draft.collections.push(c.clone());
+            }
+            draft
+        })
+        .collect();
+
+    // One transaction for the file, as with every other bulk write here.
+    let results = app.store().items.create_many(lib, drafts).await?;
+    let created: Vec<Key> = results.iter().filter_map(|r| r.as_ref().ok()).map(|i| i.key.clone()).collect();
+    let failed = results.len() - created.len();
+
+    let version = super::announce(&app, lib, |version| DomainEvent::ItemsChanged {
+        library_id: lib,
+        keys: created.clone(),
+        version,
+    })
+    .await?;
+
+    Ok(Json(json!({
+        "imported": created.len(),
+        "skipped": parsed.rejected.len() + failed,
+        "reasons": reasons(&parsed.rejected),
+        "keys": created,
+        "version": version,
+    })))
+}
+
+/// The first few reasons, so a report can say what was wrong without listing
+/// four hundred lines of somebody's broken file.
+fn reasons(rejected: &[yk_cite::import::Rejected]) -> Vec<String> {
+    rejected
+        .iter()
+        .take(10)
+        .map(|r| format!("#{}: {}", r.index, r.reason))
+        .collect()
 }

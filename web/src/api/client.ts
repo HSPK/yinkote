@@ -328,6 +328,12 @@ export const api = {
         method: 'POST',
         ...json({ path }),
       }),
+    /** A `.bib` or `.ris` file's text. The format is worked out from it. */
+    bibliography: (lib: number, text: string, collection?: string) =>
+      request<{ imported: number; skipped: number; reasons: string[] }>(
+        `/libraries/${lib}/import/bibliography`,
+        { method: 'POST', ...json({ text, collection }) },
+      ),
   },
 
   /** Summarise an item into a note child. */

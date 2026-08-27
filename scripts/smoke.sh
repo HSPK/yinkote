@@ -279,6 +279,29 @@ check "export refuses"    "$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content
                               -d "$(jq -nc --arg k "$EXKEY" '{itemKeys:[$k],format:"zotero-rdf"}')" \
                               | grep -q '^4' && echo "rejected")"
 
+echo "▸ bibliography import"
+# The round trip through the API: what the server just wrote, it can read back.
+# This is what catches an escaping bug in either direction, and the title is
+# chosen to contain everything that breaks a BibTeX file.
+IMP=$(j -X POST "$BASE/libraries/$LIB/import/bibliography" \
+        -d "$(jq -nc --arg t "$BIB" '{text:$t}')")
+check "imported one"      "$(echo "$IMP" | jq -r '.imported | select(. == 1)')"
+check "nothing skipped"   "$(echo "$IMP" | jq -r '.skipped | select(. == 0) | "clean"')"
+IMPKEY=$(echo "$IMP" | jq -r '.keys[0]')
+check "title survived"    "$(j "$BASE/libraries/$LIB/items/$IMPKEY" \
+                             | jq -r '.title | select(. == "Exported 100% {Braced} Paper")')"
+check "author survived"   "$(j "$BASE/libraries/$LIB/items/$IMPKEY" \
+                             | jq -r '.creators[0] | select(.lastName == "Ito" and .firstName == "Ken") | "Ito, Ken"')"
+check "pages survived"    "$(j "$BASE/libraries/$LIB/items/$IMPKEY" | jq -r '.pages | select(. == "10-20")')"
+# RIS too, from the file the server wrote a moment ago.
+RIMP=$(j -X POST "$BASE/libraries/$LIB/import/bibliography" \
+         -d "$(jq -nc --arg t "$RIS" '{text:$t}')")
+check "ris imported"      "$(echo "$RIMP" | jq -r '.imported | select(. == 1)')"
+# A file of rubbish is reported, not accepted and not fatal.
+check "rubbish reported"  "$(j -X POST "$BASE/libraries/$LIB/import/bibliography" \
+                             -d '{"text":"@article{broken, year = {2019} }"}' \
+                             | jq -r 'select(.imported == 0 and .skipped == 1) | .reasons[0]')"
+
 echo "▸ maintenance"
 # Asked, not assumed: the server knows where it keeps its data, and a script
 # that hard-codes the path checks a different machine's backups on the day

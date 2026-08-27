@@ -591,6 +591,12 @@ export const zhCN = {
     '条目 {items} · 收藏夹 {collections} · 附件 {attachments} · 笔记 {notes} · 标注 {annotations}',
   'import.done': '已导入 {items} 条、{files} 个文件、{notes} 条笔记、{annotations} 条标注',
   'import.doneWithFailures': '已导入 {items} 条，{failed} 条失败',
+  'import.bib': 'BibTeX / RIS 文件',
+  'import.bibHint': '从出版商下载的 .bib 或 .ris 文件',
+  'import.bibChoose': '选择文件',
+  'import.bibReading': '正在读取…',
+  'import.bibAll': '已导入 {imported} 条文献',
+  'import.bibSome': '已导入 {imported} 条 · 跳过 {skipped} 条无法解析的记录',
   'import.failed': '导入失败',
   'import.note': '条目保留 Zotero 的 key，因此重复导入是更新而非复制。Zotero 存储的附件会一并拷贝；仅链接的文件只记录不搬运。PDF 中的高亮与批注也会随附件一起导入。',
 } as const
