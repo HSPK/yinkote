@@ -184,6 +184,111 @@ impl Tool for GetItem {
     }
 }
 
+/// Everything this library knows about one paper.
+///
+/// `get_item` returns the catalogue record, which is what any catalogue would
+/// hold. What makes a personal library worth asking is the rest: the notes
+/// somebody wrote, the passages they highlighted, and what the paper stands
+/// on. An assistant that can only see the abstract is answering from the same
+/// information as a search engine.
+pub struct ReadPaper {
+    pub store: Store,
+}
+
+/// How much of a note or a highlight to include.
+///
+/// Long enough to carry an argument, short enough that a paper with two
+/// hundred highlights does not fill the context on its own.
+const EXCERPT_CHARS: usize = 600;
+
+/// The most notes or highlights to include from one paper.
+const MAX_EXCERPTS: usize = 40;
+
+#[async_trait]
+impl Tool for ReadPaper {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "read_paper".into(),
+            description: "Everything the library holds about one paper: its metadata, the \
+                 user's own notes and highlights, its attachments, and what it cites. Use this \
+                 rather than get_item when the question is about the paper's content or about \
+                 what the user thought of it."
+                .into(),
+            parameters: json!({
+                "type": "object",
+                "properties": { "key": { "type": "string" } },
+                "required": ["key"],
+            }),
+        }
+    }
+
+    async fn call(&self, library_id: i64, arguments: Value) -> Result<Value> {
+        let raw = yk_agent::required_str(&arguments, "key")?;
+        let key: yk_core::Key =
+            raw.parse().map_err(|_| Error::invalid(format!("'{raw}' is not an item key")))?;
+        let item = self.store.items.get(library_id, &key).await?;
+        let children = self.store.items.children(library_id, &key).await.unwrap_or_default();
+
+        // An annotation hangs off the attachment it was drawn on, not off the
+        // paper, so the highlights are a level deeper than the notes.
+        let mut notes = Vec::new();
+        let mut highlights = Vec::new();
+        let mut files = Vec::new();
+        for child in &children {
+            match child.item_type.as_str() {
+                "note" => notes.push(json!({
+                    "title": child.title(),
+                    "text": truncate(child.field("note").unwrap_or_default(), EXCERPT_CHARS),
+                })),
+                "attachment" => {
+                    files.push(json!({
+                        "key": child.key.as_str(),
+                        "filename": child.field("filename").unwrap_or_default(),
+                        "url": child.field("url").unwrap_or_default(),
+                    }));
+                    for a in self
+                        .store
+                        .items
+                        .children(library_id, &child.key)
+                        .await
+                        .unwrap_or_default()
+                    {
+                        if a.item_type == "annotation" {
+                            highlights.push(json!({
+                                "page": a.field("annotationPage").unwrap_or_default(),
+                                "text": truncate(
+                                    a.field("annotationText").unwrap_or_default(),
+                                    EXCERPT_CHARS,
+                                ),
+                                "comment": truncate(
+                                    a.field("annotationComment").unwrap_or_default(),
+                                    EXCERPT_CHARS,
+                                ),
+                            }));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        notes.truncate(MAX_EXCERPTS);
+        highlights.truncate(MAX_EXCERPTS);
+
+        let cites = self.store.relations.cites(library_id, &key).await.unwrap_or_default();
+        Ok(json!({
+            "item": summarise(&item),
+            "notes": notes,
+            "highlights": highlights,
+            "files": files,
+            // Counted rather than listed in full: a bibliography is a hundred
+            // lines that rarely answer the question being asked, and
+            // `list_references` is there when it does.
+            "referenceCount": cites.len(),
+            "referencesHeld": cites.iter().filter(|c| c.key.is_some()).count(),
+        }))
+    }
+}
+
 pub struct LibraryOverview {
     pub store: Store,
 }
@@ -264,6 +369,7 @@ pub fn tools(
     let mut tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(SearchLibrary { store: store.clone(), search: search.clone() }),
         Arc::new(GetItem { store: store.clone() }),
+        Arc::new(ReadPaper { store: store.clone() }),
         Arc::new(LibraryOverview { store: store.clone() }),
     ];
     tools.extend(ACTIONS.iter().map(|action| {
@@ -285,5 +391,84 @@ mod tests {
         // Slicing by byte would panic mid-character on any CJK abstract.
         assert_eq!(truncate("扩散模型综述", 3), "扩散模…");
         assert_eq!(truncate("short", 40), "short");
+    }
+}
+
+#[cfg(test)]
+mod read_paper_tests {
+    use super::*;
+    use yk_core::model::ItemDraft;
+    use yk_store::Store;
+
+    /// A paper with the things a personal library actually adds to it.
+    async fn library() -> (Store, i64, yk_core::Key) {
+        let store = Store::in_memory().unwrap();
+        let lib = store.default_library;
+
+        let paper = store
+            .items
+            .create(
+                lib,
+                ItemDraft::new("journalArticle")
+                    .with_field("title", "Attention Is All You Need")
+                    .with_field("abstractNote", "A new architecture."),
+            )
+            .await
+            .unwrap();
+
+        let mut note = ItemDraft::new("note")
+            .with_field("note", "<p>The ablations are the interesting part.</p>");
+        note.parent_key = Some(paper.key.clone());
+        store.items.create(lib, note).await.unwrap();
+
+        let mut file = ItemDraft::new("attachment").with_field("filename", "paper.pdf");
+        file.parent_key = Some(paper.key.clone());
+        let file = store.items.create(lib, file).await.unwrap();
+
+        let mut mark = ItemDraft::new("annotation")
+            .with_field("annotationText", "scaled dot-product attention")
+            .with_field("annotationComment", "why the scaling?")
+            .with_field("annotationPage", "4");
+        mark.parent_key = Some(file.key.clone());
+        store.items.create(lib, mark).await.unwrap();
+
+        (store, lib, paper.key)
+    }
+
+    #[tokio::test]
+    async fn hands_over_what_only_this_library_knows() {
+        let (store, lib, key) = library().await;
+        let out = ReadPaper { store }.call(lib, json!({ "key": key.as_str() })).await.unwrap();
+
+        // The catalogue record is what any catalogue holds; the notes and the
+        // highlights are why this library is worth asking.
+        assert_eq!(out["item"]["title"], "Attention Is All You Need");
+        assert!(out["notes"][0]["text"].as_str().unwrap().contains("ablations"));
+        assert!(out["highlights"][0]["text"].as_str().unwrap().contains("dot-product"));
+        assert_eq!(out["highlights"][0]["comment"], "why the scaling?");
+        assert_eq!(out["highlights"][0]["page"], "4");
+    }
+
+    #[tokio::test]
+    async fn finds_highlights_a_level_deeper_than_the_notes() {
+        let (store, lib, key) = library().await;
+        let out = ReadPaper { store }.call(lib, json!({ "key": key.as_str() })).await.unwrap();
+
+        // An annotation hangs off the attachment it was drawn on, not off the
+        // paper. Looking only at the paper's own children finds none of them.
+        assert_eq!(out["files"][0]["filename"], "paper.pdf");
+        assert_eq!(out["highlights"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_paper_with_nothing_attached_says_so_rather_than_failing() {
+        let store = Store::in_memory().unwrap();
+        let lib = store.default_library;
+        let bare = store.items.create(lib, ItemDraft::new("book")).await.unwrap();
+
+        let out = ReadPaper { store }.call(lib, json!({ "key": bare.key.as_str() })).await.unwrap();
+        assert_eq!(out["notes"].as_array().unwrap().len(), 0);
+        assert_eq!(out["highlights"].as_array().unwrap().len(), 0);
+        assert_eq!(out["referenceCount"], 0);
     }
 }

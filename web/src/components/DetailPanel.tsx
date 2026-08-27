@@ -6,6 +6,7 @@ import { creatorName } from '../lib/format'
 import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
 import { useSchemaLabel, useT } from '../i18n'
+import { useDebounced } from '../lib/useDebounced'
 import { toast } from '../ui'
 
 /** Fields worth a multi-line editor. */
@@ -262,8 +263,9 @@ export function DetailPanel() {
  *  you are reading, "what did I already work out about this" is a question the
  *  library should answer without making you remember which thread it was in.
  */
-function ItemConversations({ itemKey }: { itemKey: string }) {
+function ItemConversations({ itemKey: selected }: { itemKey: string }) {
   const t = useT()
+  const itemKey = useDebounced(selected)
   const library = useStore((s) => s.library)
   const openConversation = useStore((s) => s.openConversation)
   const askAbout = useStore((s) => s.askAbout)
@@ -319,8 +321,11 @@ function ItemConversations({ itemKey }: { itemKey: string }) {
  *  A cited work the library holds is a link; one it does not is the label the
  *  publisher printed. Neither case is special, which is the point.
  */
-function ItemReferences({ itemKey }: { itemKey: string }) {
+function ItemReferences({ itemKey: selected }: { itemKey: string }) {
   const t = useT()
+  // Debounced: arrow-keying down a list must not fetch a bibliography for
+  // every row it passes through.
+  const itemKey = useDebounced(selected)
   const library = useStore((s) => s.library)
   const openReader = useStore((s) => s.openReader)
   const [list, setList] = useState<CitationList | null>(null)
