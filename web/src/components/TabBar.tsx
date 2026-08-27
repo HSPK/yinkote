@@ -49,7 +49,7 @@ export function TabBar() {
                 onSelect: () => keepTab(tab.id),
               },
               {},
-              { label: t('tabs.close'), disabled: tab.permanent, onSelect: () => closeTab(tab.id) },
+              { label: t('tabs.close'), onSelect: () => closeTab(tab.id) },
               { label: t('tabs.closeOthers'), onSelect: () => closeTabs('others', tab.id) },
               { label: t('tabs.closeAll'), onSelect: () => closeTabs('all') },
             ])}
@@ -57,16 +57,14 @@ export function TabBar() {
           >
             <Glyph size={12} className="tab-icon" />
             <span className="tab-label">{tab.title || t(def.labelKey)}</span>
-            {!tab.permanent && (
-              <button
-                className="tab-close"
-                title={t('tabs.close')}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => closeTab(tab.id)}
-              >
-                <Icon.Close size={9} />
-              </button>
-            )}
+            <button
+              className="tab-close"
+              title={t('tabs.close')}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => closeTab(tab.id)}
+            >
+              <Icon.Close size={9} />
+            </button>
           </div>
         )
       })}

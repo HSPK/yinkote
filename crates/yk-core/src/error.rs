@@ -51,6 +51,26 @@ pub enum Error {
 }
 
 impl Error {
+    /// The message without the classifying prefix.
+    ///
+    /// `Display` names the kind because a log line has no other context. A
+    /// surface that already shows the kind — a queue row with a "failed"
+    /// badge, say — would otherwise read "failed / invalid input: …".
+    pub fn detail(&self) -> String {
+        match self {
+            Error::NotFound(m)
+            | Error::Invalid(m)
+            | Error::Conflict(m)
+            | Error::Forbidden(m)
+            | Error::Storage(m)
+            | Error::Search(m)
+            | Error::Plugin(m)
+            | Error::Unavailable(m)
+            | Error::Internal(m) => m.clone(),
+            other => other.to_string(),
+        }
+    }
+
     pub fn kind(&self) -> ErrorKind {
         match self {
             Error::NotFound(_) => ErrorKind::NotFound,

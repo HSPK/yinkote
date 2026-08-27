@@ -126,7 +126,7 @@ describe('the column picker', () => {
 })
 
 describe('closing tabs', () => {
-  it('falls back to the neighbour, and never closes the library', async () => {
+  it('falls back to the neighbour, and offers every tab a close button', async () => {
     act(() => {
       useStore.getState().openReader('A')
       useStore.getState().keepTab(tabId('reader', 'A'))
@@ -136,9 +136,9 @@ describe('closing tabs', () => {
     await render()
 
     const closers = container.querySelectorAll('.tab-close')
-    expect(closers, 'only closable tabs offer a close button').toHaveLength(2)
+    expect(closers, 'every tab offers a close button').toHaveLength(3)
 
-    await click(closers[1])
+    await click(closers[2])
     expect(useStore.getState().tabs.map((t) => t.id)).toEqual(['library', tabId('reader', 'A')])
   })
 })

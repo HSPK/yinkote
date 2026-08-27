@@ -146,7 +146,7 @@ fn download_worker(app: App) {
                 Err(e) => {
                     // Recorded rather than logged: the reason is what the user
                     // needs in order to decide whether retrying is worth it.
-                    let _ = app.store().downloads.fail(job.id, &e.to_string()).await;
+                    let _ = app.store().downloads.fail(job.id, &e.detail()).await;
                 }
             }
 

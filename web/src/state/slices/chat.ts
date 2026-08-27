@@ -47,16 +47,25 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
   applyRun(conversation, state) {
     if (!conversation) return
     const run = state as RunState
-    set({ runs: { ...get().runs, [conversation]: run } })
+    const record = () => set({ runs: { ...get().runs, [conversation]: run } })
+
+    // Still working, or a thread nobody is looking at: nothing to swap.
+    if (run.running || get().conversation !== conversation) return record()
 
     // A finished turn's answer is stored as an ordinary message, so reload the
     // thread rather than trying to splice one in: the server knows the id.
-    if (!run.running && get().conversation === conversation) {
-      void api.conversations
-        .messages(get().library, conversation)
-        .then((messages) => set({ messages }))
-        .catch(() => {})
-    }
+    //
+    // Fetch *before* dropping the live turn, and swap both in one write. The
+    // obvious order — record the finish, then reload — takes the answer off
+    // screen for a whole round trip and puts an identical one back, which is
+    // the flicker at the end of every turn.
+    void api.conversations
+      .messages(get().library, conversation)
+      .then((messages) => {
+        if (get().conversation !== conversation) return record()
+        set({ runs: { ...get().runs, [conversation]: run }, messages })
+      })
+      .catch(record)
   },
 
   async cancelRun() {

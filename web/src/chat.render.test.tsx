@@ -18,6 +18,8 @@ import { useStore } from './state/store'
 
 const sent: string[] = []
 
+let holdMessages = false
+
 vi.mock('./api/client', () => {
   const build = (path: string): unknown =>
     new Proxy(function () {} as object, {
@@ -33,7 +35,11 @@ vi.mock('./api/client', () => {
           sent.push(String((args[2] as { content?: string } | undefined)?.content ?? ''))
           return Promise.resolve({})
         }
-        if (path === 'api.conversations.messages') return Promise.resolve([])
+        if (path === 'api.conversations.messages') {
+          // Held open to stand in for the round trip that fetches the stored
+          // copy of an answer.
+          return holdMessages ? new Promise(() => {}) : Promise.resolve([])
+        }
         if (path === 'api.conversations.run') return Promise.resolve({ running: false })
         if (path === 'api.conversations.list') return Promise.resolve([])
         return new Promise(() => {})
@@ -358,5 +364,32 @@ describe('an answer arriving', () => {
     useStore.setState(running({ partial: 'Here.' }))
     await render()
     expect(container.textContent).not.toContain('Thinking…')
+  })
+
+  it('never takes the answer off screen while swapping it for the stored one', async () => {
+    useStore.setState(running({ partial: 'Three papers, all recent.' }))
+    await render()
+    expect(container.textContent).toContain('Three papers, all recent.')
+
+    // The finish arrives on the event bus. The stored copy of the answer has
+    // to be fetched, and that fetch is held open here — standing in for the
+    // round trip during which the answer used to vanish and come back, which
+    // is exactly what the flicker was.
+    holdMessages = true
+    await act(async () => {
+      useStore.getState().applyRun('K1', {
+        running: false,
+        question: 'q',
+        steps: [],
+        reply: 'Three papers, all recent.',
+        partial: 'Three papers, all recent.',
+        truncated: false,
+        stopped: false,
+        error: null,
+      })
+    })
+
+    expect(container.textContent).toContain('Three papers, all recent.')
+    holdMessages = false
   })
 })

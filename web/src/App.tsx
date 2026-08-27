@@ -9,7 +9,7 @@ import { TopBar } from './components/TopBar'
 import { TABS } from './workspace/registry'
 import { useT } from './i18n'
 import { useStore } from './state/store'
-import { ErrorBoundary, OverlayHost, Splitter } from './ui'
+import { Button, ErrorBoundary, OverlayHost, Splitter } from './ui'
 
 /** True when a keystroke belongs to whatever the user is typing into. */
 function isEditing(target: EventTarget | null): boolean {
@@ -102,6 +102,26 @@ function useGlobalKeys() {
   }, [store])
 }
 
+/** What the workspace shows when every tab has been closed.
+ *
+ *  Closing the last tab is a legitimate thing to want — a clean desk — so it
+ *  gets a real state with a way back, rather than being prevented by making
+ *  one tab special.
+ */
+function NoTab() {
+  const t = useT()
+  const openLibrary = useStore((s) => s.openLibrary)
+  return (
+    <div className="pane main no-tab">
+      <div className="no-tab-body">
+        <p className="no-tab-title">{t('tabs.emptyTitle')}</p>
+        <p className="dim">{t('tabs.emptyHint')}</p>
+        <Button onClick={openLibrary}>{t('tabs.openLibrary')}</Button>
+      </div>
+    </div>
+  )
+}
+
 export function App() {
   const t = useT()
   const ready = useStore((s) => s.ready)
@@ -127,7 +147,7 @@ export function App() {
     )
   }
 
-  const tab = tabs.find((t) => t.id === activeTab) ?? tabs[0]
+  const tab = tabs.find((t) => t.id === activeTab)
   const current = tab ? { tab, def: TABS[tab.kind] } : null
   const showDetail = current?.def.withDetail ?? false
   const Detail = current?.def.Detail ?? DetailPanel
@@ -155,7 +175,7 @@ export function App() {
           {/* Per surface, so a reader that cannot draw a page does not cost
               you the library in the tab beside it. */}
           <ErrorBoundary resetKey={activeTab}>
-            {current && <current.def.Body target={current.tab.target} />}
+            {current ? <current.def.Body target={current.tab.target} /> : <NoTab />}
           </ErrorBoundary>
         </div>
 

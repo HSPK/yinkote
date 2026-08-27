@@ -15,7 +15,10 @@ import { useT } from '../i18n'
 
 /** How many rows each sidebar group shows before offering the rest elsewhere. */
 const SIDEBAR_LIMIT = 12
-const TAG_LIMIT = 24
+/** Tags are chips, so a generous limit turns the sidebar into a wall of them.
+ *  Ten is enough to show what a library is mostly about; the rest are one
+ *  click away and the search box finds any of them by name. */
+const TAG_LIMIT = 10
 
 export function Sidebar() {
   const t = useT()

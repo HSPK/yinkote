@@ -113,12 +113,36 @@ const ids = () => store().tabs.map((t) => t.id)
 const previews = () => store().tabs.filter((t) => t.preview).map((t) => t.id)
 
 describe('the tab model', () => {
-  it('starts with one library tab that cannot be closed', async () => {
+  it('starts with one library tab, which closes like any other', async () => {
     await render()
 
     expect(ids()).toEqual(['library'])
     await act(async () => store().closeTab('library'))
+    expect(ids()).toEqual([])
+  })
+
+  it('brings the library back when a library view is asked for', async () => {
+    await render()
+
+    await act(async () => store().closeTab('library'))
+    expect(ids()).toEqual([])
+
+    // Clicking a collection while no library tab exists has to land
+    // somewhere; the same path serves clicking one from a chat.
+    await act(async () => store().openCollection('COLL1234'))
     expect(ids()).toEqual(['library'])
+    expect(store().collection).toBe('COLL1234')
+  })
+
+  it('navigates to a library tab from a surface that is not one', async () => {
+    await render()
+
+    await act(async () => store().openConversation('CONV0001'))
+    expect(store().activeTab).toBe('chat:CONV0001')
+
+    await act(async () => store().openLibrary())
+    expect(store().activeTab).toBe('library')
+    expect(store().view).toBe('library')
   })
 
   it('gives a glance one slot, whatever kind it is', async () => {

@@ -2085,7 +2085,7 @@ select.ctl { padding: 4px 6px; }
 
 /* ─── download queue ─────────────────────────────────────────────────────── */
 
-.downloads-grid { grid-template-columns: 1.2fr 1.6fr 200px 80px 150px; }
+.downloads-grid { grid-template-columns: 1.1fr 1.2fr 260px 80px 150px; }
 .downloads-grid .mono { font-family: var(--mono); font-size: 11px; }
 
 .download-state {
@@ -2098,14 +2098,23 @@ select.ctl { padding: 4px 6px; }
 .download-state[data-state='done'] { border-color: #a8cfa0; color: #a8cfa0; }
 .download-state[data-state='failed'] { border-color: #e8a09a; color: #e8a09a; }
 
-/* Beside the row rather than in a log: it is what a retry is decided from. */
+/* Beside the row rather than in a log: it is what a retry is decided from.
+   On one line, because a wrapping message pushes every row below it out of
+   rhythm and a list you cannot scan is worse than one you cannot read in
+   full — the whole message is a hover away. */
 .download-error {
-  display: block;
-  margin-top: 2px;
+  min-width: 0;
+  flex: 1;
   color: #e8a09a;
   font-size: 10px;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+.downloads-grid .cell { min-width: 0; }
+.downloads-grid .state-cell { display: flex; align-items: center; gap: 6px; }
+.download-state { flex: none; white-space: nowrap; }
 
 .row-actions { display: flex; gap: 6px; align-items: center; }
 
@@ -2167,3 +2176,11 @@ select.ctl { padding: 4px 6px; }
   font: 11px/1.4 var(--mono);
 }
 .bubble-body a { color: var(--accent); }
+
+
+/* ─── empty workspace ────────────────────────────────────────────────────── */
+
+.no-tab { display: flex; align-items: center; justify-content: center; }
+.no-tab-body { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.no-tab-title { font-size: 13px; color: var(--fg); margin: 0; }
+.no-tab-body .dim { margin: 0; font-size: 11px; }

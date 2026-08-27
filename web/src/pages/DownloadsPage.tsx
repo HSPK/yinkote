@@ -95,13 +95,18 @@ export function DownloadsPage() {
             <div className="cell dim mono" title={row.url}>
               {row.url}
             </div>
-            <div className="cell">
+            <div className="cell state-cell">
               <span className="download-state" data-state={row.state}>
                 {t(`downloads.state.${row.state}`)}
               </span>
               {/* The reason lives beside the row, not in a log: it is what the
-                  decision to retry is made from. */}
-              {row.error && <span className="download-error">{row.error}</span>}
+                  decision to retry is made from. One line, full text on hover —
+                  a message that wraps breaks the rhythm of every row under it. */}
+              {row.error && (
+                <span className="download-error" title={row.error}>
+                  {row.error}
+                </span>
+              )}
             </div>
             <div className="cell num dim">{row.bytes ? formatBytes(row.bytes) : ''}</div>
             <div className="cell row-actions">

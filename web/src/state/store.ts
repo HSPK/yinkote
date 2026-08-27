@@ -339,6 +339,19 @@ export const useStore = create<State>((set, get, store) => ({
    *  collection. Leaving it must put them back, or the next view silently
    *  inherits a filter the user never typed and cannot see the origin of. */
   navigate(patch) {
+    const s = get()
+    const active = s.tabs.find((t) => t.id === s.activeTab)
+
+    // A library view has to land in a tab that can hold one. Writing it into
+    // whatever happened to be focused is how clicking a collection from a
+    // chat used to do nothing visible while quietly changing a scope nobody
+    // could see. Library is not special here — it is opened like any other
+    // tab, and it can be closed like any other tab.
+    if (!active || !TAB_OWNS_LIBRARY.has(active.kind)) {
+      const existing = s.tabs.find((t) => TAB_OWNS_LIBRARY.has(t.kind) && !t.target)
+      get().openTab(existing ?? libraryTab(''))
+    }
+
     // A fresh scope, then whatever the destination asked for: one definition of
     // "clean slate", shared with a newly shown tab.
     set({ ...emptyScope(), items: get().items, ...patch })
@@ -441,7 +454,14 @@ export const useStore = create<State>((set, get, store) => ({
 
   closeTabs(scope, keep) {
     const tabs = scope === 'all' ? closeAll(get().tabs) : closeOthers(get().tabs, keep ?? '')
-    set({ tabs, activeTab: tabs.some((t) => t.id === get().activeTab) ? get().activeTab : LIBRARY_TAB_ID })
+    const active = get().activeTab
+    const next = tabs.some((t) => t.id === active) ? active : (tabs[0]?.id ?? '')
+    if (next !== active) {
+      set({ tabs })
+      get().activateTab(next)
+    } else {
+      set({ tabs })
+    }
   },
 
   /** Switch tabs, saving what the old one owned and restoring the new one's.

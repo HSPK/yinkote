@@ -40,10 +40,13 @@ describe('tabs', () => {
     expect(tabs[1]?.title).toBe('Renamed')
   })
 
-  it('never closes the workbench itself', () => {
-    expect(closeTab([library], LIBRARY_TAB_ID)).toHaveLength(1)
-    expect(closeAll([library, chat, reader])).toEqual([library])
-    expect(closeOthers([library, chat, reader], reader.id)).toEqual([library, reader])
+  it('closes every tab alike, the library included', () => {
+    // The library used to be pinned open. One exception was enough to make
+    // every other rule read "…except the library", and it meant clicking a
+    // collection from a chat had nowhere symmetric to land.
+    expect(closeTab([library], LIBRARY_TAB_ID)).toHaveLength(0)
+    expect(closeAll([library, chat, reader])).toEqual([])
+    expect(closeOthers([library, chat, reader], reader.id)).toEqual([reader])
   })
 
   it('closes an ordinary tab', () => {
@@ -61,8 +64,10 @@ describe('tabs', () => {
     expect(nextActive([library, chat, reader], chat.id, reader.id)).toBe(reader.id)
   })
 
-  it('falls back to the library when the last tab closes', () => {
-    expect(nextActive([chat], chat.id, chat.id)).toBe(LIBRARY_TAB_ID)
+  it('leaves nothing active when the last tab closes', () => {
+    // An empty workspace is a state the workbench can explain, which is
+    // better than conjuring back a tab the user just closed.
+    expect(nextActive([chat], chat.id, chat.id)).toBe('')
   })
 })
 

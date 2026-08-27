@@ -119,7 +119,37 @@ pub(crate) async fn attach_url(
     url: &str,
     title: &str,
 ) -> Result<yk_core::model::Item> {
-    let (bytes, content_type) = download_file(url).await?;
+    let (mut bytes, mut content_type) = download_file(url).await?;
+    let mut source = url.to_string();
+
+    // A pasted address is usually the page *about* the paper, not the paper.
+    // Publishers and repositories all advertise the file in the page's head,
+    // so follow that once rather than storing the HTML and calling it a PDF —
+    // silently attaching a landing page is how a library fills up with files
+    // that will not open.
+    if is_html(content_type.as_deref()) {
+        let html = String::from_utf8_lossy(&bytes);
+        match pdf_link_in_html(&html, url) {
+            Some(found) => {
+                let (b, ct) = download_file(&found).await?;
+                if is_html(ct.as_deref()) {
+                    return Err(Error::invalid(format!(
+                        "{found} is a web page, not a file"
+                    )));
+                }
+                bytes = b;
+                content_type = ct;
+                source = found;
+            }
+            None => {
+                return Err(Error::invalid(
+                    "that address is a web page with no file linked from it",
+                ));
+            }
+        }
+    }
+
+    let url = source.as_str();
     let filename = filename_from_url(url, content_type.as_deref());
 
     // One attachment per source URL: fetching twice must not litter the item
@@ -177,6 +207,103 @@ pub fn pdf_url_for(item: &yk_core::model::Item) -> Option<String> {
         return Some(url.to_string());
     }
     None
+}
+
+fn is_html(content_type: Option<&str>) -> bool {
+    content_type.is_some_and(|c| c.starts_with("text/html") || c.starts_with("application/xhtml"))
+}
+
+/// The file a landing page is advertising, if it names one.
+///
+/// `citation_pdf_url` is the tag Google Scholar reads, which is why nearly
+/// every publisher and repository emits it; the `<link>` form is the fallback
+/// a few of them use instead. Only these two — a heuristic that scrapes any
+/// `.pdf`-looking href finds the "download this issue" link just as happily.
+pub fn pdf_link_in_html(html: &str, base: &str) -> Option<String> {
+    let found = meta_content(html, "citation_pdf_url")
+        .or_else(|| meta_content(html, "citation_pdf_URL"))
+        .or_else(|| pdf_link_rel(html))?;
+    Some(absolute(&found, base))
+}
+
+/// The `content` of a `<meta name="…">`, whichever order the attributes are in.
+fn meta_content(html: &str, name: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let needle = name.to_ascii_lowercase();
+    let mut from = 0usize;
+    while let Some(at) = lower[from..].find("<meta") {
+        let start = from + at;
+        let end = lower[start..].find('>').map(|e| start + e).unwrap_or(lower.len());
+        let tag = &html[start..end];
+        if attr(tag, "name").is_some_and(|n| n.eq_ignore_ascii_case(&needle)) {
+            if let Some(c) = attr(tag, "content").filter(|c| !c.is_empty()) {
+                return Some(c);
+            }
+        }
+        from = end.max(start + 5);
+    }
+    None
+}
+
+fn pdf_link_rel(html: &str) -> Option<String> {
+    let lower = html.to_ascii_lowercase();
+    let mut from = 0usize;
+    while let Some(at) = lower[from..].find("<link") {
+        let start = from + at;
+        let end = lower[start..].find('>').map(|e| start + e).unwrap_or(lower.len());
+        let tag = &html[start..end];
+        let is_pdf = attr(tag, "type").is_some_and(|t| t.eq_ignore_ascii_case("application/pdf"));
+        if is_pdf {
+            if let Some(href) = attr(tag, "href").filter(|h| !h.is_empty()) {
+                return Some(href);
+            }
+        }
+        from = end.max(start + 5);
+    }
+    None
+}
+
+/// One attribute out of a tag, quoted either way.
+fn attr(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let mut from = 0usize;
+    loop {
+        let at = from + lower[from..].find(&format!("{name}="))?;
+        // Must be a whole attribute name, not the tail of another one.
+        let boundary = at == 0 || lower.as_bytes()[at - 1].is_ascii_whitespace();
+        let rest = &tag[at + name.len() + 1..];
+        if boundary {
+            let quote = rest.chars().next()?;
+            return if quote == '"' || quote == '\'' {
+                rest[1..].find(quote).map(|e| rest[1..1 + e].trim().to_string())
+            } else {
+                Some(
+                    rest.split([' ', '\t', '\n', '\r', '>'])
+                        .next()
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string(),
+                )
+            };
+        }
+        from = at + name.len() + 1;
+    }
+}
+
+/// Resolve a possibly-relative address against the page it came from.
+fn absolute(href: &str, base: &str) -> String {
+    let href = href.trim();
+    if href.starts_with("http://") || href.starts_with("https://") {
+        return href.to_string();
+    }
+    let Some(scheme_end) = base.find("://") else { return href.to_string() };
+    let origin_end = base[scheme_end + 3..].find('/').map(|i| scheme_end + 3 + i);
+    if href.starts_with('/') {
+        let origin = origin_end.map_or(base, |i| &base[..i]);
+        return format!("{origin}{href}");
+    }
+    let dir = base.rfind('/').filter(|i| *i > scheme_end + 2).map_or(base, |i| &base[..i]);
+    format!("{dir}/{href}")
 }
 
 async fn download_file(url: &str) -> Result<(Vec<u8>, Option<String>)> {
@@ -238,6 +365,70 @@ pub async fn forget_files(app: &App, lib: i64, keys: &[Key]) {
             }
         }
         let _ = app.storage().remove(key).await;
+    }
+}
+
+#[cfg(test)]
+mod landing_page_tests {
+    use super::{is_html, pdf_link_in_html};
+
+    #[test]
+    fn finds_the_tag_google_scholar_reads() {
+        let html = r#"<html><head>
+            <meta name="citation_title" content="Attention Is All You Need">
+            <meta name="citation_pdf_url" content="https://arxiv.org/pdf/1706.03762">
+        </head></html>"#;
+        assert_eq!(
+            pdf_link_in_html(html, "https://arxiv.org/abs/1706.03762").as_deref(),
+            Some("https://arxiv.org/pdf/1706.03762")
+        );
+    }
+
+    #[test]
+    fn attribute_order_does_not_matter() {
+        let html = r#"<meta content="/files/paper.pdf" name="citation_pdf_url" />"#;
+        assert_eq!(
+            pdf_link_in_html(html, "https://example.org/journal/article/1").as_deref(),
+            Some("https://example.org/files/paper.pdf")
+        );
+    }
+
+    #[test]
+    fn single_quotes_and_relative_paths_resolve() {
+        let html = "<meta name='citation_pdf_url' content='paper.pdf'>";
+        assert_eq!(
+            pdf_link_in_html(html, "https://example.org/journal/article").as_deref(),
+            Some("https://example.org/journal/paper.pdf")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_the_link_element() {
+        let html = r#"<link rel="alternate" type="application/pdf" href="https://x.org/a.pdf">"#;
+        assert_eq!(
+            pdf_link_in_html(html, "https://x.org/page").as_deref(),
+            Some("https://x.org/a.pdf")
+        );
+    }
+
+    #[test]
+    fn a_page_advertising_nothing_is_not_guessed_at() {
+        // Better to say so than to attach the login page as the paper.
+        let html = r#"<html><body><a href="/download/issue.pdf">whole issue</a></body></html>"#;
+        assert_eq!(pdf_link_in_html(html, "https://x.org/page"), None);
+    }
+
+    #[test]
+    fn a_similarly_named_attribute_is_not_mistaken_for_the_tag() {
+        let html = r#"<meta property="og:citation_pdf_url" content="https://wrong.example/x.pdf">"#;
+        assert_eq!(pdf_link_in_html(html, "https://x.org/page"), None);
+    }
+
+    #[test]
+    fn charset_parameters_do_not_hide_html() {
+        assert!(is_html(Some("text/html")));
+        assert!(!is_html(Some("application/pdf")));
+        assert!(!is_html(None));
     }
 }
 

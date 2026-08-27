@@ -33,8 +33,6 @@ export interface Tab {
   title: string
   /** Kind-specific target: a conversation key, an item key, and so on. */
   target?: string
-  /** The library tab is the workbench itself and is always present. */
-  permanent?: boolean
   /**
    * A preview tab, shown in italics and reused by the next preview.
    *
@@ -48,9 +46,15 @@ export interface Tab {
 
 export const LIBRARY_TAB_ID = 'library'
 
-/** The tab every session starts with. */
+/** The tab every session starts with.
+ *
+ *  It starts open, not pinned open. A tab that cannot be closed is a second
+ *  kind of tab, and one exception is enough to make every rule about tabs
+ *  read "…except the library". Closing the last one leaves an empty
+ *  workspace, which is a state the workbench can say something useful in.
+ */
 export function libraryTab(title: string): Tab {
-  return { id: LIBRARY_TAB_ID, kind: 'library', title, permanent: true }
+  return { id: LIBRARY_TAB_ID, kind: 'library', title }
 }
 
 /** One id per thing, so opening the same item twice focuses the first tab. */
@@ -92,10 +96,8 @@ export function keepTab(tabs: Tab[], id: string): Tab[] {
   return tabs.map((t) => (t.id === id ? { ...t, preview: false } : t))
 }
 
-/** Close a tab; permanent tabs refuse. */
+/** Close a tab. Every tab can be closed, including the library. */
 export function closeTab(tabs: Tab[], id: string): Tab[] {
-  const target = tabs.find((t) => t.id === id)
-  if (!target || target.permanent) return tabs
   return tabs.filter((t) => t.id !== id)
 }
 
@@ -111,16 +113,17 @@ export function nextActive(tabs: Tab[], id: string, active: string): string {
   const index = tabs.findIndex((t) => t.id === id)
   if (index < 0) return active
   const remaining = tabs.filter((t) => t.id !== id)
-  if (!remaining.length) return LIBRARY_TAB_ID
+  // Nothing left is a real state, not a reason to conjure a tab back.
+  if (!remaining.length) return ''
   return (remaining[index] ?? remaining[remaining.length - 1]!).id
 }
 
-/** Close every tab that can be closed. */
-export function closeAll(tabs: Tab[]): Tab[] {
-  return tabs.filter((t) => t.permanent)
+/** Close every tab. */
+export function closeAll(_tabs: Tab[]): Tab[] {
+  return []
 }
 
-/** Close everything except one tab, and the permanent ones. */
+/** Close everything except one tab. */
 export function closeOthers(tabs: Tab[], keep: string): Tab[] {
-  return tabs.filter((t) => t.permanent || t.id === keep)
+  return tabs.filter((t) => t.id === keep)
 }
