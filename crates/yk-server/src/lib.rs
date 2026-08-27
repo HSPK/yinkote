@@ -18,6 +18,7 @@ pub mod state;
 pub mod naming;
 pub mod notes;
 pub mod runs;
+pub mod tasks;
 mod workers;
 
 use std::sync::Arc;
@@ -91,6 +92,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         harvest: Default::default(),
         runs: Default::default(),
         sessions: Default::default(),
+        tasks: Default::default(),
     }))
 }
 

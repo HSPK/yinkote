@@ -7,6 +7,7 @@
  *  silent for half a minute is three chances to conclude the button is broken.
  */
 import { api } from '../api/client'
+import { follow } from './tasks'
 import { t } from '../i18n'
 import { useStore } from '../state/store'
 import { withToast } from '../ui'
@@ -73,12 +74,28 @@ export function humanBytes(bytes: number): string {
   return `${n < 10 && unit > 0 ? n.toFixed(1) : Math.round(n)} ${units[unit]}`
 }
 
-/** Pack the whole library — database and files — into one movable archive. */
+/** Pack the whole library — database and files — into one movable archive.
+ *
+ *  The server runs this as a task, so this waits on the task rather than on the
+ *  request: a large library takes minutes, and a request held open that long is
+ *  a client with nothing to show and a proxy free to give up.
+ */
 export async function runExportAll(): Promise<void> {
-  await withToast(async () => await api.maintenance.exportAll(), {
-    pending: t('toast.exportingAll'),
-    success: (made) =>
-      t('toast.exportedAll', { name: made.name, size: humanBytes(made.bytes) }),
-    failure: t('toast.exportAllFailed'),
-  })
+  await withToast(
+    async () => {
+      const { task } = await api.maintenance.exportAll()
+      const done = await follow(task.id)
+      if (!done || done.phase !== 'done') throw new Error(done?.error ?? t('toast.taskLost'))
+      return done.result as { name: string; bytes: number }
+    },
+    {
+      pending: t('toast.exportingAll'),
+      success: (made) =>
+        t('toast.exportedAll', {
+          name: String(made?.name ?? ''),
+          size: humanBytes(Number(made?.bytes ?? 0)),
+        }),
+      failure: t('toast.exportAllFailed'),
+    },
+  )
 }

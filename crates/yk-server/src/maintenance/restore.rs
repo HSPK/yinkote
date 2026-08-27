@@ -10,6 +10,7 @@
 //! is and counted as skipped.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use serde::Serialize;
 use yk_core::model::{Item, ItemDraft};
@@ -31,7 +32,7 @@ pub struct Restored {
 }
 
 /// Read an archive into the library.
-pub async fn run(app: &App, archive: &Path) -> Result<Restored> {
+pub async fn run(app: &App, archive: &Path, task: &Arc<crate::tasks::Task>) -> Result<Restored> {
     if !archive.exists() {
         return Err(Error::invalid(format!("{} does not exist", archive.display())));
     }
@@ -48,7 +49,7 @@ pub async fn run(app: &App, archive: &Path) -> Result<Restored> {
             .await
             .map_err(|e| Error::internal(format!("unpacking did not finish: {e}")))??;
 
-    let result = merge(app, &staging, files_in_archive).await;
+    let result = merge(app, &staging, files_in_archive, task).await;
     std::fs::remove_dir_all(&staging).ok();
     result
 }
@@ -101,7 +102,12 @@ fn unpack_archive(archive: &Path, into: &Path) -> Result<Vec<(String, PathBuf)>>
 }
 
 /// Copy what the staged archive holds into the running library.
-async fn merge(app: &App, staging: &Path, files: Vec<(String, PathBuf)>) -> Result<Restored> {
+async fn merge(
+    app: &App,
+    staging: &Path,
+    files: Vec<(String, PathBuf)>,
+    task: &Arc<crate::tasks::Task>,
+) -> Result<Restored> {
     let db = staging.join("db.sqlite");
     if !db.exists() {
         return Err(Error::invalid("the archive holds no database"));
@@ -140,6 +146,14 @@ async fn merge(app: &App, staging: &Path, files: Vec<(String, PathBuf)>) -> Resu
             break;
         }
         offset += page.items.len() as u32;
+        // Stopping between pages rather than mid-page: an import that halts
+        // half way through a batch leaves the library in a state nobody chose.
+        // What has already been written stays — it is merged, so it is exactly
+        // what a second attempt would skip.
+        if task.cancelled() {
+            return Ok(out);
+        }
+        task.progress("Restoring items", u64::from(offset), page.total.max(0) as u64);
 
         for item in &page.items {
             match app.store().items.get(target, &item.key).await {
@@ -156,7 +170,14 @@ async fn merge(app: &App, staging: &Path, files: Vec<(String, PathBuf)>) -> Resu
         }
     }
 
-    for (key, path) in files {
+    let total_files = files.len() as u64;
+    for (i, (key, path)) in files.into_iter().enumerate() {
+        if task.cancelled() {
+            return Ok(out);
+        }
+        if i % 20 == 0 {
+            task.progress("Restoring files", i as u64, total_files);
+        }
         let Ok(key) = Key::parse(&key) else {
             out.failed += 1;
             continue;

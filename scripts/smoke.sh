@@ -389,26 +389,45 @@ check "integrity checked" "$(j "$BASE/maintenance/integrity" | jq -r '.checked |
 check "integrity reports" "$(j "$BASE/maintenance/integrity" | jq -r 'select((.missing | type) == "array" and (.orphans | type) == "array") | "both directions"')"
 # The whole library as one file. An archive is worth what can be opened from
 # it, so the check unpacks the database inside and reads it.
-EXP=$(j -X POST "$BASE/maintenance/export-all")
+# Started, not awaited: a big library takes minutes, and a held-open request
+# is a client with nothing to show and a proxy free to time out.
+await_task() { # await_task <task-id>
+  for _ in $(seq 1 120); do
+    local phase
+    phase=$(j "$BASE/tasks/$1" | jq -r .phase)
+    [[ "$phase" == "running" ]] || { echo "$phase"; return; }
+    sleep 1
+  done
+  echo "timeout"
+}
+EXPTASK=$(j -X POST "$BASE/maintenance/export-all" | jq -r .task.id)
+check "export started"    "$EXPTASK"
+check "export finished"   "$(await_task "$EXPTASK" | grep -x done)"
+EXP=$(j "$BASE/tasks/$EXPTASK" | jq -r .result)
 EXPNAME=$(echo "$EXP" | jq -r .name)
 check "exported"          "$(echo "$EXP" | jq -r '.bytes | select(. > 0) | "written"')"
+check "task is listed"    "$(j "$BASE/tasks" | jq -r --arg t "$EXPTASK" '[.tasks[] | select(.id == $t)] | length | select(. == 1)')"
 # The proof that matters: destroy something, read the archive back, and find
 # it there again with the same key. An export nothing can consume is a hole,
 # not a door.
 MARKER=$(j -X POST "$BASE/libraries/$LIB/items" \
            -d '{"itemType":"journalArticle","title":"Archive Marker"}' | jq -r '.created[0].key')
-EXP2=$(j -X POST "$BASE/maintenance/export-all")
-EXP2NAME=$(echo "$EXP2" | jq -r .name)
+EXP2TASK=$(j -X POST "$BASE/maintenance/export-all" | jq -r .task.id)
+await_task "$EXP2TASK" > /dev/null
+EXP2NAME=$(j "$BASE/tasks/$EXP2TASK" | jq -r .result.name)
 j -X POST "$BASE/libraries/$LIB/items/delete" -d "$(jq -nc --arg k "$MARKER" '{keys:[$k]}')" >/dev/null
 check "marker destroyed"  "$(j "$BASE/libraries/$LIB/items/$MARKER" -o /dev/null -w '%{http_code}' | grep -q '^4' && echo "gone")"
-IMP2=$(j -X POST "$BASE/maintenance/import-archive" \
-         -d "$(jq -nc --arg p "$DATA/exports/$EXP2NAME" '{path:$p}')")
+IMPTASK=$(j -X POST "$BASE/maintenance/import-archive" \
+            -d "$(jq -nc --arg p "$DATA/exports/$EXP2NAME" '{path:$p}')" | jq -r .task.id)
+check "import finished"   "$(await_task "$IMPTASK" | grep -x done)"
+IMP2=$(j "$BASE/tasks/$IMPTASK" | jq -r .result)
 check "archive restores"  "$(echo "$IMP2" | jq -r '.items | select(. >= 1) | "restored"')"
 check "marker is back"    "$(j "$BASE/libraries/$LIB/items/$MARKER" | jq -r '.title | select(. == "Archive Marker")')"
 # Merging, not replacing: everything that was still here is left alone.
 check "import merges"     "$(echo "$IMP2" | jq -r '.skipped | select(. > 100) | "kept the rest"')"
 check "import is clean"   "$(echo "$IMP2" | jq -r '.failed | select(. == 0) | "no failures"')"
 
+check "cancel is honest"  "$(j -X POST "$BASE/tasks/t999999/cancel" | jq -r 'select(.cancelled == false) | "no such task"')"
 check "archive opens"     "$(python3 - "$DATA/exports/$EXPNAME" <<'PY'
 import zipfile, sqlite3, sys, tempfile, os, json
 z = zipfile.ZipFile(sys.argv[1])

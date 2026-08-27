@@ -5,6 +5,7 @@
  */
 import type {
   ReaderState,
+  Task,
   MessagePage,
   AgentStatus,
   ImportPreview,
@@ -337,6 +338,14 @@ export const api = {
       ),
   },
 
+  tasks: {
+    list: () => request<{ tasks: Task[] }>('/tasks'),
+    get: (id: string) => request<Task>(`/tasks/${id}`),
+    cancel: (id: string) => request<{ cancelled: boolean }>(`/tasks/${id}/cancel`, {
+      method: 'POST',
+    }),
+  },
+
   /** Where a document was left: page, zoom, and how it was being read. */
   readerState: {
     get: (lib: number, key: string) =>
@@ -465,16 +474,12 @@ export const api = {
         '/maintenance/backup',
         { method: 'POST' },
       ),
-    exportAll: () =>
-      request<{ name: string; bytes: number; files: number; missing: number }>(
-        '/maintenance/export-all',
-        { method: 'POST' },
-      ),
+    exportAll: () => request<{ task: Task }>('/maintenance/export-all', { method: 'POST' }),
     importArchive: (path: string) =>
-      request<{ items: number; skipped: number; files: number; failed: number }>(
-        '/maintenance/import-archive',
-        { method: 'POST', ...json({ path }) },
-      ),
+      request<{ task: Task }>('/maintenance/import-archive', {
+        method: 'POST',
+        ...json({ path }),
+      }),
     integrity: () =>
       request<{
         checked: number

@@ -46,6 +46,21 @@ export interface Item extends Record<string, unknown> {
   attachments?: AttachmentKind[]
 }
 
+/** A long job the server is running for us. */
+export interface Task {
+  id: string
+  kind: string
+  phase: 'running' | 'done' | 'failed' | 'cancelled'
+  message: string
+  done: number
+  /** 0 when the job cannot say how much there is to do. */
+  total: number
+  startedAt: number
+  finishedAt?: number
+  result?: Record<string, unknown>
+  error?: string
+}
+
 /** How a document was left, so it can be reopened where it was. */
 export interface ReaderState {
   lastPage: number

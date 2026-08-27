@@ -52,6 +52,8 @@ pub struct AppState {
     pub runs: crate::runs::Runs,
     /// Word-processor sessions, one per open document.
     pub sessions: crate::integration::Sessions,
+    /// Long jobs that outlive the request that started them.
+    pub tasks: crate::tasks::Tasks,
 }
 
 impl AppState {
@@ -72,6 +74,9 @@ impl AppState {
     }
     pub fn sessions(&self) -> &crate::integration::Sessions {
         &self.sessions
+    }
+    pub fn tasks(&self) -> &crate::tasks::Tasks {
+        &self.tasks
     }
     /// The agent as it is right now.
     ///

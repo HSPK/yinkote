@@ -538,6 +538,7 @@ export const enUS: Record<MessageKey, string> = {
   'toast.integrityFound': '{missing} files missing · {orphans} unaccounted for',
   'toast.integrityFailed': 'Could not check',
   'settings.exportAll': 'Export everything',
+  'toast.taskLost': 'The job stopped reporting',
   'toast.exportingAll': 'Packing the library…',
   'toast.exportedAll': 'Exported to {name} · {size}',
   'toast.exportAllFailed': 'Could not export the library',

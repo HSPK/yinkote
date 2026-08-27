@@ -534,6 +534,7 @@ export const zhCN = {
   'toast.integrityFound': '缺失 {missing} 个文件 · {orphans} 个无主文件',
   'toast.integrityFailed': '检查失败',
   'settings.exportAll': '导出整个文献库',
+  'toast.taskLost': '任务已失去联系',
   'toast.exportingAll': '正在打包文献库…',
   'toast.exportedAll': '已导出到 {name} · {size}',
   'toast.exportAllFailed': '导出文献库失败',
