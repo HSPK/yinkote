@@ -4,6 +4,21 @@
 set -uo pipefail
 
 BASE="${1:-http://127.0.0.1:23130}/api/v1"
+
+# Which database is behind that address. A server that failed to start leaves
+# the previous one holding the port, and a smoke run against the wrong library —
+# or against a binary built before the change under test — reports failures that
+# have nothing to do with the code. Set `YK_DATA` to refuse rather than guess.
+SERVING=$(curl -sS "${BASE}/ping" 2>/dev/null | jq -r '.dataDir // empty')
+if [[ -z "$SERVING" ]]; then
+  echo "nothing is answering at ${BASE} — start one with scripts/serve.sh" >&2
+  exit 1
+fi
+if [[ -n "${YK_DATA:-}" && "$SERVING" != "$YK_DATA" ]]; then
+  echo "refusing to run: expected ${YK_DATA}, found ${SERVING}" >&2
+  exit 2
+fi
+echo "▸ testing ${BASE} (database: ${SERVING})"
 PASS=0
 FAIL=0
 # Names of the checks that failed, so the summary says *which* — scrolled-off

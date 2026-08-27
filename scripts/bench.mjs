@@ -243,8 +243,23 @@ async function seedShelves(lib) {
 async function main() {
   const ping = await get('/ping')
   const lib = ping.defaultLibrary
-  // Printed, so a run can never again be attributed to the wrong database.
-  console.log(`▸ yinkote ${ping.version}, library ${lib}, at ${BASE}\n`)
+  // The address *and* the database behind it. Printing the address was not
+  // enough: a server that failed to start leaves the port held by an older one,
+  // which answers happily and is a different library. That has now happened
+  // twice — once measuring the smoke database for weeks, once seeding shelves
+  // into somebody else's corpus.
+  console.log(`▸ yinkote ${ping.version}, library ${lib}, at ${BASE}`)
+  console.log(`▸ database: ${ping.dataDir}\n`)
+
+  if (process.env.YK_DATA && ping.dataDir !== process.env.YK_DATA) {
+    // Refusing rather than warning: this run would seed a hundred thousand
+    // items into a library nobody meant to touch.
+    console.error(
+      `▸ refusing to run: expected ${process.env.YK_DATA}, found ${ping.dataDir}.\n` +
+        `  Something else is already listening on this port.`,
+    )
+    process.exit(2)
+  }
 
   await seed(lib)
   const shelves = await seedShelves(lib)

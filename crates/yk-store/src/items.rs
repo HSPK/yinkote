@@ -585,38 +585,119 @@ impl SqliteItemRepository {
 
     /// Rebuild every derived search structure for a library from scratch.
     /// Safe to run at any time; the tables it touches are pure derivations.
+/// Run one step of a background rebuild, waiting out a busy database.
+///
+/// Every step here is idempotent — clearing rows that are already gone, or
+/// reindexing a batch that was just reindexed, costs time and changes nothing —
+/// so losing the write lock is a reason to wait, not a reason to abandon a
+/// half-finished index.
+///
+/// It needs this because it competes with the program it runs inside: a rebuild
+/// makes a large write-ahead log, the log invites a checkpoint, and a
+/// checkpoint takes the database exclusively for longer than any single busy
+/// timeout. Small transactions and yielding are not enough on their own; they
+/// keep the *interactive* writes fast, and this keeps the rebuild alive.
+async fn retry_busy<T, F, Fut>(mut step: F) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    const ATTEMPTS: usize = 6;
+    let mut wait = std::time::Duration::from_millis(200);
+    for attempt in 1..=ATTEMPTS {
+        match step().await {
+            Err(e) if attempt < ATTEMPTS && Self::is_busy(&e) => {
+                tokio::time::sleep(wait).await;
+                wait *= 2;
+            }
+            other => return other,
+        }
+    }
+    unreachable!("the loop returns on the last attempt")
+}
+
+fn is_busy(e: &Error) -> bool {
+    // Matched on the message because that is what the storage layer preserves;
+    // the alternative is threading a SQLite error kind through every wrapper
+    // for one caller.
+    e.to_string().contains("database is locked")
+}
+
     pub async fn rebuild_index(&self, library_id: i64) -> Result<u64> {
         const CHUNK: u32 = 500;
         let mut cursor = 0i64;
         let mut total = 0u64;
 
-        // Clear first so removed items cannot linger in the index.
-        self.db
-            .call(move |c| {
-                let tx = write_tx(c)?;
-                for table in ["items_fts", "items_trgm"] {
+        // Clear first so removed items cannot linger in the index — in
+        // batches, and this is the reason: emptying two full-text tables and
+        // the vectors for a hundred thousand items in one transaction holds the
+        // write lock for eighteen seconds. Nothing noticed while a rebuild was
+        // something the caller waited for; the moment it became a background
+        // job, every other write in the program failed with "database is
+        // locked" for as long as it ran.
+        let mut clear_from = 0i64;
+        loop {
+            let db = self.db.clone();
+            let last = Self::retry_busy(|| {
+                let db = db.clone();
+                async move {
+                    db.call(move |c| {
+                    let ids: Vec<i64> = c
+                        .prepare_cached(
+                            "SELECT id FROM items WHERE library_id = ?1 AND id > ?2 \
+                             ORDER BY id LIMIT ?3",
+                        )
+                        .map_err(sql_err)?
+                        .query_map(params![library_id, clear_from, CHUNK], |r| r.get(0))
+                        .map_err(sql_err)?
+                        .collect::<rusqlite::Result<_>>()
+                        .map_err(sql_err)?;
+                    let Some(&last) = ids.last() else { return Ok(None) };
+
+                    let ph = placeholders(ids.len());
+                    let tx = write_tx(c)?;
+                    for table in ["items_fts", "items_trgm"] {
+                        tx.execute(
+                            &format!("DELETE FROM {table} WHERE rowid IN ({ph})"),
+                            params_from_iter(ids.iter()),
+                        )
+                        .map_err(sql_err)?;
+                    }
                     tx.execute(
-                        &format!(
-                            "DELETE FROM {table} WHERE rowid IN \
-                             (SELECT id FROM items WHERE library_id = ?1)"
-                        ),
-                        params![library_id],
+                        &format!("DELETE FROM embed_queue WHERE item_id IN ({ph})"),
+                        params_from_iter(ids.iter()),
                     )
                     .map_err(sql_err)?;
+                    tx.execute(
+                        &format!("DELETE FROM item_vectors WHERE item_id IN ({ph})"),
+                        params_from_iter(ids.iter()),
+                    )
+                    .map_err(sql_err)?;
+                    tx.commit().map_err(sql_err)?;
+                    Ok(Some(last))
+                    })
+                    .await
                 }
-                tx.execute("DELETE FROM embed_queue WHERE library_id = ?1", params![library_id])
-                    .map_err(sql_err)?;
-                tx.execute("DELETE FROM item_vectors WHERE library_id = ?1", params![library_id])
-                    .map_err(sql_err)?;
-                tx.commit().map_err(sql_err)?;
-                Ok(())
             })
             .await?;
+            match last {
+                Some(id) => clear_from = id,
+                None => break,
+            }
+            // Let a waiting writer have the lock before taking it again. Small
+            // transactions are not enough on their own: a loop that reacquires
+            // immediately still starves everyone else, and here it starved
+            // *itself* — the rebuild lost the race often enough to exhaust its
+            // busy timeout and fail. The embedding worker learned this first.
+            tokio::task::yield_now().await;
+        }
 
         loop {
-            let processed = self
-                .db
-                .call(move |c| {
+            let db = self.db.clone();
+            let processed = Self::retry_busy(|| {
+                let db = db.clone();
+                async move {
+                    db.call(move |c| {
                     let sql = format!(
                         "SELECT {COLS} {FROM} WHERE i.library_id = ?1 AND i.id > ?2 \
                          ORDER BY i.id LIMIT ?3"
@@ -640,14 +721,20 @@ impl SqliteItemRepository {
                     }
                     tx.commit().map_err(sql_err)?;
                     Ok((rows.len() as u64, last))
-                })
-                .await?;
+                    })
+                    .await
+                }
+            })
+            .await?;
 
             if processed.0 == 0 {
                 break;
             }
             total += processed.0;
             cursor = processed.1;
+            // As above: a background job holds the write lock in turns, not in
+            // one long run.
+            tokio::task::yield_now().await;
         }
         Ok(total)
     }
