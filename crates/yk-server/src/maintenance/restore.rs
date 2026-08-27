@@ -32,7 +32,14 @@ pub struct Restored {
 }
 
 /// Read an archive into the library.
-pub async fn run(app: &App, archive: &Path, task: &Arc<crate::tasks::Task>) -> Result<Restored> {
+/// Returns what was restored, and whether it stopped early because it was
+/// asked to. The two are separate because a job that stopped still did work,
+/// and because asking a job to stop is not the same as it stopping.
+pub async fn run(
+    app: &App,
+    archive: &Path,
+    task: &Arc<crate::tasks::Task>,
+) -> Result<(Restored, bool)> {
     if !archive.exists() {
         return Err(Error::invalid(format!("{} does not exist", archive.display())));
     }
@@ -107,7 +114,7 @@ async fn merge(
     staging: &Path,
     files: Vec<(String, PathBuf)>,
     task: &Arc<crate::tasks::Task>,
-) -> Result<Restored> {
+) -> Result<(Restored, bool)> {
     let db = staging.join("db.sqlite");
     if !db.exists() {
         return Err(Error::invalid("the archive holds no database"));
@@ -151,7 +158,7 @@ async fn merge(
         // What has already been written stays — it is merged, so it is exactly
         // what a second attempt would skip.
         if task.cancelled() {
-            return Ok(out);
+            return Ok((out, true));
         }
         task.progress("Restoring items", u64::from(offset), page.total.max(0) as u64);
 
@@ -173,7 +180,7 @@ async fn merge(
     let total_files = files.len() as u64;
     for (i, (key, path)) in files.into_iter().enumerate() {
         if task.cancelled() {
-            return Ok(out);
+            return Ok((out, true));
         }
         if i % 20 == 0 {
             task.progress("Restoring files", i as u64, total_files);
@@ -195,7 +202,7 @@ async fn merge(
         }
     }
 
-    Ok(out)
+    Ok((out, false))
 }
 
 /// Turn an archived item back into something creatable, keeping its identity.

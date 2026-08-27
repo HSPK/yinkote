@@ -78,7 +78,10 @@ async fn import_archive(
     let handle = task.clone();
     tokio::spawn(async move {
         match restore::run(&running, &path, &handle).await {
-            Ok(done) => running.tasks().finish(&handle, json!(done)),
+            Ok((done, false)) => running.tasks().finish(&handle, json!(done)),
+            // It noticed the flag and stopped. What it managed is real and is
+            // reported; what it did not do is what a second run would pick up.
+            Ok((done, true)) => running.tasks().stopped(&handle, json!(done)),
             Err(e) => running.tasks().fail(&handle, e),
         }
     });

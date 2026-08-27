@@ -358,8 +358,21 @@ async fn reindex_rebuilds_search_from_the_items_table() {
     let lib = app.services.default_library;
     c.post(&format!("/libraries/{lib}/items"), json!([article("Rebuildable")])).await;
 
+    // Started, not awaited: a rebuild is half a minute on a real library, so
+    // the request hands back a task and the work carries on behind it.
     let body = c.post(&format!("/maintenance/reindex/{lib}"), json!({})).await;
-    assert_eq!(body["reindexed"], 1);
+    let task = body["task"]["id"].as_str().expect("a task to watch").to_string();
+    assert_eq!(body["task"]["phase"], "running");
+
+    let finished = loop {
+        let state = c.get(&format!("/tasks/{task}")).await;
+        if state["phase"] != "running" {
+            break state;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    };
+    assert_eq!(finished["phase"], "done");
+    assert_eq!(finished["result"]["reindexed"], 1);
     assert_eq!(
         c.get(&format!("/libraries/{lib}/search?q=rebuildable")).await["hits"]
             .as_array()

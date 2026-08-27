@@ -99,9 +99,24 @@ async fn put_settings(
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn reindex(State(app): State<App>, Path(lib): Path<i64>) -> ApiResult<Json<Value>> {
-    let n = app.search().reindex(lib).await?;
-    Ok(Json(json!({ "reindexed": n })))
+/// Rebuild the search index.
+///
+/// Started rather than awaited: half a minute on a hundred thousand items, and
+/// for most of it the interface had nothing to say. It reports no count —
+/// rebuilding is two coarse passes over the library, not a countable sequence —
+/// so the task's `total` stays zero, which the interface reads as "spinner,
+/// not bar". Claiming a percentage nobody can compute would be worse.
+async fn reindex(State(app): State<App>, Path(lib): Path<i64>) -> Json<Value> {
+    let task = app.tasks().start("reindex", "Rebuilding the search index");
+    let running = app.clone();
+    let handle = task.clone();
+    tokio::spawn(async move {
+        match running.search().reindex(lib).await {
+            Ok(n) => running.tasks().finish(&handle, json!({ "reindexed": n })),
+            Err(e) => running.tasks().fail(&handle, e),
+        }
+    });
+    Json(json!({ "task": task.snapshot() }))
 }
 
 async fn optimize(State(app): State<App>) -> ApiResult<Json<Value>> {

@@ -1,3 +1,4 @@
+import { ActivityIndicator } from './ActivityIndicator'
 import { useStore } from '../state/store'
 import { useT } from '../i18n'
 import { TABS } from '../workspace/registry'
@@ -23,6 +24,7 @@ export function StatusBar() {
         ●
       </span>
       <span>{connected ? t('status.live') : t('status.offline')}</span>
+      <ActivityIndicator />
       {selected.length > 0 && <span>{t('status.selected', { count: selected.length })}</span>}
       {query && (
         <span>

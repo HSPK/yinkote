@@ -1115,6 +1115,42 @@ option {
 /* The annotations pane's header carries an action now, so it lays out. */
 .reader-notes .pane-header { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 
+/* What the server is busy with. Only present while something is running, so it
+   is allowed to take room when it appears. */
+.activity {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 0 6px;
+  color: var(--fg-dim);
+}
+.activity-spin {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--line-2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: activity-turn 700ms linear infinite;
+}
+@keyframes activity-turn {
+  to { transform: rotate(360deg); }
+}
+.activity-stop {
+  padding: 0 4px;
+  font: 10px/1 var(--mono);
+  color: var(--fg-mute);
+  background: none;
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.activity-stop:hover { color: var(--fg); border-color: var(--fg-mute); }
+
+/* Somebody who cannot see motion should not be shown a spinner that never
+   stops; the words beside it carry the same information. */
+@media (prefers-reduced-motion: reduce) {
+  .activity-spin { animation: none; }
+}
+
 /* A file picker is unstyleable, so the button beside it does the talking. */
 .hidden-input { display: none; }
 

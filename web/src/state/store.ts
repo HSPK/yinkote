@@ -7,6 +7,7 @@
 import { create } from 'zustand'
 
 import { api, connectEvents } from '../api/client'
+import { follow } from '../lib/tasks'
 import { schemaLabel, t, useI18n } from '../i18n'
 import { createPrefsSlice, type PrefsSlice } from './slices/prefs'
 import { createChatSlice, type ChatSlice } from './slices/chat'
@@ -785,7 +786,9 @@ export const useStore = create<State>((set, get, store) => ({
 
   async reindex() {
     const s = get()
-    await api.maintenance.reindex(s.library)
+    const { task } = await api.maintenance.reindex(s.library)
+    const done = await follow(task.id)
+    if (done && done.phase !== 'done') throw new Error(done.error ?? 'reindex failed')
     await Promise.all([get().refresh(), get().reloadSidebar()])
   },
 }))

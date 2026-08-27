@@ -149,10 +149,23 @@ impl Tasks {
         }
     }
 
-    /// Record how a job ended.
+    /// Record that a job finished its work.
+    ///
+    /// Deliberately not "Done unless the cancel flag is set": whether a job
+    /// stopped early is something only the job knows. Reading the flag here
+    /// reported a rebuild that ran to completion as cancelled, because asking
+    /// it to stop is not the same as it stopping — see [`Tasks::stopped`].
     pub fn finish(&self, task: &Arc<Task>, result: serde_json::Value) {
-        let phase = if task.cancelled() { Phase::Cancelled } else { Phase::Done };
-        task.finish(phase, Some(result), None);
+        task.finish(Phase::Done, Some(result), None);
+        self.forget_old();
+    }
+
+    /// Record that a job noticed the cancel flag and stopped early.
+    ///
+    /// `partial` is whatever it managed, which is worth reporting: an import
+    /// that stopped after four hundred items has added four hundred items.
+    pub fn stopped(&self, task: &Arc<Task>, partial: serde_json::Value) {
+        task.finish(Phase::Cancelled, Some(partial), None);
         self.forget_old();
     }
 
@@ -246,15 +259,33 @@ mod tests {
     }
 
     #[test]
-    fn a_cancelled_job_says_so_rather_than_claiming_success() {
+    fn a_job_that_stopped_early_says_so_and_keeps_what_it_did() {
         let tasks = Tasks::default();
         let task = tasks.start("import", "Reading…");
         assert!(tasks.cancel(&task.snapshot().id));
         assert!(task.cancelled());
 
-        // The job noticed and stopped; what it produced is partial.
-        tasks.finish(&task, serde_json::json!({ "items": 12 }));
-        assert_eq!(tasks.get(&task.snapshot().id).unwrap().phase, Phase::Cancelled);
+        tasks.stopped(&task, serde_json::json!({ "items": 12 }));
+        let state = tasks.get(&task.snapshot().id).unwrap();
+        assert_eq!(state.phase, Phase::Cancelled);
+        assert_eq!(state.result.unwrap()["items"], 12, "what it managed still counts");
+    }
+
+    #[test]
+    fn asking_a_job_to_stop_is_not_the_same_as_it_stopping() {
+        // Not every job can stop: rebuilding the index is two passes inside a
+        // library that does not check the flag. Reporting it as cancelled
+        // because somebody asked would be a lie about work that was done.
+        let tasks = Tasks::default();
+        let task = tasks.start("reindex", "Rebuilding…");
+        tasks.cancel(&task.snapshot().id);
+
+        tasks.finish(&task, serde_json::json!({ "reindexed": 100 }));
+        assert_eq!(
+            tasks.get(&task.snapshot().id).unwrap().phase,
+            Phase::Done,
+            "it finished the work, whatever was asked of it"
+        );
     }
 
     #[test]

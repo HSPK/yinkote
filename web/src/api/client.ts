@@ -467,7 +467,7 @@ export const api = {
 
   maintenance: {
     reindex: (lib: number) =>
-      request<{ reindexed: number }>(`/maintenance/reindex/${lib}`, { method: 'POST' }),
+      request<{ task: Task }>(`/maintenance/reindex/${lib}`, { method: 'POST' }),
     optimize: () => request<{ ok: boolean }>('/maintenance/optimize', { method: 'POST' }),
     backup: () =>
       request<{ name: string; bytes: number; pruned: string[]; kept: number }>(

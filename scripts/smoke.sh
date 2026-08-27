@@ -427,6 +427,14 @@ check "marker is back"    "$(j "$BASE/libraries/$LIB/items/$MARKER" | jq -r '.ti
 check "import merges"     "$(echo "$IMP2" | jq -r '.skipped | select(. > 100) | "kept the rest"')"
 check "import is clean"   "$(echo "$IMP2" | jq -r '.failed | select(. == 0) | "no failures"')"
 
+# Rebuilding the index is half a minute of work; the point of making it a task
+# is that the request comes back at once and the job is still findable.
+RIDX=$(j -X POST "$BASE/maintenance/reindex/$LIB" | jq -r .task.id)
+check "reindex started"   "$RIDX"
+check "reindex is a job"  "$(j "$BASE/tasks/$RIDX" | jq -r '.kind | select(. == "reindex")')"
+# It cannot count its work, and says so rather than inventing a percentage.
+check "reindex is honest" "$(j "$BASE/tasks/$RIDX" | jq -r '.total | select(. == 0) | "uncountable"')"
+
 check "cancel is honest"  "$(j -X POST "$BASE/tasks/t999999/cancel" | jq -r 'select(.cancelled == false) | "no such task"')"
 check "archive opens"     "$(python3 - "$DATA/exports/$EXPNAME" <<'PY'
 import zipfile, sqlite3, sys, tempfile, os, json
