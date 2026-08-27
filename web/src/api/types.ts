@@ -410,5 +410,8 @@ export interface LibraryFile {
 
 export interface RenamePlan {
   template: string
+  /** How many files would change. */
+  total: number
+  /** A sample of them — enough to judge the pattern, not all of them. */
   changes: { key: string; from: string; to: string }[]
 }

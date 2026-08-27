@@ -221,7 +221,12 @@ check "preview is silent" "$(j -X POST "$BASE/libraries/$LIB/files/preview" \
                              [[ "$BEFORE" == "$AFTER" ]] && echo unchanged)"
 check "preview explains"  "$(j -X POST "$BASE/libraries/$LIB/files/preview" \
                              -d '{"template":"{author} {year} - {title}"}' \
-                             | jq -r 'select(.template != null) | "planned"')"
+                             | jq -r 'select(.template != null and .total != null) | "planned"')"
+# The count is the answer; the rows are only evidence. Sending every one of
+# them was 3.7 MB for a panel that shows eight lines.
+check "preview is small"  "$(j -X POST "$BASE/libraries/$LIB/files/preview" \
+                             -d '{"template":"{author} {year} - {title}"}' \
+                             | jq -r 'select((.changes | length) <= 50) | "sampled"')"
 
 echo "▸ download queue"
 DK=$(j -X POST "$BASE/libraries/$LIB/items" \

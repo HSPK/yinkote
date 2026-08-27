@@ -19,7 +19,11 @@ const calls: string[] = []
 
 let files: LibraryFile[] = []
 let downloads: Download[] = []
-let plan = { template: '{author} {year} - {title}', changes: [] as { key: string; from: string; to: string }[] }
+let plan = {
+  template: '{author} {year} - {title}',
+  total: 0,
+  changes: [] as { key: string; from: string; to: string }[],
+}
 
 vi.mock('./api/client', () => {
   const build = (path: string): unknown =>
@@ -113,7 +117,7 @@ beforeEach(() => {
   calls.length = 0
   files = [file()]
   downloads = [download()]
-  plan = { template: '{author} {year} - {title}', changes: [] }
+  plan = { template: '{author} {year} - {title}', total: 0, changes: [] }
 })
 
 afterEach(() => {
@@ -147,6 +151,7 @@ describe('the file browser', () => {
   it('previews a rename without renaming anything', async () => {
     plan = {
       template: '{author} {year} - {title}',
+      total: 1,
       changes: [{ key: 'FILE1111', from: 'old.pdf', to: 'Vaswani 2017 - Attention.pdf' }],
     }
     await render()
@@ -163,6 +168,26 @@ describe('the file browser', () => {
     // first is one nobody should run.
     expect(container.textContent).toContain('Vaswani 2017 - Attention.pdf')
     expect(calls.some((c) => c.startsWith('api.files.rename'))).toBe(false)
+  })
+
+  it('reports the whole count even though it only shows a sample', async () => {
+    plan = {
+      template: '{author} {year} - {title}',
+      total: 30_000,
+      changes: [{ key: 'FILE1111', from: 'old.pdf', to: 'new.pdf' }],
+    }
+    await render()
+    const preview = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Preview rename',
+    )!
+    await act(async () => preview.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    // Sending every row was 3.7 MB for a panel that shows eight lines. The
+    // number is the answer; the rows are only the evidence.
+    expect(container.textContent).toContain('30000')
   })
 
   it('will not rename until a preview says there is something to do', async () => {

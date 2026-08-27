@@ -171,6 +171,24 @@ async function main() {
     await measure('graph neighbourhood', `/libraries/${lib}/graph/${key}`, 20)
   }
 
+  console.log('\n▸ files')
+  await measure('file browser page', `/libraries/${lib}/files?limit=500`, 20)
+  {
+    // Measured for its *size* as much as its speed: this once returned every
+    // planned rename — 3.7 MB for a panel that shows eight lines.
+    const t = performance.now()
+    const response = await fetch(`${BASE}/libraries/${lib}/files/preview`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ template: '{author} {year} - {title}' }),
+    })
+    const text = await response.text()
+    console.log(
+      `  ${'rename preview'.padEnd(34)} ${(performance.now() - t).toFixed(1).padStart(6)}ms  ` +
+        `${(text.length / 1024).toFixed(1)} KB`,
+    )
+  }
+
   console.log('\n▸ citations')
   if (key) {
     const runs = []

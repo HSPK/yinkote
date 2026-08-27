@@ -80,6 +80,14 @@ struct Rename {
     keys: Vec<String>,
 }
 
+/// How many example renames to send.
+///
+/// A preview answers two questions — how many files change, and does the
+/// pattern look right — and the second needs a handful of examples, not all of
+/// them. Sending every row made a 3.7 MB response for a panel that shows eight
+/// lines, measured against thirty thousand attachments.
+const SAMPLE: usize = 50;
+
 /// What renaming would do, without doing any of it.
 async fn preview(
     State(app): State<App>,
@@ -91,8 +99,11 @@ async fn preview(
 
     Ok(Json(json!({
         "template": template,
+        // The number is the answer; the rows are the evidence.
+        "total": planned.len(),
         "changes": planned
             .iter()
+            .take(SAMPLE)
             .map(|(attachment, from, to)| json!({
                 "key": attachment.key,
                 "from": from,

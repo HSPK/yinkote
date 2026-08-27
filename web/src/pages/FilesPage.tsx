@@ -88,7 +88,7 @@ export function FilesPage() {
           <Button disabled={busy} onClick={() => void look()}>
             {t('files.preview')}
           </Button>
-          <Button tone="primary" disabled={busy || !plan?.changes.length} onClick={() => void apply()}>
+          <Button tone="primary" disabled={busy || !plan?.total} onClick={() => void apply()}>
             {t('files.rename')}
           </Button>
         </span>
@@ -96,11 +96,11 @@ export function FilesPage() {
 
       {plan && (
         <div className="rename-plan">
-          {plan.changes.length === 0 ? (
+          {plan.total === 0 ? (
             <span className="dim">{t('files.nothingToRename')}</span>
           ) : (
             <>
-              <div className="dim">{t('files.willRename', { count: plan.changes.length })}</div>
+              <div className="dim">{t('files.willRename', { count: plan.total })}</div>
               {plan.changes.slice(0, 8).map((change) => (
                 <div key={change.key} className="rename-row">
                   <span className="dim">{change.from}</span>
