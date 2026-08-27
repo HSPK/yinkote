@@ -154,3 +154,56 @@ fn plugin_shapes_speak_camel_case() {
         },
     );
 }
+
+/// The Word pane reads the same shapes, and it is not in this workspace's type
+/// system.
+///
+/// The pane is plain script served out of the binary, so nothing checks that
+/// the name it reads is the name the server sends. The first draft read
+/// `plan.updated`; the field is serialised as `updatedFields`, and the symptom
+/// would have been a pane that inserted citations and then left every one of
+/// them empty — with no error anywhere, because reading a missing property is
+/// not an error in JavaScript.
+#[test]
+fn the_word_pane_reads_names_the_server_actually_sends() {
+    use yk_server::integration::document::{Entry, Plan, Rendered};
+
+    let plan = serde_json::to_value(Plan {
+        updated: vec![Rendered { id: "1".into(), text: "[1]".into() }],
+        bibliography: vec![Entry { key: "AAAA".into(), text: "…".into() }],
+    })
+    .unwrap();
+    let sent: Vec<&String> = plan.as_object().unwrap().keys().collect();
+
+    // Comment lines are dropped rather than scanned: the file explains this
+    // very mistake in prose, and a guard that cannot tell an explanation from
+    // an instruction is a guard people learn to switch off. Only whole comment
+    // lines are removed, so a `//` inside a URL literal is left alone.
+    let source: String = include_str!("../src/addin/assets/taskpane.js")
+        .lines()
+        .filter(|line| {
+            let t = line.trim_start();
+            !(t.starts_with("//") || t.starts_with("/*") || t.starts_with('*'))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let mut read = Vec::new();
+    for (at, _) in source.match_indices("plan.") {
+        let rest = &source[at + 5..];
+        let end = rest.find(|c: char| !c.is_ascii_alphanumeric() && c != '_').unwrap_or(rest.len());
+        if end > 0 {
+            read.push(&rest[..end]);
+        }
+    }
+    assert!(!read.is_empty(), "the scan found nothing; has the pane been rewritten?");
+
+    for name in read {
+        assert!(
+            sent.iter().any(|k| *k == name),
+            "the pane reads `plan.{name}`, but a Plan is sent as {sent:?}. \
+             Reading a missing property is not an error in JavaScript, so this \
+             would ship as a pane that quietly does nothing."
+        );
+    }
+}

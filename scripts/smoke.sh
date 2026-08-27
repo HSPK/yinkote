@@ -547,6 +547,22 @@ check "session closed"    "$(j -X POST "$BASE/integration/session/$SID/close" | 
 check "closed stays shut" "$(j -X POST "$BASE/integration/session/$SID/refresh" -d "$SNAP" \
                               | jq -r '.error.kind // .error // "rejected"' | head -c 20)"
 
+echo "▸ word add-in"
+# The pane is served by the binary, outside /api/v1 and outside the SPA
+# fallback. The fallback answering manifest.xml with index.html is the failure
+# this guards: valid HTML, and an error inside Word that names nothing.
+ORIGIN=${BASE%/api/v1}
+MANIFEST=$(curl -fsS "$ORIGIN/addin/manifest.xml")
+check "manifest is xml"   "$(printf '%s' "$MANIFEST" | head -c 5 | grep -o '<?xml')"
+check "manifest names us" "$(printf '%s' "$MANIFEST" | grep -o "${ORIGIN}/addin/taskpane.html" | head -1)"
+check "manifest id stable" "$(
+  a=$(printf '%s' "$MANIFEST" | sed -n 's:.*<Id>\(.*\)</Id>.*:\1:p')
+  b=$(curl -fsS "$ORIGIN/addin/manifest.xml" | sed -n 's:.*<Id>\(.*\)</Id>.*:\1:p')
+  [[ -n "$a" && "$a" == "$b" ]] && echo "$a")"
+check "pane is html"      "$(curl -fsS -o /dev/null -w '%{content_type}' "$ORIGIN/addin/taskpane.html" | grep -o 'text/html')"
+check "pane script"       "$(curl -fsS "$ORIGIN/addin/taskpane.js" | grep -c 'updatedFields')"
+check "icon is a png"     "$(curl -fsS "$ORIGIN/addin/icon-32.png" | head -c 4 | grep -c PNG)"
+
 echo "▸ attachment marks"
 # A listed row must say what it has attached without a second request: the
 # table draws a glyph per kind, and a per-row lookup for a hundred rows is the

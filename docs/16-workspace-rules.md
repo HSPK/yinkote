@@ -1480,3 +1480,43 @@ collection 分页从 22.6ms 掉到 14.6ms，代码一行没动。
 - **前台 checkpoint 会让某次写入付出整份 WAL 的代价**（p95 是 p50 的一百倍）。
   `wal_autocheckpoint = 0`，交给后台 worker。见 `db.rs`。
 - **`check` 这类"非空即通过"的断言，必须让错误答案为空**，否则错的字符串也算通过。
+
+### 3.110 客户端不在类型系统里，就得有一条测试把名字钉住
+
+Word 任务窗格是纯脚本，从二进制里发出去，不经过本仓库任何类型检查。
+第一版写的是 `plan.updated`；服务端序列化出去的字段叫 `updatedFields`。
+在 JavaScript 里读一个不存在的属性不是错误，所以症状会是：窗格能插入引文，
+然后每一条都是空的，**任何地方都不报错**。
+
+这个 bug 不是读代码发现的，是**照着窗格的调用顺序，对着真服务器重放一遍协议**
+发现的——建条目、开会话、按文档顺序发两个域、再发一个"粘贴进来的空域"。
+一次 curl 会话就把两件事都量出来了：字段名错了，以及空 keys 的域会被服务端
+从 `updatedFields` 里剔除（于是文档里那条保持原样，这是对的）。
+
+已经落成 `tests/wire_names.rs::the_word_pane_reads_names_the_server_actually_sends`：
+序列化一个 `Plan`，扫描 `taskpane.js` 里所有 `plan.<name>`，逐个比对。
+写这条测试时又抓出第二个问题：`insertBibliography` 里也有个变量叫 `plan`，
+装的却是 `/bibliography` 的另一种形状（`{html, entries}`）。
+**一个变量名指两种形状，正是 `plan.updated` 被写出来的原因**——已改名。
+
+扫描要跳过整行注释：文件里正好用散文解释了这个错误，而一条分不清"说明"和
+"指令"的守卫，人们很快就学会把它关掉。
+
+### 3.111 smoke 有一部分检查只在攒过数据的库上成立
+
+新加了 6 条加载项检查之后，在**全新数据目录**上跑 smoke 得到 3 条 FAIL：
+`import merges`（断言 `.skipped > 100`，需要库里本来就有一百多条）、
+`files keep source`（需要磁盘上真有文件）、`agent answers`（模型 429）。
+三条都不是回归。
+
+所以判断 smoke 是否通过，基准目标是长期存在的 `/tmp/ykfinal`（23130），
+不是随手起的新库。`scripts/smoke.sh` 会打印自己的目标数据库，看一眼再下结论。
+顺便：这一轮又踩了一次 §3.55 的旧机器——`pane script` 那条 FAIL 的原因是
+23191 上跑的二进制早于 JS 的修复。**改了内嵌资源就得重新 `cargo build`**，
+`include_str!` 的内容是编译期烤进去的。
+
+### 3.112 clippy 挑出来的往往真是更好的写法
+
+PNG 编码器里逐字节 `raw.push(0)` 触发 `same_item_push`。改成"先拼一行、
+再整行 extend `size` 次"之后，代码更短、更快，也更贴近它表达的意思——
+纯色方块的每一行本来就是同一行。这类提示不要用 `#[allow]` 压掉。

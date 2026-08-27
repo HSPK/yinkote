@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Yinkote</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <link rel="stylesheet" href="taskpane.css" />
+  </head>
+  <body>
+    <div id="boot" class="boot">Connecting to Word…</div>
+
+    <main id="app" hidden>
+      <header class="bar">
+        <label class="field">
+          <span>Style</span>
+          <select id="style"></select>
+        </label>
+        <button id="refresh" type="button" title="Re-render every citation in the document">
+          Refresh
+        </button>
+      </header>
+
+      <section class="search">
+        <input id="q" type="search" placeholder="Search the library" autocomplete="off" />
+        <ul id="results" class="results" aria-live="polite"></ul>
+      </section>
+
+      <section class="pending" id="pending" hidden>
+        <div class="pending-head">
+          <strong id="pending-title"></strong>
+          <button id="pending-cancel" type="button" class="ghost">Cancel</button>
+        </div>
+        <div class="locator">
+          <input id="prefix" placeholder="Prefix" />
+          <input id="locator" placeholder="p. 12" />
+          <input id="suffix" placeholder="Suffix" />
+        </div>
+        <button id="insert" type="button" class="primary">Insert citation</button>
+      </section>
+
+      <footer class="foot">
+        <button id="bibliography" type="button">Insert bibliography</button>
+        <span id="status" class="status" role="status"></span>
+      </footer>
+    </main>
+
+    <script src="taskpane.js"></script>
+  </body>
+</html>

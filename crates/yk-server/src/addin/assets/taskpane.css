@@ -1,0 +1,87 @@
+/* The pane is a small, dense control surface, not a page. Same industrial
+   posture as the workbench, but its own file: it loads inside Word with no
+   build step, so it cannot import the app's tokens. */
+
+:root {
+  --bg: #14161a;
+  --panel: #1a1d23;
+  --line: #2b3038;
+  --ink: #e6e9ef;
+  --muted: #97a0af;
+  --accent: #1f6feb;
+  --danger: #f0616d;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font: 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.boot { padding: 16px; color: var(--muted); }
+
+main { display: flex; flex-direction: column; height: 100vh; }
+
+.bar {
+  display: flex;
+  gap: 8px;
+  align-items: end;
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.field { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
+.field span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+
+select, input, button {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 5px 7px;
+  min-width: 0;
+}
+
+button { cursor: pointer; white-space: nowrap; }
+button:hover:not(:disabled) { border-color: #3c434e; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; width: 100%; }
+button.ghost { background: none; border: none; color: var(--muted); padding: 2px 4px; }
+
+.search { display: flex; flex-direction: column; min-height: 0; flex: 1; padding: 8px; gap: 8px; }
+.search input { width: 100%; }
+
+.results { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; }
+
+.results li {
+  padding: 6px 7px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.results li:hover, .results li[aria-selected="true"] { background: var(--panel); border-color: var(--line); }
+.results .t { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.results .m { display: block; color: var(--muted); font-size: 11px; }
+.results .empty { color: var(--muted); cursor: default; }
+
+.pending { border-top: 1px solid var(--line); padding: 8px; display: grid; gap: 6px; }
+.pending-head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.pending-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.locator { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+
+.foot {
+  border-top: 1px solid var(--line);
+  padding: 8px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* A status line has to hold its height whether or not it says anything, or
+   every message shoves the buttons above it. */
+.status { color: var(--muted); font-size: 11px; flex: 1; min-height: 1.45em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status[data-kind="error"] { color: var(--danger); }

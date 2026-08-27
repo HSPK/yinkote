@@ -6,6 +6,7 @@ import { LOCALES, useI18n, useT, type Locale } from '../i18n'
 import { AccentPicker } from '../components/AccentPicker'
 import { ArchiveImport } from '../components/ArchiveImport'
 import { BibliographyImport } from '../components/BibliographyImport'
+import { WordAddin } from '../components/WordAddin'
 import { ZoteroImport } from '../components/ZoteroImport'
 import { filterSettings, type SettingSection } from '../lib/settings'
 import { THEMES } from '../lib/theme'
@@ -274,6 +275,19 @@ export function SettingsPage() {
             hint: t('import.archiveHint'),
             keywords: t('settings.keywords.import'),
             render: () => <ArchiveImport />,
+          },
+        ],
+      },
+      {
+        id: 'addin',
+        title: t('addin.section'),
+        fields: [
+          {
+            id: 'addin',
+            label: t('addin.label'),
+            hint: t('addin.hint'),
+            keywords: t('settings.keywords.addin'),
+            render: () => <WordAddin />,
           },
         ],
       },

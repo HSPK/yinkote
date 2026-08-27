@@ -1003,6 +1003,22 @@ option {
 }
 
 .button-row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Sideloading an Office add-in is a short ritual, so the steps are numbered
+   prose rather than more controls. The path wraps rather than scrolls: it is
+   the one thing on the card the reader has to copy by eye if the clipboard is
+   unavailable. */
+.addin-install { display: grid; gap: 10px; }
+.addin-steps {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.addin-steps code { word-break: break-all; }
 .chip-row.tight { padding: 0; gap: 4px; }
 .syntax { display: flex; flex-wrap: wrap; gap: 5px; }
 .syntax code,

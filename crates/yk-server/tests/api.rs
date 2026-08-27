@@ -84,6 +84,29 @@ impl Client {
         body
     }
 
+    /// A request outside `/api/v1`, answered as bytes.
+    ///
+    /// The add-in and the connector both live outside the API prefix, and both
+    /// answer with something that is not JSON.
+    async fn raw(&self, path: &str) -> (StatusCode, String, Vec<u8>) {
+        let request = Request::builder()
+            .method("GET")
+            .uri(path)
+            .header("host", "localhost:23130")
+            .body(Body::empty())
+            .unwrap();
+        let response = self.router.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let bytes = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024).await.unwrap();
+        (status, content_type, bytes.to_vec())
+    }
+
     async fn post(&self, path: &str, body: Value) -> Value {
         let (status, body) = self.send("POST", path, Some(body)).await;
         assert!(status.is_success(), "POST {path} -> {status}: {body}");
@@ -1195,4 +1218,64 @@ async fn writing_still_works_while_the_index_is_rebuilt() {
     // The index is usable afterwards, which is the whole point of rebuilding.
     let hits = c.get(&format!("/libraries/{lib}/search?q=rebuildable&limit=5")).await;
     assert!(!hits["hits"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_addin_manifest_is_rendered_for_the_host_it_was_fetched_from() {
+    let (c, _) = Client::new().await;
+    let (status, content_type, body) = c.raw("/addin/manifest.xml").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(content_type.starts_with("application/xml"), "{content_type}");
+
+    let xml = String::from_utf8(body).unwrap();
+    // The request came in on localhost, so every URL Office will fetch has to
+    // say localhost. Office resolves nothing relative to the manifest.
+    assert!(xml.contains("http://localhost:23130/addin/taskpane.html"), "{xml}");
+    assert!(!xml.contains("127.0.0.1"), "the configured port must not leak in");
+}
+
+#[tokio::test]
+async fn the_addin_keeps_the_same_id_across_requests() {
+    let (c, _) = Client::new().await;
+    let id_of = |xml: String| {
+        let start = xml.find("<Id>").unwrap() + 4;
+        xml[start..start + xml[start..].find("</Id>").unwrap()].to_string()
+    };
+
+    let (_, _, first) = c.raw("/addin/manifest.xml").await;
+    let (_, _, again) = c.raw("/addin/manifest.xml").await;
+    let id = id_of(String::from_utf8(first).unwrap());
+
+    // Word keys a sideloaded add-in by this GUID: a fresh one per fetch would
+    // leave the author with a Ribbon full of duplicates that all do the same
+    // thing.
+    assert_eq!(id, id_of(String::from_utf8(again).unwrap()));
+    assert_eq!(id.len(), 36, "a GUID, not a nickname: {id}");
+}
+
+#[tokio::test]
+async fn the_addin_assets_are_served_with_their_own_types() {
+    let (c, _) = Client::new().await;
+    for (path, expected, needle) in [
+        ("/addin/taskpane.html", "text/html", "taskpane.js"),
+        ("/addin/taskpane.js", "text/javascript", "Office.onReady"),
+        ("/addin/taskpane.css", "text/css", "--accent"),
+    ] {
+        let (status, content_type, body) = c.raw(path).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        assert!(content_type.starts_with(expected), "{path} -> {content_type}");
+        assert!(String::from_utf8_lossy(&body).contains(needle), "{path} looks wrong");
+    }
+}
+
+#[tokio::test]
+async fn the_addin_icon_is_a_png_and_absurd_sizes_are_refused() {
+    let (c, _) = Client::new().await;
+    let (status, content_type, body) = c.raw("/addin/icon-32.png").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(content_type, "image/png");
+    assert_eq!(&body[..4], b"\x89PNG");
+
+    let (status, _, _) = c.raw("/addin/icon-99999.png").await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "a size nobody asked for is not an allocation");
 }

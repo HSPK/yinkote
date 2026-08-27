@@ -4,6 +4,7 @@
 //! store → search → host bridge → plugins → app state → router.
 //! Each layer only knows about the abstractions below it.
 
+pub mod addin;
 pub mod agent;
 pub mod badges;
 pub mod config;
@@ -179,7 +180,14 @@ pub fn router(app: App) -> Router {
     // The connector sits outside the API guard and outside `/api/v1`: the
     // browser extension can hold no key and knows only Zotero's paths. It is
     // reachable only on loopback, and accepts only the shapes it defines.
-    let mut router = Router::new().nest("/api/v1", api).merge(routes::connector::router());
+    // The add-in sits outside `/api/v1` and outside the SPA fallback. Office
+    // fetches the manifest and the pane with no key and no Yinkote knowledge,
+    // and answering `manifest.xml` with `index.html` — which the fallback
+    // would do — fails inside Word with nothing an author could act on.
+    let mut router = Router::new()
+        .nest("/api/v1", api)
+        .merge(routes::connector::router())
+        .merge(addin::router());
 
     let started_config = app.config();
     if let Some(dir) = &started_config.web_dir {

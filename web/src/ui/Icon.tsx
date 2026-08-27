@@ -158,6 +158,12 @@ export const Icon = {
       <path d="M3 11.5v1.2a.8.8 0 0 0 .8.8h8.4a.8.8 0 0 0 .8-.8v-1.2" />
     </Svg>
   ),
+  Copy: (p: IconProps) => (
+    <Svg {...p}>
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1" />
+      <path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2" />
+    </Svg>
+  ),
   Bulb: (p: IconProps) => (
     <Svg {...p}>
       <path d="M6 11.5h4M6.6 13.5h2.8" />
