@@ -17,6 +17,7 @@ import { emptyScope } from './state/scope'
 import { useStore } from './state/store'
 
 let about: Conversation[] = []
+let references: { position: number; key: string | null; label: string; year: number | null; fingerprint: string }[] = []
 const asked: string[] = []
 
 vi.mock('./api/client', () => {
@@ -27,6 +28,9 @@ vi.mock('./api/client', () => {
         if (path === 'api.conversations.aboutItem') {
           asked.push(String(args[1] ?? ''))
           return Promise.resolve({ conversations: about })
+        }
+        if (path === 'api.references.list') {
+          return Promise.resolve({ cites: references, citedBy: [], resolved: 1 })
         }
         if (path === 'api.schema') return new Promise(() => {})
         return new Promise(() => {})
@@ -66,6 +70,10 @@ let root: Root
 
 beforeEach(() => {
   asked.length = 0
+  references = [
+    { position: 0, key: 'HELD0001', label: 'A work it cites', year: 2019, fingerprint: 'doi:1' },
+    { position: 1, key: null, label: 'Something we do not have', year: 2020, fingerprint: 'doi:2' },
+  ]
   about = [
     { key: 'CONV0001', libraryId: 1, title: 'Why does this work?' } as Conversation,
   ]
@@ -125,5 +133,37 @@ describe("a paper's conversations", () => {
     await render()
     const buttons = [...container.querySelectorAll('.detail button')].map((b) => b.textContent)
     expect(buttons.some((label) => label?.includes('Ask about this'))).toBe(true)
+  })
+})
+
+describe("a paper's references", () => {
+  it('lists what the paper stands on', async () => {
+    await render()
+    // Stored since citations arrived and used by the graph, with nowhere to
+    // read it plainly until now.
+    expect(container.textContent).toContain('A work it cites')
+    expect(container.textContent).toContain('Something we do not have')
+  })
+
+  it('says how many of them the library holds', async () => {
+    await render()
+    expect(container.textContent).toContain('1 of 2 in your library')
+  })
+
+  it('links only the ones that go somewhere', async () => {
+    await render()
+    // Clicking a work the library does not hold does nothing, so it must not
+    // look clickable.
+    const rows = [...container.querySelectorAll('.reference-row')]
+    expect(rows[0]?.querySelector('button')).not.toBeNull()
+    expect(rows[1]?.querySelector('button')).toBeNull()
+    expect(rows[1]?.querySelector('.reference-absent')).not.toBeNull()
+  })
+
+  it('offers to fetch when there are none', async () => {
+    references = []
+    await render()
+    const buttons = [...container.querySelectorAll('.detail button')].map((b) => b.textContent)
+    expect(buttons.some((label) => label?.includes('Fetch'))).toBe(true)
   })
 })

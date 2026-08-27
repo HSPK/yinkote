@@ -21,7 +21,7 @@ use crate::state::App;
 
 pub fn router() -> Router<App> {
     Router::new()
-        .route("/libraries/:lib/items/:key/citations", get(list))
+        .route("/libraries/:lib/items/:key/citations", get(list).put(replace))
         .route("/libraries/:lib/items/:key/citations/fetch", post(fetch))
         .route("/libraries/:lib/citations/missing", get(missing))
         .route("/libraries/:lib/citations/harvest", get(harvest_status).post(start_harvest))
@@ -190,6 +190,69 @@ async fn missing(
 ) -> ApiResult<Json<serde_json::Value>> {
     let works = app.store().relations.missing(lib, params.limit.clamp(1, 500)).await?;
     Ok(Json(json!({ "works": works })))
+}
+
+/// Record a bibliography the caller already has.
+///
+/// Until this existed, references could only arrive from Crossref — which
+/// made the whole citation graph unusable offline, in a field Crossref covers
+/// poorly, or for a paper whose reference list somebody already holds in a
+/// `.bib` file. Fetching is a convenience; the facts are the point.
+///
+/// Replaces rather than merges, for the same reason `set_citations` does: a
+/// reference list belongs to a printed paper, and merging two versions of one
+/// leaves a list that matches neither.
+async fn replace(
+    State(app): State<App>,
+    Path((lib, k)): Path<(i64, String)>,
+    Json(body): Json<Bibliography>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let key = key(&k)?;
+    let drafts: Vec<CitationDraft> = body
+        .citations
+        .iter()
+        .map(|c| {
+            let doi = c.doi.trim();
+            CitationDraft {
+                // Normalised here, the one way every other fingerprint in the
+                // program is made — a reference recorded with a raw DOI would
+                // resolve to nothing and look like the feature was broken.
+                fingerprint: match doi.is_empty() {
+                    true => String::new(),
+                    false => format!("doi:{}", yk_core::text::normalize(doi)),
+                },
+                doi: doi.to_string(),
+                label: c.label.trim().to_string(),
+                year: c.year,
+            }
+        })
+        .collect();
+
+    let stored = app.store().relations.set_citations(lib, &key, drafts).await?;
+
+    let version = app.store().libraries.version(lib).await.unwrap_or_default();
+    app.events().publish(DomainEvent::ItemsChanged {
+        library_id: lib,
+        keys: vec![key],
+        version,
+    });
+    Ok(Json(json!({ "stored": stored })))
+}
+
+#[derive(serde::Deserialize)]
+struct Bibliography {
+    citations: Vec<CitationInput>,
+}
+
+#[derive(serde::Deserialize)]
+struct CitationInput {
+    #[serde(default)]
+    doi: String,
+    /// What to show when the cited work is not in the library.
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    year: Option<i64>,
 }
 
 async fn list(

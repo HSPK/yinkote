@@ -2437,3 +2437,26 @@ select.ctl { padding: 4px 6px; }
   cursor: pointer;
 }
 .chat-older:hover:not(:disabled) { color: var(--accent); }
+
+/* ─── a paper's references ───────────────────────────────────────────────── */
+
+.reference-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.reference-list > .dim { margin-bottom: 2px; font-size: 10px; }
+.reference-row {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11px;
+}
+.reference-row .mono { flex: none; width: 18px; text-align: right; font-size: 10px; }
+.reference-row .link,
+.reference-absent {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A work the library does not hold reads as a label, not a link — nothing
+   happens when you click it, so it must not look clickable. */
+.reference-absent { color: var(--fg-mute); }

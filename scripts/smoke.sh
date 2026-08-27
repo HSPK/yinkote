@@ -219,6 +219,34 @@ check "graph names nodes" "$(j "$BASE/libraries/$LIB/graph/$GA" \
                              | jq -r '.nodes[] | select(.focus != true) | .title')"
 check "graph unknown key" "$(j "$BASE/libraries/$LIB/graph/ZZZZZZZZ" | jq -r '.title // empty')"
 
+# Citation edges over the real HTTP path. Unique DOIs per run for the same
+# reason the tag above is unique: a suite that reuses identifiers ends up
+# testing what earlier runs left behind.
+GDOI="10.5555/smoke$RANDOM$RANDOM"
+CA=$(j -X POST "$BASE/libraries/$LIB/items" \
+       -d "[{\"itemType\":\"journalArticle\",\"title\":\"Cited focus\",\"DOI\":\"$GDOI-a\"}]" \
+     | jq -r '.created[0].key')
+CB=$(j -X POST "$BASE/libraries/$LIB/items" \
+       -d "[{\"itemType\":\"journalArticle\",\"title\":\"Cited partner\",\"DOI\":\"$GDOI-b\"}]" \
+     | jq -r '.created[0].key')
+# Two papers citing the same three works: one would be a bibliography, not a
+# pattern, and both edges are defined to need two.
+for n in 1 2; do
+  CITER=$(j -X POST "$BASE/libraries/$LIB/items" \
+            -d "[{\"itemType\":\"journalArticle\",\"title\":\"Citing paper $n\"}]" \
+          | jq -r '.created[0].key')
+  j -X PUT "$BASE/libraries/$LIB/items/$CITER/citations" \
+    -d "{\"citations\":[{\"doi\":\"$GDOI-a\",\"label\":\"A\"},{\"doi\":\"$GDOI-b\",\"label\":\"B\"},{\"doi\":\"$GDOI-c\",\"label\":\"C\"}]}" > /dev/null
+done
+# A recorded reference must resolve to the item the library holds; writing a
+# fingerprint by hand is exactly where that goes wrong.
+check "citations recorded" "$(j "$BASE/libraries/$LIB/items/$CITER/citations" \
+                             | jq -r '.resolved | select(. == 2)')"
+check "graph coupling"    "$(j "$BASE/libraries/$LIB/graph/$CITER" \
+                             | jq -r '[.edges[] | select(.relation == "coupling")] | length | select(. > 0)')"
+check "graph cocitation"  "$(j "$BASE/libraries/$LIB/graph/$CA" \
+                             | jq -r --arg k "$CB" '[.edges[] | select(.relation == "cocitation" and .target == $k)] | length | select(. == 1)')"
+
 echo "▸ file browser"
 check "files listed"      "$(j "$BASE/libraries/$LIB/files" \
                              | jq -r 'select((.files | type) == "array") | "listed"')"

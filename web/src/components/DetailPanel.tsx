@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api/client'
-import type { Conversation, Item } from '../api/types'
+import type { CitationList, Conversation, Item } from '../api/types'
 import { creatorName } from '../lib/format'
 import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
 import { useSchemaLabel, useT } from '../i18n'
+import { toast } from '../ui'
 
 /** Fields worth a multi-line editor. */
 const LONG_FIELDS = new Set(['abstractNote', 'extra', 'note'])
@@ -247,6 +248,7 @@ export function DetailPanel() {
             </div>
           </dd>
 
+          <ItemReferences itemKey={item.key} />
           <ItemConversations itemKey={item.key} />
         </dl>
       </div>
@@ -302,6 +304,90 @@ function ItemConversations({ itemKey }: { itemKey: string }) {
             {t('item.askAboutThis')}
           </button>
         </div>
+      </dd>
+    </>
+  )
+}
+
+/** What this paper stands on, and what stands on it.
+ *
+ *  The citation data has been stored and used by the graph since it arrived,
+ *  with nowhere to read it plainly — so the most direct question anybody has
+ *  of it ("what does this cite, and which of those do I have?") had no answer
+ *  in the interface.
+ *
+ *  A cited work the library holds is a link; one it does not is the label the
+ *  publisher printed. Neither case is special, which is the point.
+ */
+function ItemReferences({ itemKey }: { itemKey: string }) {
+  const t = useT()
+  const library = useStore((s) => s.library)
+  const openReader = useStore((s) => s.openReader)
+  const [list, setList] = useState<CitationList | null>(null)
+  const [fetching, setFetching] = useState(false)
+
+  const load = useCallback(() => {
+    let live = true
+    void api.references
+      .list(library, itemKey)
+      .then((r) => {
+        if (live) setList(r)
+      })
+      .catch(() => {
+        if (live) setList(null)
+      })
+    return () => {
+      live = false
+    }
+  }, [library, itemKey])
+
+  useEffect(load, [load])
+
+  const fetchRefs = async () => {
+    setFetching(true)
+    try {
+      await api.references.fetch(library, itemKey)
+      load()
+    } catch (e) {
+      toast.fromError(t('detail.referencesFailed'), e)
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  const cites = list?.cites ?? []
+
+  return (
+    <>
+      <dt>{t('detail.references')}</dt>
+      <dd>
+        {cites.length === 0 ? (
+          <div className="chip-row">
+            <span className="dim">{t('detail.referencesNone')}</span>
+            <button className="chip" disabled={fetching} onClick={() => void fetchRefs()}>
+              {fetching ? t('detail.referencesFetching') : t('detail.referencesFetch')}
+            </button>
+          </div>
+        ) : (
+          <div className="reference-list">
+            <span className="dim">
+              {t('detail.referencesHeld', { held: list?.resolved ?? 0, total: cites.length })}
+            </span>
+            {cites.map((c) => (
+              <div key={c.position} className="reference-row" title={c.label}>
+                <span className="dim mono">{c.position + 1}</span>
+                {c.key ? (
+                  <button className="link" onClick={() => openReader(c.key!)}>
+                    {c.label || c.fingerprint}
+                  </button>
+                ) : (
+                  <span className="reference-absent">{c.label || c.fingerprint}</span>
+                )}
+                {c.year && <span className="dim">{c.year}</span>}
+              </div>
+            ))}
+          </div>
+        )}
       </dd>
     </>
   )

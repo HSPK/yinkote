@@ -483,6 +483,59 @@ async fn a_long_thread_arrives_a_page_at_a_time() {
 }
 
 #[tokio::test]
+async fn a_bibliography_can_be_recorded_without_the_network() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let made = c
+        .post(
+            &format!("/libraries/{lib}/items"),
+            json!([
+                { "itemType": "journalArticle", "title": "Citing paper" },
+                { "itemType": "journalArticle", "title": "A work it cites", "DOI": "10.1/held" },
+            ]),
+        )
+        .await;
+    let citing = made["created"][0]["key"].as_str().unwrap().to_string();
+    let held = made["created"][1]["key"].as_str().unwrap().to_string();
+
+    let (status, saved) = c
+        .send(
+            "PUT",
+            &format!("/libraries/{lib}/items/{citing}/citations"),
+            Some(json!({ "citations": [
+                { "doi": "10.1/held", "label": "A work it cites", "year": 2019 },
+                { "doi": "10.1/absent", "label": "Something we do not have", "year": 2020 },
+                { "label": "A reference with no identifier at all" },
+            ]})),
+        )
+        .await;
+    assert_eq!(status, 200, "{saved}");
+    assert_eq!(saved["stored"], 3);
+
+    let listed = c.get(&format!("/libraries/{lib}/items/{citing}/citations")).await;
+    let cites = listed["cites"].as_array().unwrap();
+    assert_eq!(cites.len(), 3, "the order the paper printed them in is kept");
+
+    // The one the library holds resolves to it; the rest keep their labels.
+    // Getting this wrong is the whole risk of writing fingerprints by hand.
+    assert_eq!(cites[0]["key"], held.as_str());
+    assert!(cites[1]["key"].is_null(), "{}", cites[1]);
+    assert_eq!(listed["resolved"], 1);
+
+    // And it is a replacement, not a merge: a reference list belongs to a
+    // printed paper, and two versions of one merged match neither.
+    c.send(
+        "PUT",
+        &format!("/libraries/{lib}/items/{citing}/citations"),
+        Some(json!({ "citations": [{ "doi": "10.1/held", "label": "Only this now" }] })),
+    )
+    .await;
+    let again = c.get(&format!("/libraries/{lib}/items/{citing}/citations")).await;
+    assert_eq!(again["cites"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn a_paper_knows_which_conversations_named_it() {
     let (c, app) = Client::new().await;
     let lib = app.services.default_library;
