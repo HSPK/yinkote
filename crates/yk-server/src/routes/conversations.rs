@@ -131,7 +131,12 @@ async fn ask(
 ///
 /// Returns `None` when there is nothing to say, so an ordinary chat pays
 /// nothing for the feature.
-async fn turn_context(app: &App, lib: i64, key: &yk_core::Key) -> Option<String> {
+async fn turn_context(
+    app: &App,
+    lib: i64,
+    key: &yk_core::Key,
+    thread: &[yk_core::model::Message],
+) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
 
     if let Ok(conversation) = app.store().conversations.get(lib, key).await {
@@ -149,7 +154,7 @@ async fn turn_context(app: &App, lib: i64, key: &yk_core::Key) -> Option<String>
         }
     }
 
-    let mentioned = mentioned_items(app, lib, key).await;
+    let mentioned = mentioned_items(app, lib, thread).await;
     if !mentioned.is_empty() {
         let listed = mentioned
             .iter()
@@ -172,12 +177,13 @@ async fn turn_context(app: &App, lib: i64, key: &yk_core::Key) -> Option<String>
 }
 
 /// Every paper named in the conversation so far, newest mention winning.
-async fn mentioned_items(app: &App, lib: i64, key: &yk_core::Key) -> Vec<yk_core::model::Item> {
-    let Ok(messages) = app.store().conversations.messages(lib, key).await else {
-        return Vec::new();
-    };
+async fn mentioned_items(
+    app: &App,
+    lib: i64,
+    thread: &[yk_core::model::Message],
+) -> Vec<yk_core::model::Item> {
     let mut keys: Vec<yk_core::Key> = Vec::new();
-    for message in messages.iter().rev() {
+    for message in thread.iter().rev() {
         for k in &message.mentions {
             if !keys.contains(k) {
                 keys.push(k.clone());
@@ -200,11 +206,14 @@ const MENTION_CONTEXT: usize = 8;
 async fn run_turn(app: App, lib: i64, key: yk_core::Key, run: std::sync::Arc<crate::runs::Run>) {
     let Some(agent) = app.agent() else { return };
 
-    let mut history: Vec<yk_ai::ChatMessage> =
-        match app.store().conversations.messages(lib, &key).await {
-            Ok(messages) => messages.iter().map(to_chat).collect(),
-            Err(e) => return run.fail(e.to_string()),
-        };
+    // Read once and used twice: the transcript the model sees, and the papers
+    // it names. Fetching the thread a second time to find the mentions would
+    // double the cost of starting every turn.
+    let thread = match app.store().conversations.messages(lib, &key).await {
+        Ok(messages) => messages,
+        Err(e) => return run.fail(e.to_string()),
+    };
+    let mut history: Vec<yk_ai::ChatMessage> = thread.iter().map(to_chat).collect();
 
     // What this conversation is standing on, put in front of the model rather
     // than left for it to work out. A scoped conversation is scoped because
@@ -212,7 +221,7 @@ async fn run_turn(app: App, lib: i64, key: yk_core::Key, run: std::sync::Arc<cra
     // already chosen — making the model search for it again spends a step to
     // arrive somewhere it was already told about, and sometimes arrives at a
     // different paper.
-    if let Some(context) = turn_context(&app, lib, &key).await {
+    if let Some(context) = turn_context(&app, lib, &key, &thread).await {
         history.insert(0, yk_ai::ChatMessage::new("system", &context));
     }
 

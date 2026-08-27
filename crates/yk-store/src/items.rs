@@ -480,10 +480,20 @@ impl ItemRepository for SqliteItemRepository {
                         .map_err(sql_err)?
                 };
 
+                // A deferred join: pick the page's ids from the index alone,
+                // then fetch the columns for those rows only.
+                //
+                // The obvious shape joins the parent table for every row it
+                // walks, including the fifty thousand an offset is about to
+                // throw away. On a 100k library that was 95.7ms at offset
+                // 50000; picking the ids from a covering index first makes it
+                // 2.1ms. The outer ORDER BY re-sorts a hundred rows, which is
+                // free, and is needed because `IN` does not preserve order.
+                let order = order_by(query.sort, query.direction);
                 let sql = format!(
-                    "SELECT {COLS} {FROM} WHERE {} {} LIMIT ? OFFSET ?",
+                    "SELECT {COLS} {FROM} WHERE i.id IN ( \
+                       SELECT i.id FROM items i WHERE {} {order} LIMIT ? OFFSET ?) {order}",
                     p.sql,
-                    order_by(query.sort, query.direction)
                 );
                 let mut args = p.params.clone();
                 args.push(rusqlite::types::Value::Integer(query.limit as i64));
@@ -1054,5 +1064,87 @@ impl SettingsRepository for SqliteSettingsRepository {
                     .collect())
             })
             .await
+    }
+}
+
+#[cfg(test)]
+mod plan_tests {
+    use super::*;
+    use yk_core::query::{Direction, ItemQuery, SortField};
+
+    /// What SQLite says it will do, rather than what it returns.
+    fn plan(sql: &str, params: usize) -> String {
+        let store = crate::Store::in_memory().unwrap();
+        let conn = store.db().conn().unwrap();
+        let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
+        let bound: Vec<i64> = (0..params).map(|_| 1).collect();
+        stmt.query_map(rusqlite::params_from_iter(bound), |r| r.get::<_, String>(3))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+
+    /// The statement `list` builds, for a plain library page.
+    fn list_sql(sort: SortField, direction: Direction) -> String {
+        let query = ItemQuery {
+            filter: yk_core::query::ItemFilter { library_id: 1, ..Default::default() },
+            sort,
+            direction,
+            ..Default::default()
+        };
+        let p = Predicate::build(&query.filter, None);
+        let order = order_by(query.sort, query.direction);
+        format!(
+            "SELECT {COLS} {FROM} WHERE i.id IN ( \
+               SELECT i.id FROM items i WHERE {} {order} LIMIT ? OFFSET ?) {order}",
+            p.sql,
+        )
+    }
+
+    #[test]
+    fn a_page_is_found_through_a_covering_index() {
+        // The whole point of the deferred join. If the inner query stops being
+        // covering, the parent join comes back for every row an offset is
+        // about to discard, and a deep page goes from 2ms to 96ms with no
+        // change in what it returns — invisible to every other test.
+        let plan = plan(&list_sql(SortField::DateModified, Direction::Desc), 3);
+        assert!(plan.contains("COVERING INDEX idx_items_modified"), "{plan}");
+    }
+
+    #[test]
+    fn ties_are_broken_by_the_index_rather_than_by_sorting_the_library() {
+        // Every list orders by a column and then by id. Without the id in the
+        // index SQLite settles the ties in a temp b-tree, over every row it
+        // walks: 88ms of the 96ms, on a page of a hundred.
+        for (sort, name) in [
+            (SortField::DateModified, "modified"),
+            (SortField::DateAdded, "added"),
+            (SortField::Title, "title"),
+            (SortField::Creator, "creator"),
+            (SortField::Year, "year"),
+            (SortField::ItemType, "type"),
+        ] {
+            for direction in [Direction::Asc, Direction::Desc] {
+                let plan = plan(&list_sql(sort, direction), 3);
+                // Everything between the subquery and the parent join is the
+                // inner query. The outer one sorts a hundred rows and may use
+                // a temp b-tree freely.
+                //
+                // Matching on the exact wording is how the first version of
+                // this test passed against the very regression it was written
+                // for: SQLite says "LAST TERM OF ORDER BY" here, not "RIGHT
+                // PART OF ORDER BY", so the assertion never fired.
+                let inner = plan
+                    .split("LIST SUBQUERY")
+                    .nth(1)
+                    .and_then(|rest| rest.split("SEARCH p").next())
+                    .unwrap_or(&plan);
+                assert!(
+                    !inner.contains("TEMP B-TREE"),
+                    "sorting by {name} {direction:?} settles ties in a temp b-tree: {plan}"
+                );
+            }
+        }
     }
 }
