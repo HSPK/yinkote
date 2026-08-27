@@ -28,7 +28,10 @@ export const BUILTIN_COLUMNS: ColumnDef[] = [
   { id: 'type', labelKey: 'table.type', sort: 'itemType', width: 108, min: 64 },
   { id: 'tags', labelKey: 'table.tags', sort: null, width: 132, min: 64 },
   // Narrow on purpose: it carries glyphs, and the header is a paperclip.
-  { id: 'attachments', labelKey: 'table.attachments', sort: null, width: 58, min: 44 },
+  // Sortable, because "which of these did I actually get the PDF for" is a
+  // question people ask of a list — one ordering answers both that and "which
+  // have the good kind", since the rank runs pdf, page, link, nothing.
+  { id: 'attachments', labelKey: 'table.attachments', sort: 'attachment', width: 58, min: 44 },
   { id: 'publication', labelKey: 'table.publication', sort: null, width: 160, min: 80 },
   { id: 'modified', labelKey: 'table.modified', sort: 'dateModified', width: 108, min: 72 },
   { id: 'added', labelKey: 'table.added', sort: 'dateAdded', width: 108, min: 72 },

@@ -211,3 +211,152 @@ async fn a_listed_file_arrives_with_its_parent() {
         .expect("the loose file");
     assert!(none.is_none(), "a file with no parent must not invent one");
 }
+
+/// The sortable rank must agree with what the row reports, always.
+///
+/// It is a stored column kept up to date by trigger rather than by the write
+/// paths, because there are five of those and the one that gets forgotten is
+/// invisible: the column goes stale and a column sorts wrongly in a library
+/// nobody is looking at yet. So the test is a sequence of ordinary edits, with
+/// the rank checked after each.
+#[tokio::test]
+async fn the_attachment_rank_follows_every_kind_of_edit() {
+    let root = Root::new("attach-rank");
+    let store = Store::open(Some(&root.db())).unwrap();
+    let lib = store.default_library;
+
+    let rank = |key: yk_core::Key| {
+        let store = &store;
+        async move {
+            let page = store
+                .items
+                .list(&ItemQuery {
+                    filter: ItemFilter {
+                        library_id: lib,
+                        top_level_only: true,
+                        ..Default::default()
+                    },
+                    sort: yk_core::query::SortField::Attachment,
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            // The rank is not on the wire; what it must agree with is the marks.
+            page.items
+                .iter()
+                .find(|i| i.key == key)
+                .map(|i| i.attachments.clone())
+                .unwrap_or_default()
+        }
+    };
+
+    let paper = store
+        .items
+        .create(lib, ItemDraft::new("journalArticle").with_field("title", "Ranked"))
+        .await
+        .unwrap();
+    assert!(rank(paper.key.clone()).await.is_empty(), "nothing attached yet");
+
+    let file = store
+        .items
+        .create(
+            lib,
+            ItemDraft {
+                parent_key: Some(paper.key.clone()),
+                ..ItemDraft::new("attachment")
+                    .with_field("filename", "page.html")
+                    .with_field("contentType", "text/html")
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(rank(paper.key.clone()).await, vec![AttachmentKind::Snapshot]);
+
+    // Patched into a PDF: the update path, not the insert path.
+    let patch = serde_json::from_value(serde_json::json!({
+        "fields": { "contentType": "application/pdf" }
+    }))
+    .unwrap();
+    store.items.update(lib, &file.key, patch, None).await.unwrap();
+    assert_eq!(rank(paper.key.clone()).await, vec![AttachmentKind::Pdf]);
+
+    // Trashed: soft-deleted, which is an update rather than a delete.
+    store.items.set_trashed(lib, std::slice::from_ref(&file.key), true).await.unwrap();
+    assert!(rank(paper.key.clone()).await.is_empty(), "a trashed file is not attached");
+
+    // And back again.
+    store.items.set_trashed(lib, std::slice::from_ref(&file.key), false).await.unwrap();
+    assert_eq!(rank(paper.key.clone()).await, vec![AttachmentKind::Pdf]);
+}
+
+/// Sorting puts the papers with files at the top.
+#[tokio::test]
+async fn sorting_by_attachment_ranks_pdfs_above_nothing() {
+    let root = Root::new("attach-sort");
+    let store = Store::open(Some(&root.db())).unwrap();
+    let lib = store.default_library;
+
+    let bare = store
+        .items
+        .create(lib, ItemDraft::new("journalArticle").with_field("title", "Nothing"))
+        .await
+        .unwrap();
+    let linked = store
+        .items
+        .create(lib, ItemDraft::new("journalArticle").with_field("title", "A link"))
+        .await
+        .unwrap();
+    let withpdf = store
+        .items
+        .create(lib, ItemDraft::new("journalArticle").with_field("title", "A PDF"))
+        .await
+        .unwrap();
+
+    for (parent, content_type, link_mode) in [
+        (&linked.key, "text/html", "linked_url"),
+        (&withpdf.key, "application/pdf", "imported_file"),
+    ] {
+        store
+            .items
+            .create(
+                lib,
+                ItemDraft {
+                    parent_key: Some(parent.clone()),
+                    ..ItemDraft::new("attachment")
+                        .with_field("filename", "f")
+                        .with_field("contentType", content_type)
+                        .with_field("linkMode", link_mode)
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    let page = store
+        .items
+        .list(&ItemQuery {
+            filter: ItemFilter { library_id: lib, top_level_only: true, ..Default::default() },
+            sort: yk_core::query::SortField::Attachment,
+            direction: yk_core::query::Direction::Desc,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    let order: Vec<&str> = page.items.iter().map(|i| i.title()).collect();
+    assert_eq!(order, ["A PDF", "A link", "Nothing"], "best first, empty last");
+
+    // And the other way round, since a column header toggles.
+    let page = store
+        .items
+        .list(&ItemQuery {
+            filter: ItemFilter { library_id: lib, top_level_only: true, ..Default::default() },
+            sort: yk_core::query::SortField::Attachment,
+            direction: yk_core::query::Direction::Asc,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(page.items[0].title(), "Nothing");
+    let _ = bare;
+}

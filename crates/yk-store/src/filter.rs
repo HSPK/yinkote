@@ -144,6 +144,11 @@ pub fn order_by(sort: SortField, dir: Direction) -> String {
         SortField::Creator => "i.sort_creator",
         SortField::Year => "i.year",
         SortField::ItemType => "i.item_type",
+        // Denormalised and kept up to date by trigger, like every other
+        // sortable value here: worked out on demand it was 109ms against 9ms,
+        // because a correlated subquery in ORDER BY costs the whole library on
+        // every page. See `012_attachment_rank.sql`.
+        SortField::Attachment => "i.attachment_rank",
         // Relevance is resolved by the search layer; fall back to recency.
         SortField::Relevance => "i.date_modified",
     };

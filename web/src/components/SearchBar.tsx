@@ -6,7 +6,6 @@ import {
   completeTag,
   modeReason,
   negateToken,
-  parseQuery,
   pendingTag,
   splitCommitted,
   tokenSource,
@@ -89,21 +88,39 @@ function ItemSearch() {
   const [focused, setFocused] = useState(false)
   const [highlight, setHighlight] = useState(0)
 
-  /** Operator chips, and the free text still in the input, split from the store. */
+  /** Operator chips, and the free text still in the input, split from the store.
+   *
+   *  Split by `splitCommitted`, which is the same function `onType` uses, so
+   *  the two cannot disagree about when an operator is finished. Filtering the
+   *  tokens by kind instead — the obvious way, and what this did — makes an
+   *  operator a chip the instant it parses as one, which is while it is still
+   *  being typed. `tag:t` left the input for a chip, the next keystroke began
+   *  a fresh token, and the query grew into `tag:t tag:tr tag:tra`. It also
+   *  meant the tag suggestions never appeared, since they key off text still
+   *  in the input.
+   *
+   *  Rejoining text tokens dropped a trailing space, too, which is why a
+   *  multi-word search could not be typed: the space went as fast as it
+   *  arrived and "attention is all you need" got as far as "attention".
+   *  `splitCommitted` keeps that space deliberately.
+   */
   const { chips, draft } = useMemo(() => {
-    const tokens = parseQuery(query)
-    return {
-      chips: tokens.filter((token) => token.field !== 'text'),
-      draft: tokens
-        .filter((token) => token.field === 'text')
-        .map((token) => token.source)
-        .join(' '),
-    }
+    const { committed, rest } = splitCommitted(query)
+    return { chips: committed, draft: rest }
   }, [query])
 
-  /** Rebuild the whole query from chips plus whatever is in the input. */
-  const compose = (nextChips: Token[], text: string) =>
-    [...nextChips.map(tokenSource), text].filter(Boolean).join(' ')
+  /** Rebuild the whole query from chips plus whatever is in the input.
+   *
+   *  The trailing space is load-bearing. It is what tells `splitCommitted`
+   *  that the last operator is finished, so a query ending in a chip has to
+   *  keep it — without it the chip is read back as half-typed and jumps into
+   *  the input on the next render.
+   */
+  const compose = (nextChips: Token[], text: string) => {
+    const parts = [...nextChips.map(tokenSource), text].filter(Boolean)
+    const settled = !text && nextChips.length > 0
+    return parts.join(' ') + (settled ? ' ' : '')
+  }
 
   const onType = (value: string) => {
     // Anything the user has finished typing moves out of the input and becomes

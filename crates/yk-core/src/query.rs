@@ -15,6 +15,10 @@ pub enum SortField {
     Creator,
     Year,
     ItemType,
+    /// What the row has attached: a PDF sorts above a saved page, above a
+    /// bare link, above nothing. One ordering answers both "which of these
+    /// have files" and "which have the good kind".
+    Attachment,
     /// Only meaningful for search results.
     Relevance,
 }
@@ -28,6 +32,7 @@ impl SortField {
             "creator" => Self::Creator,
             "year" | "date" => Self::Year,
             "itemType" | "type" => Self::ItemType,
+            "attachment" | "attachments" => Self::Attachment,
             "relevance" | "score" => Self::Relevance,
             _ => return None,
         })

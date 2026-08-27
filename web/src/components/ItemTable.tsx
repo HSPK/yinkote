@@ -305,7 +305,12 @@ export function ItemTable() {
   const header = (
     <div className="table-head" style={{ gridTemplateColumns: grid }}>
       {columns.map((c) => (
-        <div key={c.id} className="head-cell" onContextMenu={contextMenu(() => headerMenu(c))}>
+        <div
+          key={c.id}
+          className="head-cell"
+          data-column={c.id}
+          onContextMenu={contextMenu(() => headerMenu(c))}
+        >
           <button
             className={sort === c.sort ? 'sorted' : undefined}
             disabled={!c.sort}

@@ -413,6 +413,12 @@ check "marks in the list" "$(j "$BASE/libraries/$LIB/items?limit=200" \
 # Absent, not empty: a row with nothing attached should not carry the key.
 check "no marks, no key"  "$(j "$BASE/libraries/$LIB/items/$KEY" \
                              | jq -r 'select(has("attachments") | not) | "absent"')"
+# Sortable, and it is a stored column kept up to date by trigger — so what the
+# sort believes and what the row reports have to be the same thing.
+check "sorts by files"    "$(j "$BASE/libraries/$LIB/items?sort=attachment&limit=1" \
+                             | jq -r '.items[0].attachments | join("+") | select(. != "")')"
+check "sorts the other way" "$(j "$BASE/libraries/$LIB/items?sort=attachment&direction=asc&limit=1" \
+                             | jq -r '.items[0] | select(has("attachments") | not) | "nothing first"')"
 
 echo "▸ file browser"
 check "files listed"      "$(j "$BASE/libraries/$LIB/files" \

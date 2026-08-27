@@ -1162,7 +1162,19 @@ option {
   display: flex;
   gap: 4px;
   align-items: center;
+  justify-content: center;
   overflow: hidden;
+}
+
+/* The header is a glyph, not a word, so it centres over the glyphs below it
+   rather than sitting left where a label would. The button is not otherwise a
+   flex container — `text-align` is what positions a text label — so it has to
+   become one for `justify-content` to mean anything. */
+.head-cell[data-column='attachments'] > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
 }
 .attach-mark { display: flex; color: var(--fg-mute); }
 .attach-mark[data-kind='pdf'] { color: var(--accent); }
