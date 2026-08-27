@@ -70,7 +70,7 @@ async fn stats(State(app): State<App>) -> ApiResult<Json<Value>> {
         "items": app.store().items.count(&filter).await?,
         "trashed": app.store().items.count(&trashed).await?,
         "collections": app.store().collections.list(lib).await?.len(),
-        "tags": app.store().tags.list(lib, None, 100_000).await?.len(),
+        "tags": app.store().tags.count(lib).await?,
         "search": app.search().stats().await?,
         "plugins": app.plugins.list().await.len(),
         "version": app.store().libraries.version(lib).await?,

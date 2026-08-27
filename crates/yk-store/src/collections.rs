@@ -463,6 +463,19 @@ impl TagRepository for SqliteTagRepository {
             .await
     }
 
+    async fn count(&self, library_id: i64) -> Result<i64> {
+        self.db
+            .call(move |c| {
+                c.query_row(
+                    "SELECT count(*) FROM tags WHERE library_id = ?1",
+                    params![library_id],
+                    |r| r.get(0),
+                )
+                .map_err(sql_err)
+            })
+            .await
+    }
+
     async fn rename(&self, library_id: i64, from: &str, to: &str) -> Result<u64> {
         let (from, to) = (from.to_string(), to.trim().to_string());
         if to.is_empty() {

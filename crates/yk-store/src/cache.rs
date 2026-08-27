@@ -224,6 +224,13 @@ impl TagRepository for CachingTagRepository {
         .await
     }
 
+    /// Straight through: a row count on `tags` is already a fraction of a
+    /// millisecond, and caching something that cheap only adds a way to be
+    /// wrong.
+    async fn count(&self, library_id: i64) -> Result<i64> {
+        self.inner.count(library_id).await
+    }
+
     // Mutations pass straight through: each bumps the library version, which
     // retires the whole generation on the next read.
     async fn rename(&self, library_id: i64, from: &str, to: &str) -> Result<u64> {
@@ -265,6 +272,10 @@ mod tests {
             }
             Ok(vec![Tag { name: "a".into(), color: None, count: 1, r#type: 0 }])
         }
+        async fn count(&self, _: i64) -> Result<i64> {
+            Ok(1)
+        }
+
         async fn facets(&self, _: &ItemFilter, _: u32) -> Result<Vec<Tag>> {
             self.facet_calls.fetch_add(1, Ordering::SeqCst);
             Ok(vec![Tag { name: "b".into(), color: None, count: 2, r#type: 0 }])

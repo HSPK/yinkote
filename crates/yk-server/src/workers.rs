@@ -13,21 +13,29 @@ pub fn spawn(app: App) {
     embedding_worker(app.clone());
     checkpoint_worker(app.clone());
     download_worker(app.clone());
-    warm_facets(app.clone());
+    warm_first_load(app.clone());
     startup_hook(app);
 }
 
-/// Compute the tag facets once, before anybody asks for them.
+/// Do the reads the first page load does, before anybody asks for them.
 ///
-/// The facet cache serves nothing stale when it is empty — with no previous
-/// answer to show, correctness is the only option — so the first request after
-/// a start pays the full count: 227 ms on a hundred-thousand-item library,
-/// against 0.7 ms warm. That request is the sidebar, which is to say it is the
-/// first thing a user sees.
+/// Two separate costs, both paid by whoever opens the workbench first.
 ///
-/// The work happens either way. Doing it before it is asked for costs nothing
-/// and removes the only perceptible pause in a cold start.
-fn warm_facets(app: App) {
+/// The facet cache serves nothing stale when empty — with no previous answer
+/// to show, correctness is the only option — so the first request pays the
+/// full count: 227 ms on a hundred-thousand-item library against 0.7 ms warm.
+///
+/// The library statistics are not cached at all and still took 303 ms cold
+/// against 9 ms after, which is not the query — it is the first touch of the
+/// index pages, read from disk. Counting once here brings them into the page
+/// cache.
+///
+/// In both cases the work happens either way; doing it before it is asked for
+/// costs nothing and removes every perceptible pause from a cold start. What
+/// it *must* get right is asking for exactly what the client asks for — a
+/// warm-up that differs by one parameter fills a slot nobody requests, which
+/// has now happened twice. See `docs/16` §3.48–3.49.
+fn warm_first_load(app: App) {
     tokio::spawn(async move {
         // After the listener is up: a user who opens the page instantly
         // should not queue behind this, and the cache fills either way.
@@ -42,10 +50,21 @@ fn warm_facets(app: App) {
         else {
             return;
         };
-        match app.store().tags.facets(&filter, crate::routes::FACET_LIMIT).await {
-            Ok(tags) => tracing::debug!(tags = tags.len(), "facet cache warmed"),
-            Err(error) => tracing::debug!(%error, "could not warm the facet cache"),
+        if let Err(error) = app.store().tags.facets(&filter, crate::routes::FACET_LIMIT).await {
+            tracing::debug!(%error, "could not warm the facet cache");
         }
+
+        // The same two counts the statistics endpoint makes. The numbers are
+        // thrown away; the point is the pages they touch.
+        let trashed = yk_core::query::ItemFilter {
+            trash: yk_core::query::TrashScope::Only,
+            ..filter.clone()
+        };
+        let _ = app.store().items.count(&filter).await;
+        let _ = app.store().items.count(&trashed).await;
+        let _ = app.search().stats().await;
+
+        tracing::debug!("first-load reads warmed");
     });
 }
 

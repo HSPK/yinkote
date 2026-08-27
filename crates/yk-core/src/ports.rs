@@ -166,6 +166,14 @@ pub trait SmartCollectionRepository: Send + Sync {
 #[async_trait]
 pub trait TagRepository: Send + Sync {
     async fn list(&self, library_id: i64, prefix: Option<&str>, limit: u32) -> Result<Vec<Tag>>;
+    /// How many distinct tags the library has.
+    ///
+    /// Separate from `list` because the two questions cost wildly different
+    /// amounts: this is a row count on `tags`, while listing groups over every
+    /// `item_tags` row to attach a count to each name. The statistics endpoint
+    /// asked for the whole list and took its length — a 200ms aggregate over a
+    /// hundred thousand items, to learn the number 33.
+    async fn count(&self, library_id: i64) -> Result<i64>;
     async fn rename(&self, library_id: i64, from: &str, to: &str) -> Result<u64>;
     async fn delete(&self, library_id: i64, name: &str) -> Result<u64>;
     async fn set_color(&self, library_id: i64, name: &str, color: Option<&str>) -> Result<()>;
