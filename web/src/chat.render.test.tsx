@@ -19,6 +19,8 @@ import { useStore } from './state/store'
 const sent: string[] = []
 
 let holdMessages = false
+/** What a request for earlier messages answers with. */
+let olderPage: { messages: unknown[]; hasMore: boolean } | null = null
 /** What the mention picker will find. */
 let pickable: unknown[] = []
 /** Mentions carried by the last send. */
@@ -54,9 +56,10 @@ vi.mock('./api/client', () => {
         if (path === 'api.conversations.messages') {
           // Held open to stand in for the round trip that fetches the stored
           // copy of an answer.
-          return holdMessages
-            ? new Promise(() => {})
-            : Promise.resolve({ messages: [], hasMore: false })
+          if (holdMessages) return new Promise(() => {})
+          const opts = args[2] as { before?: number } | undefined
+          if (opts?.before !== undefined && olderPage) return Promise.resolve(olderPage)
+          return Promise.resolve({ messages: [], hasMore: false })
         }
         if (path === 'api.conversations.run') return Promise.resolve({ running: false })
         if (path === 'api.conversations.list') return Promise.resolve([])
@@ -98,6 +101,7 @@ beforeEach(() => {
   sent.length = 0
   sentMentions.length = 0
   scoped.length = 0
+  olderPage = null
   pickable = [
     {
       key: 'PAPER001',
@@ -594,6 +598,22 @@ describe('a long conversation', () => {
     // so the top of what is loaded says there is more rather than pretending
     // the thread starts there.
     expect(container.querySelector('.chat-older')).not.toBeNull()
+  })
+
+  it('keeps the reader where they were after loading earlier messages', async () => {
+    const older = many(20)
+    olderPage = { messages: older, hasMore: false }
+    useStore.setState({ messages: many(40).map((m) => ({ ...m, id: m.id + 100 })), hasOlder: true })
+    await render()
+
+    const before = container.querySelector('.chat-older') as HTMLButtonElement
+    await act(async () => before.click())
+
+    // Content added above pushes everything down. Following the count here —
+    // the list did get longer — throws the reader to the bottom of exactly
+    // the history they were scrolling back to read.
+    expect(useStore.getState().messages).toHaveLength(60)
+    expect(container.querySelector('.chat-older')).toBeNull()
   })
 
   it('says nothing about earlier messages when there are none', async () => {

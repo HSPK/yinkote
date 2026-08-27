@@ -6,6 +6,7 @@ import { MentionPicker, mentionQuery, stripMention } from '../components/Mention
 import { JumpRail, RAIL_THRESHOLD, railMarks } from '../components/JumpRail'
 import { VirtualList } from '../components/VirtualList'
 import { elapsed } from '../lib/format'
+import { shouldFollow, type Tail } from '../lib/follow'
 import { Markdown } from '../lib/markdown'
 import { useStore } from '../state/store'
 import { Empty, Icon } from '../ui'
@@ -257,13 +258,47 @@ export function ChatView() {
     [messages, offset],
   )
 
-  // Follow the tail as it grows. A conversation is read from the bottom, and
-  // a new message that lands off screen looks like nothing happened.
-  const count = entries.length
-  const steps = run?.steps?.length ?? 0
+  // Follow the tail — but only when the tail actually moved. Loading earlier
+  // messages makes the list longer at the *other* end, and following the
+  // count there would yank the reader to the bottom of a thread they were
+  // deliberately scrolling back through. See `shouldFollow`.
+  const seen = useRef<Tail | null>(null)
+  const tail: Tail = {
+    id: entries[entries.length - 1]?.id,
+    steps: run?.steps?.length ?? 0,
+  }
   useEffect(() => {
-    setJumpTo(count ? count - 1 : undefined)
-  }, [count, steps, conversation])
+    if (shouldFollow(seen.current, tail)) {
+      setJumpTo(entries.length ? entries.length - 1 : undefined)
+    }
+    seen.current = tail
+    // Depends on the tail's identity, not on the array: a re-render with the
+    // same last entry must not scroll anything.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tail.id, tail.steps, entries.length])
+
+  // A different conversation starts at its own bottom.
+  useEffect(() => {
+    seen.current = null
+  }, [conversation])
+
+  /** Load earlier messages without moving what the reader is looking at.
+   *
+   *  Content added above pushes everything down, so the anchor is the message
+   *  that was at the top: after the page arrives, that same message is put
+   *  back under the pointer. Without this, asking for history throws you into
+   *  the middle of it.
+   */
+  const loadEarlier = async () => {
+    const anchor = messages[0]?.id
+    await loadOlder()
+    if (anchor === undefined) return
+    const at = useStore.getState().messages.findIndex((m) => m.id === anchor)
+    if (at >= 0) {
+      // +1 for the marker that still sits above, when there is more still.
+      setJumpTo(at + (useStore.getState().hasOlder ? 1 : 0))
+    }
+  }
 
   if (!conversation) {
     return (
@@ -333,7 +368,7 @@ export function ChatView() {
               <button
                 className="chat-older"
                 disabled={loadingOlder}
-                onClick={() => void loadOlder()}
+                onClick={() => void loadEarlier()}
               >
                 {loadingOlder ? t('chat.loadingOlder') : t('chat.loadOlder')}
               </button>
