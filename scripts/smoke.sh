@@ -206,6 +206,34 @@ check "graph names nodes" "$(j "$BASE/libraries/$LIB/graph/$GA" \
                              | jq -r '.nodes[] | select(.focus != true) | .title')"
 check "graph unknown key" "$(j "$BASE/libraries/$LIB/graph/ZZZZZZZZ" | jq -r '.title // empty')"
 
+echo "▸ download queue"
+DK=$(j -X POST "$BASE/libraries/$LIB/items" \
+       -d '[{"itemType":"journalArticle","title":"Queue smoke"}]' | jq -r '.created[0].key')
+check "queue accepts many" "$(j -X POST "$BASE/libraries/$LIB/downloads" \
+                              -d "{\"itemKey\":\"$DK\",\"urls\":[\"https://example.invalid/a.pdf\",\"https://example.invalid/b.pdf\"]}" \
+                              | jq -r 'select(.queued == 2) | "two"')"
+# Asking twice for one file is one request, not two.
+check "queue dedupes"      "$(j -X POST "$BASE/libraries/$LIB/downloads" \
+                              -d "{\"itemKey\":\"$DK\",\"urls\":[\"https://example.invalid/a.pdf\"]}" \
+                              | jq -r 'select(.queued == 1) | "same row"')"
+check "queue is readable"  "$(j "$BASE/libraries/$LIB/downloads" \
+                              | jq -r '.downloads | length | tostring | select(. != "0")')"
+# An unreachable host must fail visibly and stay retryable, not vanish.
+sleep 6
+check "failure is kept"    "$(j "$BASE/libraries/$LIB/downloads" \
+                              | jq -r '[.downloads[] | select(.state == "failed") | .error][0]
+                                       | select(length > 0) | "explained"')"
+FID=$(j "$BASE/libraries/$LIB/downloads" | jq -r '[.downloads[] | select(.state == "failed")][0].id')
+check "failure retries"    "$(j -X POST "$BASE/libraries/$LIB/downloads/retry" \
+                              -d "{\"ids\":[$FID]}" | jq -r 'select(.retrying == 1) | "requeued"')"
+check "queue removes"      "$(j -X POST "$BASE/libraries/$LIB/downloads/remove" \
+                              -d "{\"ids\":[$FID]}" | jq -r 'select(.removed == 1) | "gone"')"
+# An item key that does not exist is the caller's mistake, and is told so now
+# rather than reported later as a failed download.
+check "queue checks item"  "$(j -X POST "$BASE/libraries/$LIB/downloads" \
+                              -d '{"itemKey":"ZZZZZZZZ","urls":["https://example.invalid/x.pdf"]}' \
+                              | jq -r '.title // empty')"
+
 echo "▸ references"
 # Citations are stored, not derived: they come from the publisher and exist
 # whether or not either paper is here. Fetching needs the network, so the

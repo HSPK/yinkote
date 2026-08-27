@@ -379,3 +379,17 @@ export interface RunState {
   partial?: string
   partialReasoning?: string
 }
+
+/** One file the library is waiting for. */
+export interface Download {
+  id: number
+  itemKey: string
+  url: string
+  state: 'waiting' | 'running' | 'done' | 'failed'
+  attempts: number
+  /** Why it failed. Kept beside the row because it is what a retry is decided from. */
+  error: string
+  title: string
+  bytes: number
+  updatedAt: number
+}

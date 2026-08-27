@@ -2082,3 +2082,30 @@ select.ctl { padding: 4px 6px; }
   border-radius: 50%;
   background: var(--tag, var(--line-2));
 }
+
+
+/* ─── download queue ─────────────────────────────────────────────────────── */
+
+.downloads-grid { grid-template-columns: 1.2fr 1.6fr 200px 80px 150px; }
+.downloads-grid .mono { font-family: var(--mono); font-size: 11px; }
+
+.download-state {
+  padding: 0 6px;
+  font-size: 10px;
+  border: 1px solid var(--line-2);
+  color: var(--fg-dim);
+}
+.download-state[data-state='running'] { border-color: var(--accent); color: var(--accent); }
+.download-state[data-state='done'] { border-color: #a8cfa0; color: #a8cfa0; }
+.download-state[data-state='failed'] { border-color: #e8a09a; color: #e8a09a; }
+
+/* Beside the row rather than in a log: it is what a retry is decided from. */
+.download-error {
+  display: block;
+  margin-top: 2px;
+  color: #e8a09a;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.row-actions { display: flex; gap: 6px; align-items: center; }

@@ -8,6 +8,7 @@ mod collections;
 mod conversations;
 mod db;
 pub mod filter;
+pub mod downloads;
 pub mod graph;
 pub mod relations;
 pub mod index;
@@ -23,6 +24,7 @@ pub use db::{sql_err, write_tx, Db, Pool, PooledConn};
 pub use items::{SqliteItemRepository, SqliteSettingsRepository};
 pub use conversations::SqliteConversationRepository;
 pub use graph::{GraphRepository, Neighbour, Relation, SqliteGraphRepository};
+pub use downloads::{Download, DownloadDraft, DownloadQueue, SqliteDownloadQueue};
 pub use relations::{Citation, CitationDraft, RelationRepository, SqliteRelationRepository};
 pub use smart::SqliteSmartCollectionRepository;
 
@@ -48,6 +50,7 @@ pub struct Store {
     pub conversations: Arc<dyn ConversationRepository>,
     pub graph: Arc<dyn GraphRepository>,
     pub relations: Arc<dyn RelationRepository>,
+    pub downloads: Arc<dyn DownloadQueue>,
     pub settings: Arc<dyn SettingsRepository>,
     /// Concrete handle for operations outside the port surface (index rebuild).
     items_impl: SqliteItemRepository,
@@ -77,6 +80,7 @@ impl Store {
             conversations: Arc::new(SqliteConversationRepository::new(db.clone())),
             graph: Arc::new(SqliteGraphRepository::new(db.clone())),
             relations: Arc::new(SqliteRelationRepository::new(db.clone())),
+            downloads: Arc::new(SqliteDownloadQueue::new(db.clone())),
             settings: Arc::new(SqliteSettingsRepository::new(db.clone())),
             items_impl,
             default_library,

@@ -57,6 +57,27 @@ export function itemMenu(item: Item): MenuItem[] {
   return [
     { label: t('reader.open'), onSelect: () => store.openReader(item.key) },
     { label: t('graph.open'), onSelect: () => store.openGraph(item.key) },
+    {
+      // Plural because a paper often has a PDF, a supplement and a dataset, and
+      // asking three times is three chances to give up.
+      label: t('menu.download'),
+      onSelect: async () => {
+        const text = await promptFor(t('menu.download'), {
+          label: t('dialog.urls'),
+          type: 'textarea',
+          defaultValue: String(item.url ?? ''),
+        })
+        const urls = (text ?? '').split('\n').map((u) => u.trim()).filter(Boolean)
+        if (!urls.length) return
+        await withToast(
+          async () => {
+            const done = await api.downloads.enqueue(store.library, item.key, urls)
+            toast.success(t('downloads.queued', { count: done.queued }))
+          },
+          { failure: t('downloads.actionFailed') },
+        )
+      },
+    },
     ...(item.DOI
       ? [
           {

@@ -54,6 +54,7 @@ export function Sidebar() {
   const openTab = useStore((s) => s.openTab)
   const conversations = useStore((s) => s.conversations)
   const activeTab = useStore((s) => s.activeTab)
+  const downloadCount = useStore((s) => s.downloadCount)
   const openConversation = useStore((s) => s.openConversation)
   const newConversation = useStore((s) => s.newConversation)
   const renameConversation = useStore((s) => s.renameConversation)
@@ -104,6 +105,18 @@ export function Sidebar() {
           <Icon.Trash className="glyph" />
           <span className="label">{t('sidebar.trash')}</span>
           <span className="count">{stats ? compact(stats.trashed) : ''}</span>
+        </button>
+
+        <button
+          className="nav-item"
+          data-active={activeTab.startsWith('downloads')}
+          title={t('downloads.title')}
+          onClick={() => openTab({ id: tabId('downloads'), kind: 'downloads', title: '' })}
+        >
+          <Icon.Download className="glyph" />
+          <span className="label">{t('downloads.title')}</span>
+          {/* Only when something needs attention: a permanent zero is noise. */}
+          <span className="count">{downloadCount || ''}</span>
         </button>
 
         <button

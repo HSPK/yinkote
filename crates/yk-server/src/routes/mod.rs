@@ -8,6 +8,7 @@ mod references;
 pub use references::Harvest;
 mod collections;
 pub(crate) mod files;
+mod downloads;
 mod import;
 mod conversations;
 mod items;
@@ -38,6 +39,7 @@ pub fn router() -> Router<App> {
         .merge(graph::router())
         .merge(references::router())
         .merge(files::router())
+        .merge(downloads::router())
         .merge(import::router())
         .merge(collections::router())
         .merge(conversations::router())

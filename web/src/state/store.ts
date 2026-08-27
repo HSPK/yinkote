@@ -123,6 +123,9 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   /** How many cited-but-unowned works the gaps tab found, for the status bar. */
   gapCount: number
   setGapCount: (count: number) => void
+  /** Downloads waiting or failed, for the sidebar badge. */
+  downloadCount: number
+  setDownloadCount: (count: number) => void
   fetchPdf: (itemKey: string, url?: string) => Promise<void>
   openCollectionEditor: (key: string | null) => void
   loadBadges: (keys: string[]) => Promise<void>
@@ -482,6 +485,11 @@ export const useStore = create<State>((set, get, store) => ({
   tagColours: {},
   graphSize: { nodes: 0, edges: 0 },
   gapCount: 0,
+  downloadCount: 0,
+
+  setDownloadCount(downloadCount) {
+    set({ downloadCount })
+  },
   detached: null,
 
   setGapCount(gapCount) {

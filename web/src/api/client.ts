@@ -11,6 +11,7 @@ import type {
   BadgeValue,
   CitationList,
   CitationRender,
+  Download,
   Harvest,
   MissingWork,
   RunState,
@@ -198,6 +199,30 @@ export const api = {
         `/libraries/${lib}/items/${key}/citations/fetch`,
         { method: 'POST' },
       ),
+  },
+
+  downloads: {
+    list: (lib: number) =>
+      request<{ downloads: Download[]; waiting: number; failed: number }>(
+        `/libraries/${lib}/downloads`,
+      ),
+    enqueue: (lib: number, itemKey: string, urls: string[], title?: string) =>
+      request<{ queued: number }>(`/libraries/${lib}/downloads`, {
+        method: 'POST',
+        ...json({ itemKey, urls, title }),
+      }),
+    retry: (lib: number, ids: number[]) =>
+      request<{ retrying: number }>(`/libraries/${lib}/downloads/retry`, {
+        method: 'POST',
+        ...json({ ids }),
+      }),
+    remove: (lib: number, ids: number[]) =>
+      request<{ removed: number }>(`/libraries/${lib}/downloads/remove`, {
+        method: 'POST',
+        ...json({ ids }),
+      }),
+    clear: (lib: number) =>
+      request<{ cleared: number }>(`/libraries/${lib}/downloads/clear`, { method: 'POST' }),
   },
 
   citations: {

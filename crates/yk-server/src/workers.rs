@@ -12,6 +12,7 @@ use crate::state::App;
 pub fn spawn(app: App) {
     embedding_worker(app.clone());
     checkpoint_worker(app.clone());
+    download_worker(app.clone());
     startup_hook(app);
 }
 
@@ -85,6 +86,71 @@ fn checkpoint_worker(app: App) {
                 Ok(bytes) => tracing::trace!(bytes, "wal checkpoint"),
                 Err(e) => tracing::debug!(error = %e, "wal checkpoint skipped"),
             }
+        }
+    });
+}
+
+/// How long to wait when the queue is empty.
+///
+/// Polling rather than a notification because the queue is a *table*: things
+/// arrive in it from the workbench, from the browser connector and from the
+/// agent, and a signal every one of them had to remember to send is a signal
+/// one of them would forget.
+const IDLE: Duration = Duration::from_secs(3);
+
+/// Between downloads, so a hundred queued files do not become a hundred
+/// simultaneous requests to one publisher.
+const BETWEEN: Duration = Duration::from_millis(400);
+
+/// Drains the download queue, one file at a time.
+fn download_worker(app: App) {
+    tokio::spawn(async move {
+        loop {
+            let claimed = match app.store().downloads.claim(app.services.default_library).await {
+                Ok(job) => job,
+                Err(e) => {
+                    tracing::debug!(error = %e, "download queue unavailable");
+                    tokio::time::sleep(IDLE).await;
+                    continue;
+                }
+            };
+
+            let Some(job) = claimed else {
+                tokio::time::sleep(IDLE).await;
+                continue;
+            };
+
+            let lib = app.services.default_library;
+            let outcome = match yk_core::Key::parse(&job.item_key) {
+                Ok(key) => {
+                    crate::routes::files::attach_url(&app, lib, &key, &job.url, &job.title).await
+                }
+                Err(_) => Err(yk_core::Error::invalid("that is not an item key")),
+            };
+
+            match outcome {
+                Ok(attachment) => {
+                    let bytes = attachment
+                        .field("fileSize")
+                        .and_then(|s| s.parse::<i64>().ok())
+                        .unwrap_or_default();
+                    let _ = app.store().downloads.succeed(job.id, bytes).await;
+                    let version =
+                        app.store().libraries.version(lib).await.unwrap_or_default();
+                    app.events().publish(DomainEvent::ItemsChanged {
+                        library_id: lib,
+                        keys: vec![attachment.key],
+                        version,
+                    });
+                }
+                Err(e) => {
+                    // Recorded rather than logged: the reason is what the user
+                    // needs in order to decide whether retrying is worth it.
+                    let _ = app.store().downloads.fail(job.id, &e.to_string()).await;
+                }
+            }
+
+            tokio::time::sleep(BETWEEN).await;
         }
     });
 }

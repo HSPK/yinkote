@@ -4,6 +4,7 @@ import type { MessageKey } from '../i18n'
 import type { TabKind } from '../lib/tabs'
 import { ChatView } from '../pages/ChatView'
 import { CollectionsPage } from '../pages/CollectionsPage'
+import { DownloadsPage } from '../pages/DownloadsPage'
 import { GapsPage } from '../pages/GapsPage'
 import { GraphView } from '../pages/GraphView'
 import { ItemTable } from '../components/ItemTable'
@@ -85,6 +86,12 @@ export const TABS: Record<TabKind, TabDefinition> = {
     icon: 'Graph',
     labelKey: 'gaps.title',
     Footer: GapsFooter,
+    search: 'none',
+  },
+  downloads: {
+    Body: DownloadsPage,
+    icon: 'Download',
+    labelKey: 'downloads.title',
     search: 'none',
   },
   plugins: { Body: PluginsPage, icon: 'Plugin', labelKey: 'nav.plugins', search: 'none' },

@@ -50,3 +50,17 @@ export function compact(n: number): string {
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`
   return `${(n / 1_000_000).toFixed(1)}M`
 }
+
+/** A file size a person can read at a glance. */
+export function bytes(n: number): string {
+  if (!n) return ''
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = n
+  let unit = 0
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024
+    unit += 1
+  }
+  // One decimal below 10, none above: `4.2 MB` is useful, `412.7 KB` is noise.
+  return `${value < 10 && unit > 0 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
+}
