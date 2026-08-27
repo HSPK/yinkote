@@ -289,6 +289,88 @@ impl Tool for ReadPaper {
     }
 }
 
+/// A paper's bibliography, and which of it the library holds.
+///
+/// `read_paper` counts the references because a hundred lines rarely answer
+/// the question being asked. When they do — "what does this paper lean on
+/// that I have not read?" — this is the tool, and the answer is a list the
+/// library can act on rather than a number.
+pub struct ListReferences {
+    pub store: Store,
+}
+
+/// The most references to hand over at once.
+///
+/// A review article can cite four hundred works. Past this the answer is not
+/// a bibliography, it is a context window.
+const MAX_REFERENCES: usize = 120;
+
+#[async_trait]
+impl Tool for ListReferences {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "list_references".into(),
+            description: "The works a paper cites, in the order it cites them, saying which \
+                 ones this library already holds. Use it to answer what a paper stands on, or \
+                 to find what it cites that the user has not read."
+                .into(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "key": { "type": "string" },
+                    "held": {
+                        "type": "string",
+                        "enum": ["all", "yes", "no"],
+                        "description":
+                            "Filter to references the library holds (yes), does not hold (no), \
+                             or everything (all, the default).",
+                    },
+                },
+                "required": ["key"],
+            }),
+        }
+    }
+
+    async fn call(&self, library_id: i64, arguments: Value) -> Result<Value> {
+        let raw = yk_agent::required_str(&arguments, "key")?;
+        let key: yk_core::Key =
+            raw.parse().map_err(|_| Error::invalid(format!("'{raw}' is not an item key")))?;
+        let held = arguments["held"].as_str().unwrap_or("all");
+
+        let all = self.store.relations.cites(library_id, &key).await?;
+        let total = all.len();
+        let kept: Vec<_> = all
+            .into_iter()
+            .filter(|c| match held {
+                "yes" => c.key.is_some(),
+                "no" => c.key.is_none(),
+                _ => true,
+            })
+            .take(MAX_REFERENCES)
+            .map(|c| {
+                json!({
+                    "position": c.position + 1,
+                    // The key when the library holds it, so the model can go
+                    // straight to the paper rather than searching for a title.
+                    "key": c.key.map(|k| k.to_string()),
+                    "label": c.label,
+                    "year": c.year,
+                    "doi": c.doi,
+                })
+            })
+            .collect();
+
+        Ok(json!({
+            "total": total,
+            "returned": kept.len(),
+            // Said outright, because a model handed 120 of 400 references has
+            // no way to tell that it is looking at part of a list.
+            "truncated": kept.len() < total && held == "all",
+            "references": kept,
+        }))
+    }
+}
+
 pub struct LibraryOverview {
     pub store: Store,
 }
@@ -370,6 +452,7 @@ pub fn tools(
         Arc::new(SearchLibrary { store: store.clone(), search: search.clone() }),
         Arc::new(GetItem { store: store.clone() }),
         Arc::new(ReadPaper { store: store.clone() }),
+        Arc::new(ListReferences { store: store.clone() }),
         Arc::new(LibraryOverview { store: store.clone() }),
     ];
     tools.extend(ACTIONS.iter().map(|action| {
@@ -470,5 +553,99 @@ mod read_paper_tests {
         assert_eq!(out["notes"].as_array().unwrap().len(), 0);
         assert_eq!(out["highlights"].as_array().unwrap().len(), 0);
         assert_eq!(out["referenceCount"], 0);
+    }
+}
+
+#[cfg(test)]
+mod list_references_tests {
+    use super::*;
+    use yk_core::model::ItemDraft;
+    use yk_store::relations::CitationDraft;
+    use yk_store::Store;
+
+    fn reference(doi: &str, label: &str) -> CitationDraft {
+        CitationDraft {
+            // Normalised, the one way every fingerprint in the program is
+            // made — a raw DOI here resolves to nothing.
+            fingerprint: format!("doi:{}", yk_core::text::normalize(doi)),
+            doi: doi.into(),
+            label: label.into(),
+            year: Some(2018),
+        }
+    }
+
+    async fn paper_citing_three() -> (Store, i64, yk_core::Key) {
+        let store = Store::in_memory().unwrap();
+        let lib = store.default_library;
+
+        // One of the three is on the shelf.
+        store
+            .items
+            .create(
+                lib,
+                ItemDraft::new("journalArticle")
+                    .with_field("title", "On the shelf")
+                    .with_field("DOI", "10.1/held"),
+            )
+            .await
+            .unwrap();
+
+        let paper = store.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+        store
+            .relations
+            .set_citations(
+                lib,
+                &paper.key,
+                vec![
+                    reference("10.1/held", "On the shelf"),
+                    reference("10.1/absent", "Not here"),
+                    reference("10.1/other", "Also not here"),
+                ],
+            )
+            .await
+            .unwrap();
+
+        (store, lib, paper.key)
+    }
+
+    #[tokio::test]
+    async fn lists_a_bibliography_in_the_order_it_was_printed() {
+        let (store, lib, key) = paper_citing_three().await;
+        let out =
+            ListReferences { store }.call(lib, json!({ "key": key.as_str() })).await.unwrap();
+
+        assert_eq!(out["total"], 3);
+        assert_eq!(out["references"][0]["position"], 1);
+        assert_eq!(out["references"][0]["label"], "On the shelf");
+        // Renumbering somebody's bibliography is quiet damage.
+        assert_eq!(out["references"][2]["position"], 3);
+    }
+
+    #[tokio::test]
+    async fn says_which_ones_the_library_holds() {
+        let (store, lib, key) = paper_citing_three().await;
+        let out =
+            ListReferences { store }.call(lib, json!({ "key": key.as_str() })).await.unwrap();
+
+        // The key, not just a flag: the model can go straight to the paper
+        // instead of searching for a title it has just been given.
+        assert!(out["references"][0]["key"].is_string());
+        assert!(out["references"][1]["key"].is_null());
+    }
+
+    #[tokio::test]
+    async fn narrows_to_what_has_not_been_read() {
+        let (store, lib, key) = paper_citing_three().await;
+        let out = ListReferences { store }
+            .call(lib, json!({ "key": key.as_str(), "held": "no" }))
+            .await
+            .unwrap();
+
+        // "What does this lean on that I have not read" is the question a
+        // bibliography is usually opened for.
+        assert_eq!(out["references"].as_array().unwrap().len(), 2);
+        assert!(out["references"].as_array().unwrap().iter().all(|r| r["key"].is_null()));
+        // The total still describes the paper, not the filter.
+        assert_eq!(out["total"], 3);
     }
 }

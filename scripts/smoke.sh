@@ -242,6 +242,9 @@ done
 # fingerprint by hand is exactly where that goes wrong.
 check "citations recorded" "$(j "$BASE/libraries/$LIB/items/$CITER/citations" \
                              | jq -r '.resolved | select(. == 2)')"
+# The assistant must be able to read a bibliography, not only count it: a
+# code comment referred to this tool for a round before it existed.
+check "reference tool"    "$(j "$BASE/agent" | jq -r '.tools | map(select(. == "list_references")) | length | select(. == 1)')"
 check "graph coupling"    "$(j "$BASE/libraries/$LIB/graph/$CITER" \
                              | jq -r '[.edges[] | select(.relation == "coupling")] | length | select(. > 0)')"
 check "graph cocitation"  "$(j "$BASE/libraries/$LIB/graph/$CA" \
