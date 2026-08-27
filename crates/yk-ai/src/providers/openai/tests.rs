@@ -133,3 +133,67 @@ fn round_trips_a_tool_call_through_the_wire_shape() {
     let wire = to_wire(&message);
     assert_eq!(wire["tool_calls"][0]["function"]["arguments"], "{\"query\":\"attention\"}");
 }
+
+// ---------------------------------------------------------------------------
+// Waiting out a busy service
+// ---------------------------------------------------------------------------
+
+use super::super::openai::{backoff, is_transient, retry_after, MAX_WAIT};
+use reqwest::header::{HeaderMap, HeaderValue};
+
+fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
+    let mut map = HeaderMap::new();
+    for (k, v) in pairs {
+        map.insert(
+            reqwest::header::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+            HeaderValue::from_str(v).unwrap(),
+        );
+    }
+    map
+}
+
+#[test]
+fn a_rate_limit_is_worth_waiting_out_and_a_bad_request_is_not() {
+    // The distinction is the whole policy: 429 clears on its own, and no
+    // amount of waiting will make a malformed request valid.
+    assert!(is_transient(429));
+    assert!(is_transient(503));
+    assert!(!is_transient(400));
+    assert!(!is_transient(401));
+    assert!(!is_transient(404));
+}
+
+#[test]
+fn the_service_is_believed_when_it_says_how_long() {
+    let wait = retry_after(&headers(&[("retry-after", "2")])).unwrap();
+    assert_eq!(wait.as_millis(), 2000);
+}
+
+#[test]
+fn a_wait_of_zero_still_pauses_rather_than_spinning() {
+    // "Retry after 0" means "now", but a loop that believes it literally is a
+    // busy-wait against a service that is already struggling.
+    let wait = retry_after(&headers(&[("retry-after", "0")])).unwrap();
+    assert!(wait.as_millis() >= 200, "{wait:?}");
+}
+
+#[test]
+fn an_absurd_wait_is_capped() {
+    // A provider saying "five minutes" is telling the truth, but nobody is
+    // waiting five minutes inside one request.
+    let wait = retry_after(&headers(&[("retry-after", "300")])).unwrap();
+    assert_eq!(wait, MAX_WAIT);
+}
+
+#[test]
+fn nonsense_is_ignored_rather_than_trusted() {
+    assert!(retry_after(&headers(&[("retry-after", "soon")])).is_none());
+    assert!(retry_after(&headers(&[("retry-after", "-5")])).is_none());
+    assert!(retry_after(&HeaderMap::new()).is_none());
+}
+
+#[test]
+fn without_a_hint_the_wait_doubles_and_stays_bounded() {
+    assert!(backoff(1) > backoff(0));
+    assert!(backoff(20) <= MAX_WAIT);
+}

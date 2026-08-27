@@ -21,6 +21,8 @@ check() { # check <name> <value>
   fi
 }
 
+skip() { printf '  \033[33mskip\033[0m %-44s %s\n' "$1" "$2"; }
+
 j() { curl -sS -H 'Content-Type: application/json' "$@"; }
 
 echo "▸ system"
@@ -350,7 +352,20 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
                                -d '{"content":"again"}' | jq -r '.title // empty')"
   check "run is stoppable" "$(j -X POST "$BASE/libraries/$LIB/conversations/$CK2/cancel" \
                                | jq -r 'select(.stopping == true) | "stopping"')"
-  check "summarise"      "$(j -X POST "$BASE/libraries/$LIB/items/$AK/summarise" -d '{}' | jq -r '.note.itemType')"
+  # A shared endpoint that is busy right now is not a broken feature, and a
+  # suite that cannot tell the difference stops being believed. The retry in
+  # `yk-ai` waits a rate limit out; when it is still limited after that, these
+  # checks are skipped and say so.
+  SUMM=$(j -X POST "$BASE/libraries/$LIB/items/$AK/summarise" -d '{}')
+  if grep -qiE '429|rate limit' <<< "$SUMM"; then
+    THROTTLED=1
+    skip "model round trip" "the model is rate-limited right now"
+  else
+    THROTTLED=0
+  fi
+
+  if [[ $THROTTLED -eq 0 ]]; then
+  check "summarise"      "$(jq -r '.note.itemType' <<< "$SUMM")"
   check "summary is a child" "$(j "$BASE/libraries/$LIB/items/$AK/children" | jq -r 'length')"
   # Re-running must replace the note, not add a second one.
   j -X POST "$BASE/libraries/$LIB/items/$AK/summarise" -d '{}' > /dev/null
@@ -373,8 +388,9 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
                               | jq -r '[.[] | select(.role == "assistant")][0].meta.trace
                                        | select(length > 0) | "traced"')"
   j -X DELETE "$BASE/libraries/$LIB/conversations/$ACONV" > /dev/null
+  fi
 else
-  printf '  \033[33mskip\033[0m %-44s %s\n' "agent round trip" "no model configured"
+  skip "agent round trip" "no model configured"
 fi
 
 echo "▸ badges"

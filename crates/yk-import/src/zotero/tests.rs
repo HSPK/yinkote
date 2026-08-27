@@ -89,9 +89,11 @@ fn previews_a_library_without_reading_all_of_it() {
     let (_dir, path) = zotero_library();
     let seen = preview(&path).unwrap();
     // The attachment is not an item; the trashed one still counts as present.
+    // Both notes count, including the one that stands on its own — a preview
+    // that undercounts is worse than no preview, because it is believed.
     assert_eq!(
         seen,
-        Preview { items: 3, collections: 2, tags: 2, attachments: 2, notes: 1, annotations: 2 }
+        Preview { items: 3, collections: 2, tags: 2, attachments: 2, notes: 2, annotations: 2 }
     );
 }
 
@@ -279,18 +281,28 @@ fn brings_the_users_own_notes_across() {
     let (_dir, path) = zotero_library();
     let library = read(&path).unwrap();
 
-    assert_eq!(library.notes.len(), 1);
-    assert_eq!(library.notes[0].parent.as_str(), "AAAA1111");
-    assert!(library.notes[0].html.contains("attention"));
+    let attached = library
+        .notes
+        .iter()
+        .find(|n| n.html.contains("attention"))
+        .expect("the note about the paper");
+    assert_eq!(attached.parent.as_ref().map(|k| k.as_str()), Some("AAAA1111"));
 }
 
 #[test]
-fn leaves_a_note_with_no_item_where_it_is() {
-    // A standalone note belongs at the top level, and there is nowhere for it
-    // here yet. Leaving it in Zotero beats filing it where nobody will look.
+fn brings_a_note_that_stands_on_its_own_across_too() {
+    // Zotero lets a note exist without a paper — reading notes, meeting
+    // notes, a draft. This importer used to require a parent and drop the
+    // rest without counting them, so the loss was invisible.
     let (_dir, path) = zotero_library();
     let library = read(&path).unwrap();
-    assert!(!library.notes.iter().any(|n| n.html.contains("standalone")));
+
+    let standalone = library
+        .notes
+        .iter()
+        .find(|n| n.html.contains("standalone"))
+        .expect("the note that belongs to nobody");
+    assert!(standalone.parent.is_none());
 }
 
 #[test]

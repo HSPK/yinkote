@@ -79,7 +79,13 @@ async fn summarise(
                 .await?
         }
         None => {
-            let mut draft = ItemDraft::new("note").with_field("note", turn.reply.as_str());
+            let mut draft = ItemDraft::new("note")
+                .with_field("note", turn.reply.as_str())
+                .with_field(
+                    "title",
+                    yk_core::text::note_title(&turn.reply, yk_core::text::NOTE_TITLE_CHARS)
+                        .as_str(),
+                );
             draft.parent_key = Some(parent.clone());
             draft.tags = vec![yk_core::model::ItemTag {
                 tag: SUMMARY_TAG.into(),

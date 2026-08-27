@@ -182,8 +182,18 @@ async fn import_notes(app: &App, lib: i64, notes: &[yk_import::zotero::ImportedN
     for note in notes {
         let mut draft =
             yk_core::model::ItemDraft::new("note").with_field("note", note.html.as_str());
+        // Without a title a note is a blank row in the library list. Zotero
+        // keeps a one-line summary, so prefer theirs and fall back to the
+        // note's own first line.
+        let title = match note.title.trim() {
+            "" => yk_core::text::note_title(&note.html, yk_core::text::NOTE_TITLE_CHARS),
+            given => given.to_string(),
+        };
+        if !title.is_empty() {
+            draft = draft.with_field("title", title.as_str());
+        }
         draft.key = Some(note.key.clone());
-        draft.parent_key = Some(note.parent.clone());
+        draft.parent_key = note.parent.clone();
 
         match app.store().items.create(lib, draft).await {
             Ok(_) => imported += 1,

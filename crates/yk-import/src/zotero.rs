@@ -66,9 +66,20 @@ pub struct ImportedAttachment {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportedNote {
     pub key: Key,
-    pub parent: Key,
+    /// The paper it was written against, or `None` for a standalone note.
+    ///
+    /// Zotero lets a note stand on its own — reading notes, meeting notes, a
+    /// draft. Earlier versions of this importer required a parent and silently
+    /// dropped the rest, including from the count shown before importing, so
+    /// nobody could tell.
+    pub parent: Option<Key>,
     /// Zotero stores notes as HTML, and so does this project.
     pub html: String,
+    /// The one-line summary Zotero keeps beside the note.
+    ///
+    /// A note has no title field of its own, so without this a standalone
+    /// note arrives as a blank row in the library list.
+    pub title: String,
 }
 
 /// A highlight or margin note somebody made inside a PDF.
@@ -157,7 +168,11 @@ pub fn preview(path: &Path) -> Result<Preview> {
         collections: count("SELECT count(*) FROM collections"),
         tags: count("SELECT count(*) FROM tags"),
         attachments: count("SELECT count(*) FROM itemAttachments WHERE path IS NOT NULL"),
-        notes: count("SELECT count(*) FROM itemNotes WHERE parentItemID IS NOT NULL"),
+        notes: count(
+            "SELECT count(*) FROM itemNotes \
+             WHERE note IS NOT NULL AND note != '' \
+             AND itemID NOT IN (SELECT itemID FROM deletedItems)",
+        ),
         annotations: count("SELECT count(*) FROM itemAnnotations"),
     })
 }
@@ -452,27 +467,41 @@ fn read_notes(db: &Connection) -> Result<Vec<ImportedNote>> {
 
     let mut stmt = db
         .prepare(
-            "SELECT n.key, p.key, itemNotes.note
+            // LEFT JOIN, so a note that stands on its own still arrives.
+            "SELECT n.key, p.key, itemNotes.note, itemNotes.title
              FROM itemNotes
              JOIN items n ON n.itemID = itemNotes.itemID
-             JOIN items p ON p.itemID = itemNotes.parentItemID
-             WHERE itemNotes.parentItemID IS NOT NULL
-               AND itemNotes.note IS NOT NULL AND itemNotes.note != ''
+             LEFT JOIN items p ON p.itemID = itemNotes.parentItemID
+             WHERE itemNotes.note IS NOT NULL AND itemNotes.note != ''
                AND itemNotes.itemID NOT IN (SELECT itemID FROM deletedItems)",
         )
         .map_err(sql_err)?;
 
     let rows = stmt
         .query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+            ))
         })
         .map_err(sql_err)?;
 
     let mut out = Vec::new();
     for row in rows {
-        let (key, parent, html) = row.map_err(sql_err)?;
-        let (Ok(key), Ok(parent)) = (Key::parse(&key), Key::parse(&parent)) else { continue };
-        out.push(ImportedNote { key, parent, html });
+        let (key, parent, html, title) = row.map_err(sql_err)?;
+        let Ok(key) = Key::parse(&key) else { continue };
+        // A parent that will not parse is dropped rather than turning the note
+        // standalone: it would silently move somebody's note out of its paper.
+        let parent = match parent {
+            Some(raw) => match Key::parse(&raw) {
+                Ok(k) => Some(k),
+                Err(_) => continue,
+            },
+            None => None,
+        };
+        out.push(ImportedNote { key, parent, html, title });
     }
     Ok(out)
 }

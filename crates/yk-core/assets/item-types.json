@@ -748,6 +748,7 @@
       "csl": "document",
       "internal": true,
       "fields": [
+        "title",
         "note"
       ],
       "creatorTypes": []

@@ -209,6 +209,22 @@ fn validate(draft: &ItemDraft) -> Result<()> {
     if !s.has_type(&draft.item_type) {
         return Err(Error::invalid(format!("unknown itemType '{}'", draft.item_type)));
     }
+
+    // A field nobody recognises is refused rather than stored.
+    //
+    // `Item` flattens its fields onto the wire, so a client that posts the
+    // obvious-looking `{"fields": {"title": "..."}}` used to get an item
+    // carrying a field literally called "fields" and no title at all — stored
+    // happily, shown nowhere, reported never. Being told is the whole point.
+    let unknown = s.validate(&draft.item_type, &draft.fields)?;
+    if !unknown.is_empty() {
+        return Err(Error::invalid(format!(
+            "unknown field{} for {}: {}",
+            if unknown.len() == 1 { "" } else { "s" },
+            draft.item_type,
+            unknown.join(", ")
+        )));
+    }
     for c in &draft.creators {
         if c.name.is_none() && c.last_name.is_none() && c.first_name.is_none() {
             return Err(Error::invalid("creator must have a name"));

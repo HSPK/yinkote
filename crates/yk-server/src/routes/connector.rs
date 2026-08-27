@@ -116,7 +116,13 @@ async fn save_items(
         };
 
         for note in notes(object) {
-            let mut child = ItemDraft::new("note").with_field("note", note.as_str());
+            let mut child = ItemDraft::new("note")
+                .with_field("note", note.as_str())
+                .with_field(
+                    "title",
+                    yk_core::text::note_title(note.as_str(), yk_core::text::NOTE_TITLE_CHARS)
+                        .as_str(),
+                );
             child.parent_key = Some(item.key.clone());
             let _ = app.store().items.create(lib, child).await;
         }

@@ -174,3 +174,138 @@ mod tests {
         assert!(similarity("attention", "banana") < 0.4);
     }
 }
+
+/// How many characters of a note's first line make a usable title.
+///
+/// Shared so every place that creates a note agrees; a list where some titles
+/// are cut at 40 and others at 80 looks broken rather than tidy.
+pub const NOTE_TITLE_CHARS: usize = 60;
+
+/// The first line of a note, for use as its title.
+///
+/// A note has no title of its own, so a list of them is a column of blanks
+/// unless one is derived. Zotero does the same thing, which is also why an
+/// imported note already has one — this is for the ones written here.
+///
+/// Tags are stripped rather than parsed: the input is a note body, and the
+/// only question being asked of it is what its first line says.
+pub fn note_title(html: &str, limit: usize) -> String {
+    let mut out = String::new();
+    let mut tag = String::new();
+    let mut in_tag = false;
+    let mut entity = String::new();
+
+    for c in html.chars() {
+        match c {
+            '<' => {
+                in_tag = true;
+                tag.clear();
+            }
+            '>' if in_tag => {
+                in_tag = false;
+                // Only a block boundary ends the line. Treating every tag as
+                // one turned "<b>Meeting</b> notes" into "Meeting".
+                if ends_a_line(&tag) && !out.trim().is_empty() {
+                    break;
+                }
+            }
+            _ if in_tag => tag.push(c),
+            '&' => {
+                entity.clear();
+                entity.push('&');
+            }
+            ';' if !entity.is_empty() => {
+                out.push_str(match entity.as_str() {
+                    "&amp" => "&",
+                    "&lt" => "<",
+                    "&gt" => ">",
+                    "&quot" => "\"",
+                    "&nbsp" => " ",
+                    _ => "",
+                });
+                entity.clear();
+            }
+            _ if !entity.is_empty() => {
+                entity.push(c);
+                if entity.chars().count() > 8 {
+                    entity.clear();
+                }
+            }
+            '\n' | '\r' if !out.trim().is_empty() => break,
+            _ => out.push(c),
+        }
+    }
+
+    let trimmed = out.split_whitespace().collect::<Vec<_>>().join(" ");
+    match trimmed.char_indices().nth(limit) {
+        Some((cut, _)) => format!("{}…", trimmed[..cut].trim_end()),
+        None => trimmed,
+    }
+}
+
+/// Whether a tag closes off a line of text.
+fn ends_a_line(tag: &str) -> bool {
+    let name = tag
+        .trim()
+        .trim_start_matches('/')
+        .split([' ', '\t', '\n', '/'])
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    matches!(
+        name.as_str(),
+        "p" | "div"
+            | "br"
+            | "li"
+            | "tr"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "blockquote"
+            | "pre"
+            | "section"
+            | "article"
+    )
+}
+
+#[cfg(test)]
+mod note_title_tests {
+    use super::note_title;
+
+    #[test]
+    fn takes_the_first_line() {
+        assert_eq!(note_title("<p>Reading plan</p><p>Second para</p>", 60), "Reading plan");
+    }
+
+    #[test]
+    fn strips_the_markup_around_it() {
+        assert_eq!(note_title("<h1><b>Meeting</b> notes</h1>", 60), "Meeting notes");
+    }
+
+    #[test]
+    fn decodes_the_entities_a_note_editor_writes() {
+        assert_eq!(note_title("<p>Q &amp; A &nbsp;session</p>", 60), "Q & A session");
+    }
+
+    #[test]
+    fn a_long_line_is_cut_on_a_character_boundary() {
+        // Cutting by byte would panic mid-character on any CJK note.
+        let title = note_title("<p>扩散模型的综述与实验记录</p>", 6);
+        assert_eq!(title, "扩散模型的综…");
+    }
+
+    #[test]
+    fn an_empty_note_has_no_title_rather_than_a_made_up_one() {
+        assert_eq!(note_title("", 60), "");
+        assert_eq!(note_title("<p></p>", 60), "");
+    }
+
+    #[test]
+    fn leading_blank_markup_does_not_end_the_search() {
+        // A note editor often opens with an empty wrapper.
+        assert_eq!(note_title("<div><p>Actual first line</p></div>", 60), "Actual first line");
+    }
+}
