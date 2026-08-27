@@ -13,6 +13,7 @@ pub mod routes;
 pub mod security;
 pub mod storage;
 pub mod state;
+pub mod naming;
 pub mod runs;
 mod workers;
 

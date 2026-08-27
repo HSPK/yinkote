@@ -206,6 +206,23 @@ check "graph names nodes" "$(j "$BASE/libraries/$LIB/graph/$GA" \
                              | jq -r '.nodes[] | select(.focus != true) | .title')"
 check "graph unknown key" "$(j "$BASE/libraries/$LIB/graph/ZZZZZZZZ" | jq -r '.title // empty')"
 
+echo "▸ file browser"
+check "files listed"      "$(j "$BASE/libraries/$LIB/files" \
+                             | jq -r 'select((.files | type) == "array") | "listed"')"
+# A file's address is what a file browser is opened to find out.
+check "files keep source" "$(j "$BASE/libraries/$LIB/files" \
+                             | jq -r '[.files[] | select(.url != "")] | length | tostring
+                                      | select(. != "0")' 2>/dev/null || echo "none stored yet")"
+# Preview must change nothing, which is the whole reason it exists.
+BEFORE=$(j "$BASE/libraries/$LIB/files" | jq -r '[.files[].filename] | @csv')
+check "preview is silent" "$(j -X POST "$BASE/libraries/$LIB/files/preview" \
+                             -d '{"template":"{author} {year} - {title}"}' >/dev/null; \
+                             AFTER=$(j "$BASE/libraries/$LIB/files" | jq -r '[.files[].filename] | @csv'); \
+                             [[ "$BEFORE" == "$AFTER" ]] && echo unchanged)"
+check "preview explains"  "$(j -X POST "$BASE/libraries/$LIB/files/preview" \
+                             -d '{"template":"{author} {year} - {title}"}' \
+                             | jq -r 'select(.template != null) | "planned"')"
+
 echo "▸ download queue"
 DK=$(j -X POST "$BASE/libraries/$LIB/items" \
        -d '[{"itemType":"journalArticle","title":"Queue smoke"}]' | jq -r '.created[0].key')

@@ -5,6 +5,7 @@ import type { TabKind } from '../lib/tabs'
 import { ChatView } from '../pages/ChatView'
 import { CollectionsPage } from '../pages/CollectionsPage'
 import { DownloadsPage } from '../pages/DownloadsPage'
+import { FilesPage } from '../pages/FilesPage'
 import { GapsPage } from '../pages/GapsPage'
 import { GraphView } from '../pages/GraphView'
 import { ItemTable } from '../components/ItemTable'
@@ -86,6 +87,13 @@ export const TABS: Record<TabKind, TabDefinition> = {
     icon: 'Graph',
     labelKey: 'gaps.title',
     Footer: GapsFooter,
+    search: 'none',
+  },
+  files: {
+    Body: FilesPage,
+    icon: 'Library',
+    labelKey: 'files.title',
+    withDetail: true,
     search: 'none',
   },
   downloads: {

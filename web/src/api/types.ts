@@ -393,3 +393,22 @@ export interface Download {
   bytes: number
   updatedAt: number
 }
+
+/** One stored file, with the item it belongs to. */
+export interface LibraryFile {
+  key: string
+  parentKey: string | null
+  parentTitle: string
+  filename: string
+  contentType: string
+  /** Where it was fetched from. */
+  url: string
+  /** From disk, not from the record — a file the database believes in and the
+   *  disk does not is exactly what this view is for finding. */
+  bytes: number
+}
+
+export interface RenamePlan {
+  template: string
+  changes: { key: string; from: string; to: string }[]
+}

@@ -518,6 +518,85 @@ impl ItemRepository for SqliteItemRepository {
             .await
     }
 
+    async fn attachments(
+        &self,
+        library_id: i64,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Page<(Item, Option<Item>)>> {
+        self.db
+            .call(move |c| {
+                let total: i64 = c
+                    .query_row(
+                        "SELECT count(*) FROM items \
+                         WHERE library_id = ?1 AND deleted = 0 AND item_type = 'attachment'",
+                        params![library_id],
+                        |r| r.get(0),
+                    )
+                    .map_err(sql_err)?;
+
+                let sql = format!(
+                    "SELECT {COLS} {FROM} \
+                     WHERE i.library_id = ?1 AND i.deleted = 0 AND i.item_type = 'attachment' \
+                     ORDER BY i.date_added DESC LIMIT ?2 OFFSET ?3"
+                );
+                let mut rows: Vec<(i64, Item)> = c
+                    .prepare_cached(&sql)
+                    .map_err(sql_err)?
+                    .query_map(params![library_id, limit, offset], map_row)
+                    .map_err(sql_err)?
+                    .collect::<rusqlite::Result<_>>()
+                    .map_err(sql_err)?;
+                hydrate(c, &mut rows)?;
+
+                // The parents in one pass. One query per attachment would be a
+                // thousand round trips for a page nobody would wait for.
+                let parents: Vec<Key> =
+                    rows.iter().filter_map(|(_, i)| i.parent_key.clone()).collect();
+                let mut by_key: std::collections::HashMap<String, Item> =
+                    std::collections::HashMap::new();
+                if !parents.is_empty() {
+                    // One placeholder per key. The library id has its own `?`
+                    // in the statement; counting it here too is how this
+                    // produced "got 3, needed 4" on the first real request.
+                    let places = vec!["?"; parents.len()].join(",");
+                    let sql = format!(
+                        "SELECT {COLS} {FROM} WHERE i.library_id = ? AND i.key IN ({places})"
+                    );
+                    let mut args: Vec<Box<dyn rusqlite::ToSql>> =
+                        vec![Box::new(library_id)];
+                    for key in &parents {
+                        args.push(Box::new(key.to_string()));
+                    }
+                    let mut found: Vec<(i64, Item)> = c
+                        .prepare(&sql)
+                        .map_err(sql_err)?
+                        .query_map(rusqlite::params_from_iter(args.iter().map(|a| a.as_ref())), map_row)
+                        .map_err(sql_err)?
+                        .collect::<rusqlite::Result<_>>()
+                        .map_err(sql_err)?;
+                    hydrate(c, &mut found)?;
+                    for (_, item) in found {
+                        by_key.insert(item.key.to_string(), item);
+                    }
+                }
+
+                let items = rows
+                    .into_iter()
+                    .map(|(_, attachment)| {
+                        let parent = attachment
+                            .parent_key
+                            .as_ref()
+                            .and_then(|k| by_key.get(k.as_str()).cloned());
+                        (attachment, parent)
+                    })
+                    .collect();
+
+                Ok(Page { items, total, limit, offset })
+            })
+            .await
+    }
+
     async fn create(&self, library_id: i64, draft: ItemDraft) -> Result<Item> {
         self.db
             .call(move |c| {

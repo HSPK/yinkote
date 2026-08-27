@@ -126,6 +126,8 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   /** Downloads waiting or failed, for the sidebar badge. */
   downloadCount: number
   setDownloadCount: (count: number) => void
+  fileCount: number
+  setFileCount: (count: number) => void
   fetchPdf: (itemKey: string, url?: string) => Promise<void>
   openCollectionEditor: (key: string | null) => void
   loadBadges: (keys: string[]) => Promise<void>
@@ -486,9 +488,14 @@ export const useStore = create<State>((set, get, store) => ({
   graphSize: { nodes: 0, edges: 0 },
   gapCount: 0,
   downloadCount: 0,
+  fileCount: 0,
 
   setDownloadCount(downloadCount) {
     set({ downloadCount })
+  },
+
+  setFileCount(fileCount) {
+    set({ fileCount })
   },
   detached: null,
 

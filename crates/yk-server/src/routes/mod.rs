@@ -9,6 +9,7 @@ pub use references::Harvest;
 mod collections;
 pub(crate) mod files;
 mod downloads;
+mod files_browser;
 mod import;
 mod conversations;
 mod items;
@@ -40,6 +41,7 @@ pub fn router() -> Router<App> {
         .merge(references::router())
         .merge(files::router())
         .merge(downloads::router())
+        .merge(files_browser::router())
         .merge(import::router())
         .merge(collections::router())
         .merge(conversations::router())

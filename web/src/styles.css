@@ -2109,3 +2109,19 @@ select.ctl { padding: 4px 6px; }
 }
 
 .row-actions { display: flex; gap: 6px; align-items: center; }
+
+
+/* ─── file browser ───────────────────────────────────────────────────────── */
+
+.files-grid { grid-template-columns: 1.4fr 1.2fr 1.4fr 90px; }
+.files-grid .mono { font-family: var(--mono); font-size: 11px; }
+
+/* What a rename would do, before it does it. */
+.rename-plan {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+  font: 11px/1.7 var(--mono);
+}
+.rename-row { display: flex; align-items: center; gap: 8px; }
+.rename-row > .dim { text-decoration: line-through; }

@@ -112,6 +112,23 @@ impl Storage {
         tokio::fs::metadata(self.path(key, filename)).await.ok().map(|m| m.len())
     }
 
+    /// Give a stored file a different name, in place.
+    ///
+    /// Refuses to overwrite: two attachments of one paper can render to the
+    /// same name, and silently replacing one with the other would lose a file
+    /// while reporting success.
+    pub async fn rename(&self, key: &Key, from: &str, to: &str) -> Result<()> {
+        let source = self.path(key, from);
+        let target = self.path(key, to);
+        if source == target {
+            return Ok(());
+        }
+        if tokio::fs::try_exists(&target).await.unwrap_or(false) {
+            return Err(Error::invalid(format!("{to} is already there")));
+        }
+        tokio::fs::rename(&source, &target).await.map_err(io)
+    }
+
     /// Remove everything belonging to an attachment.
     pub async fn remove(&self, key: &Key) -> Result<()> {
         match tokio::fs::remove_dir_all(self.dir(key)).await {

@@ -27,6 +27,18 @@ pub trait ItemRepository: Send + Sync {
     async fn list(&self, query: &ItemQuery) -> Result<Page<Item>>;
     async fn children(&self, library_id: i64, parent: &Key) -> Result<Vec<Item>>;
 
+    /// Every attachment in the library, with the item it belongs to.
+    ///
+    /// Paired here rather than fetched per file: a library's attachments run to
+    /// thousands, and one query per file is the difference between a page that
+    /// opens and one that does not.
+    async fn attachments(
+        &self,
+        library_id: i64,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Page<(Item, Option<Item>)>>;
+
     async fn create(&self, library_id: i64, draft: ItemDraft) -> Result<Item>;
     /// Batch create. Returns one result per input, so a single bad row does not
     /// fail the whole request.

@@ -12,6 +12,8 @@ import type {
   CitationList,
   CitationRender,
   Download,
+  LibraryFile,
+  RenamePlan,
   Harvest,
   MissingWork,
   RunState,
@@ -286,6 +288,20 @@ export const api = {
     ),
 
   files: {
+    list: (lib: number, offset = 0) =>
+      request<{ files: LibraryFile[]; total: number }>(
+        `/libraries/${lib}/files?offset=${offset}`,
+      ),
+    preview: (lib: number, template?: string) =>
+      request<RenamePlan>(`/libraries/${lib}/files/preview`, {
+        method: 'POST',
+        ...json({ template }),
+      }),
+    rename: (lib: number, template?: string) =>
+      request<{ renamed: number; failed: number }>(`/libraries/${lib}/files/rename`, {
+        method: 'POST',
+        ...json({ template }),
+      }),
     /** A browser-loadable address, not a fetch: the viewer streams it itself. */
     url: (lib: number, key: string) => `${BASE}/libraries/${lib}/files/${key}`,
     fetch: (lib: number, key: string, url?: string) =>

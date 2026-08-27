@@ -109,6 +109,16 @@ export function Sidebar() {
 
         <button
           className="nav-item"
+          data-active={activeTab.startsWith('files')}
+          title={t('files.title')}
+          onClick={() => openTab({ id: tabId('files'), kind: 'files', title: '' })}
+        >
+          <Icon.Library className="glyph" />
+          <span className="label">{t('files.title')}</span>
+        </button>
+
+        <button
+          className="nav-item"
           data-active={activeTab.startsWith('downloads')}
           title={t('downloads.title')}
           onClick={() => openTab({ id: tabId('downloads'), kind: 'downloads', title: '' })}
