@@ -18,6 +18,7 @@ import { useStore } from './state/store'
 
 let about: Conversation[] = []
 let references: { position: number; key: string | null; label: string; year: number | null; fingerprint: string }[] = []
+let children: Record<string, unknown>[] = []
 const asked: string[] = []
 
 vi.mock('./api/client', () => {
@@ -29,6 +30,7 @@ vi.mock('./api/client', () => {
           asked.push(String(args[1] ?? ''))
           return Promise.resolve({ conversations: about })
         }
+        if (path === 'api.items.children') return Promise.resolve(children)
         if (path === 'api.references.list') {
           return Promise.resolve({ cites: references, citedBy: [], resolved: 1 })
         }
@@ -70,6 +72,21 @@ let root: Root
 
 beforeEach(() => {
   asked.length = 0
+  children = [
+    {
+      key: 'NOTE0001',
+      itemType: 'note',
+      note: '<p>The dataset is the real contribution.</p>',
+      tags: [{ tag: 'summary', type: 1 }],
+    },
+    {
+      key: 'NOTE0002',
+      itemType: 'note',
+      note: '<p>My own reading note.</p>',
+      tags: [],
+    },
+    { key: 'FILE0001', itemType: 'attachment', tags: [] },
+  ]
   references = [
     { position: 0, key: 'HELD0001', label: 'A work it cites', year: 2019, fingerprint: 'doi:1' },
     { position: 1, key: null, label: 'Something we do not have', year: 2020, fingerprint: 'doi:2' },
@@ -165,5 +182,36 @@ describe("a paper's references", () => {
     await render()
     const buttons = [...container.querySelectorAll('.detail button')].map((b) => b.textContent)
     expect(buttons.some((label) => label?.includes('Fetch'))).toBe(true)
+  })
+})
+
+describe("a paper's notes", () => {
+  it('shows what has been written under the paper', async () => {
+    await render()
+    // Summarising has landed a note under the item since it was built, and
+    // nothing showed it: you had to know to look at the item's children.
+    expect(container.textContent).toContain('The dataset is the real contribution')
+    expect(container.textContent).toContain('My own reading note')
+  })
+
+  it('strips the markup for the preview', async () => {
+    await render()
+    const row = container.querySelector('.note-text')
+    expect(row?.textContent).not.toContain('<p>')
+  })
+
+  it('marks the ones the model wrote', async () => {
+    await render()
+    // A summary the model wrote and a note the user wrote are different
+    // things to trust.
+    const rows = [...container.querySelectorAll('.note-row')]
+    expect(rows[0]?.querySelector('.note-badge')).not.toBeNull()
+    expect(rows[1]?.querySelector('.note-badge')).toBeNull()
+  })
+
+  it('says nothing at all when there are none', async () => {
+    children = []
+    await render()
+    expect(container.querySelector('.note-list')).toBeNull()
   })
 })

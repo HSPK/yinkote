@@ -460,6 +460,7 @@ export const enUS: Record<MessageKey, string> = {
   'detail.referencesFetching': 'Fetching…',
   'detail.referencesFailed': 'Could not fetch the references',
   'detail.referencesHeld': '{held} of {total} in your library',
+  'detail.noteGenerated': 'summary',
   'tabs.emptyTitle': 'No tab open',
   'tabs.emptyHint': 'Open your library, or pick anything from the sidebar.',
   'tabs.openLibrary': 'Open library',

@@ -108,6 +108,7 @@ export function itemMenu(item: Item): MenuItem[] {
       label: t('summary.generate'),
       onSelect: () =>
         withToast(() => store.summarise(item.key), {
+          pending: t('summary.working'),
           success: t('summary.done'),
           failure: t('summary.failed'),
         }),

@@ -249,6 +249,7 @@ export function DetailPanel() {
             </div>
           </dd>
 
+          <ItemNotes itemKey={item.key} />
           <ItemReferences itemKey={item.key} />
           <ItemConversations itemKey={item.key} />
         </dl>
@@ -396,4 +397,72 @@ function ItemReferences({ itemKey: selected }: { itemKey: string }) {
       </dd>
     </>
   )
+}
+
+/** The notes written under a paper, including any generated summary.
+ *
+ *  Summarising has landed a note under the item since it was built, and
+ *  nothing showed it: you had to know to go looking at the item's children.
+ *  A result nobody is shown is a result that did not happen — and the
+ *  assistant has been reading these all along.
+ */
+function ItemNotes({ itemKey: selected }: { itemKey: string }) {
+  const t = useT()
+  const itemKey = useDebounced(selected)
+  const library = useStore((s) => s.library)
+  const openReader = useStore((s) => s.openReader)
+  const [notes, setNotes] = useState<Item[]>([])
+
+  useEffect(() => {
+    let live = true
+    void api.items
+      .children(library, itemKey)
+      .then((kids) => {
+        if (live) setNotes(kids.filter((k) => k.itemType === 'note'))
+      })
+      .catch(() => {
+        if (live) setNotes([])
+      })
+    return () => {
+      live = false
+    }
+  }, [library, itemKey])
+
+  if (!notes.length) return null
+
+  return (
+    <>
+      <dt>{t('detail.notes')}</dt>
+      <dd>
+        <div className="note-list">
+          {notes.map((note) => {
+            const generated = note.tags.some((tag) => tag.tag === 'summary')
+            return (
+              <button
+                key={note.key}
+                className="note-row"
+                onClick={() => openReader(note.key)}
+                title={plainText(String(note.note ?? ''))}
+              >
+                {/* Marked, because a summary the model wrote and a note the
+                    user wrote are different things to trust. */}
+                {generated && <span className="note-badge">{t('detail.noteGenerated')}</span>}
+                <span className="note-text">{plainText(String(note.note ?? ''))}</span>
+              </button>
+            )
+          })}
+        </div>
+      </dd>
+    </>
+  )
+}
+
+/** A note's text without its markup, for a one-line preview. */
+function plainText(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim()
 }

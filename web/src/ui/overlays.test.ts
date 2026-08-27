@@ -163,3 +163,47 @@ describe('withToast', () => {
     expect(useOverlays.getState().toasts).toHaveLength(0)
   })
 })
+
+describe('withToast while something is running', () => {
+  it('says so while it waits, and stops saying so when it finishes', async () => {
+    useOverlays.setState({ toasts: [] })
+
+    let finish: (v: number) => void = () => {}
+    const running = withToast(() => new Promise<number>((r) => (finish = r)), {
+      pending: 'Summarising…',
+      success: 'Done',
+      failure: 'Failed',
+    })
+
+    // Some of these are model calls that run for most of a minute. With only
+    // an outcome message the interface says nothing at all while they run,
+    // and the honest reading of that is "the click did not work".
+    expect(useOverlays.getState().toasts.map((t) => t.message)).toContain('Summarising…')
+
+    finish(1)
+    await running
+    expect(useOverlays.getState().toasts.map((t) => t.message)).not.toContain('Summarising…')
+    expect(useOverlays.getState().toasts.map((t) => t.message)).toContain('Done')
+  })
+
+  it('takes the waiting message down when it fails too', async () => {
+    useOverlays.setState({ toasts: [] })
+
+    await withToast(() => Promise.reject(new Error('nope')), {
+      pending: 'Summarising…',
+      failure: 'Failed',
+    })
+
+    // A "working…" left on screen after a failure is worse than none: it says
+    // the thing is still coming.
+    const messages = useOverlays.getState().toasts.map((t) => t.message)
+    expect(messages).not.toContain('Summarising…')
+    expect(messages).toContain('Failed')
+  })
+
+  it('says nothing extra when no waiting message was given', async () => {
+    useOverlays.setState({ toasts: [] })
+    await withToast(async () => 1, { success: 'Done', failure: 'Failed' })
+    expect(useOverlays.getState().toasts).toHaveLength(1)
+  })
+})

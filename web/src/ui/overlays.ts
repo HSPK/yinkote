@@ -188,13 +188,22 @@ export const toast = {
 /** Wrap an async action so failures surface as a toast instead of vanishing. */
 export async function withToast<T>(
   action: () => Promise<T>,
-  messages: { success?: string; failure: string },
+  messages: { pending?: string; success?: string; failure: string },
 ): Promise<T | undefined> {
+  // Some of these are model calls that run for the better part of a minute.
+  // With only an outcome message, the interface says nothing at all while
+  // they run, and the honest reading of that is "the click did not work".
+  const waiting = messages.pending
+    ? useOverlays.getState().pushToast({ tone: 'info', message: messages.pending })
+    : undefined
+
   try {
     const result = await action()
+    if (waiting !== undefined) useOverlays.getState().dismissToast(waiting)
     if (messages.success) toast.success(messages.success)
     return result
   } catch (error) {
+    if (waiting !== undefined) useOverlays.getState().dismissToast(waiting)
     toast.fromError(messages.failure, error)
     return undefined
   }

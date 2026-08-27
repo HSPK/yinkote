@@ -456,6 +456,7 @@ export const zhCN = {
   'detail.referencesFetching': '抓取中…',
   'detail.referencesFailed': '无法抓取参考文献',
   'detail.referencesHeld': '其中 {held}/{total} 篇在你的库中',
+  'detail.noteGenerated': '摘要',
   'tabs.emptyTitle': '没有打开的标签页',
   'tabs.emptyHint': '打开文献库，或从左侧选择任意内容。',
   'tabs.openLibrary': '打开文献库',
