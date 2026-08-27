@@ -188,7 +188,16 @@ export const toast = {
 /** Wrap an async action so failures surface as a toast instead of vanishing. */
 export async function withToast<T>(
   action: () => Promise<T>,
-  messages: { pending?: string; success?: string; failure: string },
+  messages: {
+    pending?: string
+    /** A string, or what to say once the answer is known.
+     *
+     *  "Backed up" is worth less than "backed up 305 MB", and "checked" is
+     *  worth much less than "checked 12,043 files, all present" — the point of
+     *  running a check is the number it comes back with. */
+    success?: string | ((result: T) => string)
+    failure: string
+  },
 ): Promise<T | undefined> {
   // Some of these are model calls that run for the better part of a minute.
   // With only an outcome message, the interface says nothing at all while
@@ -200,7 +209,11 @@ export async function withToast<T>(
   try {
     const result = await action()
     if (waiting !== undefined) useOverlays.getState().dismissToast(waiting)
-    if (messages.success) toast.success(messages.success)
+    if (messages.success) {
+      toast.success(
+        typeof messages.success === 'function' ? messages.success(result) : messages.success,
+      )
+    }
     return result
   } catch (error) {
     if (waiting !== undefined) useOverlays.getState().dismissToast(waiting)

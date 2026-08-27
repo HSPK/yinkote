@@ -8,7 +8,7 @@ import { ZoteroImport } from '../components/ZoteroImport'
 import { filterSettings, type SettingSection } from '../lib/settings'
 import { THEMES } from '../lib/theme'
 import { useStore } from '../state/store'
-import { runOptimize, runReindex } from '../lib/maintenance'
+import { runBackup, runIntegrity, runOptimize, runReindex } from '../lib/maintenance'
 import { Badge, Button, Field, Icon, Input, Section, Select, toast } from '../ui'
 
 const DENSITIES = ['compact', 'comfortable'] as const
@@ -280,6 +280,8 @@ runOptimize()
                 >
                   {t('statusPage.optimize')}
                 </Button>
+                <Button onClick={() => void runBackup()}>{t('settings.backup')}</Button>
+                <Button onClick={() => void runIntegrity()}>{t('settings.integrity')}</Button>
               </div>
             ),
           },

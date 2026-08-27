@@ -10,6 +10,7 @@ pub mod config;
 mod error;
 pub mod hostapi;
 pub mod integration;
+pub mod maintenance;
 pub mod routes;
 pub mod security;
 pub mod storage;

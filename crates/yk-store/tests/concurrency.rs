@@ -135,3 +135,43 @@ fn wal_bytes(db: &std::path::Path) -> u64 {
     wal.push("-wal");
     std::fs::metadata(std::path::PathBuf::from(wal)).map(|m| m.len()).unwrap_or(0)
 }
+
+/// A backup is worth exactly what can be restored from it.
+///
+/// Taking one is easy to get wrong in a way that still produces a file: a copy
+/// made without a consistent snapshot opens fine and is missing rows. So the
+/// test opens the copy as a library in its own right and reads it.
+#[tokio::test]
+async fn a_backup_opens_as_a_library() {
+    let root = Root::new("backup");
+    let store = Store::open(Some(&root.db())).unwrap();
+    let lib = store.default_library;
+
+    let drafts: Vec<ItemDraft> = (0..200)
+        .map(|i| ItemDraft::new("journalArticle").with_field("title", format!("Paper {i}")))
+        .collect();
+    store.items.create_many(lib, drafts).await.unwrap();
+
+    let copy = root.0.join("backup.db");
+    let bytes = store.db().backup_to(copy.clone()).await.unwrap();
+    assert!(bytes > 0, "a backup with nothing in it is not a backup");
+
+    // Writing afterwards must not reach into the copy: what was backed up is
+    // what the library held at the time.
+    store
+        .items
+        .create(lib, ItemDraft::new("journalArticle").with_field("title", "Written later"))
+        .await
+        .unwrap();
+
+    let restored = Store::open(Some(&copy)).unwrap();
+    let found = restored
+        .items
+        .count(&ItemFilter { library_id: lib, ..Default::default() })
+        .await
+        .unwrap();
+    assert_eq!(found, 200, "every row, and only the rows that existed");
+
+    // Refusing to overwrite is the difference between a backup and a mistake.
+    assert!(store.db().backup_to(copy).await.is_err());
+}

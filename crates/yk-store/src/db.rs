@@ -217,6 +217,34 @@ impl Db {
         .await
     }
 
+    /// Write a consistent copy of the database to `dest`.
+    ///
+    /// `VACUUM INTO` rather than the backup API's page-by-page copy: it takes
+    /// the same read snapshot, so a backup taken while somebody is typing is
+    /// still a coherent library, and it writes a *compacted* file — which for a
+    /// database that has had a large import deleted out of it can be a third of
+    /// the size. It also cannot half-finish: SQLite refuses if the destination
+    /// exists, and a failure leaves nothing behind to be mistaken for a backup.
+    ///
+    /// Returns the size of what was written.
+    pub async fn backup_to(&self, dest: std::path::PathBuf) -> Result<u64> {
+        if dest.exists() {
+            return Err(yk_core::Error::invalid(format!(
+                "{} already exists",
+                dest.display()
+            )));
+        }
+        let target = dest.clone();
+        self.call(move |c| {
+            // Bound as a parameter would be ideal; `VACUUM INTO` will not take
+            // one, so the path is quoted the way SQLite quotes strings.
+            let quoted = target.to_string_lossy().replace('\'', "''");
+            c.execute_batch(&format!("VACUUM INTO '{quoted}'")).map_err(sql_err)
+        })
+        .await?;
+        Ok(std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0))
+    }
+
     /// Fold the write-ahead log back into the database, and keep its *file*
     /// from staying huge. Returns the log's size in bytes afterwards.
     ///

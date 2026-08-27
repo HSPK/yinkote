@@ -17,7 +17,9 @@
 - **内容寻址去重**：入库先算 `blake3`，若库内已有同哈希文件则做硬链接/引用计数，节省空间（大量重复 PDF 场景很常见）。
 - **linked_file 目录监听**：用 `notify` 监听基准目录，文件被移动/重命名时自动修复路径（Zotero 的老痛点）。
 - **文件名模板**：`{{creator}}_{{year}}_{{title|truncate 60}}.pdf`，可配置，重命名时同步更新 DB。
-- **完整性检查**：`/maintenance/integrity` 扫描"DB 有记录但文件缺失"与"目录有文件但无记录"的孤儿。
+- **完整性检查**：`GET /maintenance/integrity` 扫描"DB 有记录但文件缺失"与"目录有文件但无记录"的孤儿。
+  **已实现**，只报告、不修复：数据库出错时，因为"数据库说不出这个文件的来历"就删掉它，
+  恰恰是最坏的反应。整库一次 `spawn_blocking` 完成目录遍历与 `stat`（见 `docs/16` §3.60）。
 
 ### 网页快照
 
@@ -25,7 +27,12 @@
 
 ## 2. 备份
 
-- 每日（可配置）用 SQLite Online Backup API 生成 `backups/yinkote-YYYYMMDD.db`，保留最近 N 份 + 每月 1 份。
+- 每日（可配置）生成 `backups/yinkote-YYYYMMDD.db`，保留最近 N 份（默认 7）+ 每月 1 份。
+  **已实现**：`POST /maintenance/backup`、`GET /maintenance/backups`。
+  用 `VACUUM INTO` 而非 Online Backup API：同样取一致快照，但写出的是**压缩过**的副本
+  （删过大批导入的库可以小到三分之一），且目标已存在时直接拒绝——不会留下半份文件
+  被误当成备份。保留规则是纯函数 `maintenance::backups::prune`，返回"该删哪些"
+  而不是"该留哪些"（见 `docs/16` §3.70）。
 - 迁移前强制快照。
 - `POST /maintenance/export-all` 导出 `.yinkote`（zip：`db.sqlite` + `library/` + `metadata/` + `manifest.json`），可整包迁移到另一台机器。
 

@@ -422,6 +422,18 @@ export const api = {
     reindex: (lib: number) =>
       request<{ reindexed: number }>(`/maintenance/reindex/${lib}`, { method: 'POST' }),
     optimize: () => request<{ ok: boolean }>('/maintenance/optimize', { method: 'POST' }),
+    backup: () =>
+      request<{ name: string; bytes: number; pruned: string[]; kept: number }>(
+        '/maintenance/backup',
+        { method: 'POST' },
+      ),
+    integrity: () =>
+      request<{
+        checked: number
+        missing: { key: string; filename: string; parentTitle: string }[]
+        orphans: { path: string; bytes: number }[]
+        orphanBytes: number
+      }>('/maintenance/integrity'),
   },
 }
 

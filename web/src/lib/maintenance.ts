@@ -6,6 +6,7 @@
  *  none of them said anything while it ran. Three copies of a thing that is
  *  silent for half a minute is three chances to conclude the button is broken.
  */
+import { api } from '../api/client'
 import { t } from '../i18n'
 import { useStore } from '../state/store'
 import { withToast } from '../ui'
@@ -26,4 +27,48 @@ export async function runOptimize(): Promise<void> {
     success: t('toast.optimized'),
     failure: t('toast.optimizeFailed'),
   })
+}
+
+/** Take a backup now. Slow in proportion to the library: a 300MB one takes
+ *  about four seconds, which is long enough to need saying so. */
+export async function runBackup(): Promise<void> {
+  await withToast(
+    async () => {
+      const made = await api.maintenance.backup()
+      return made
+    },
+    {
+      pending: t('toast.backingUp'),
+      success: (made) =>
+        t('toast.backedUp', { name: made.name, size: humanBytes(made.bytes) }),
+      failure: t('toast.backupFailed'),
+    },
+  )
+}
+
+/** Check that the database and the disk still agree. Reports; never repairs. */
+export async function runIntegrity(): Promise<void> {
+  await withToast(async () => await api.maintenance.integrity(), {
+    pending: t('toast.checking'),
+    success: (report) =>
+      report.missing.length === 0 && report.orphans.length === 0
+        ? t('toast.integrityClean', { n: report.checked })
+        : t('toast.integrityFound', {
+            missing: report.missing.length,
+            orphans: report.orphans.length,
+          }),
+    failure: t('toast.integrityFailed'),
+  })
+}
+
+/** Bytes at the resolution a person reads them: nobody wants 319459328. */
+export function humanBytes(bytes: number): string {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let n = bytes
+  let unit = 0
+  while (n >= 1024 && unit < units.length - 1) {
+    n /= 1024
+    unit += 1
+  }
+  return `${n < 10 && unit > 0 ? n.toFixed(1) : Math.round(n)} ${units[unit]}`
 }

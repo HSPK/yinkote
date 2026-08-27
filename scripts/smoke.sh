@@ -250,6 +250,37 @@ check "graph coupling"    "$(j "$BASE/libraries/$LIB/graph/$CITER" \
 check "graph cocitation"  "$(j "$BASE/libraries/$LIB/graph/$CA" \
                              | jq -r --arg k "$CB" '[.edges[] | select(.relation == "cocitation" and .target == $k)] | length | select(. == 1)')"
 
+echo "▸ maintenance"
+# Asked, not assumed: the server knows where it keeps its data, and a script
+# that hard-codes the path checks a different machine's backups on the day
+# somebody runs it with a different --data-dir.
+DATA=$(j "$BASE/ping" | jq -r .dataDir)
+# A backup is worth what can be restored from it, so the check is that the file
+# opens as a library and holds the same number of items — not that the endpoint
+# returned 200.
+BK=$(j -X POST "$BASE/maintenance/backup")
+BKNAME=$(echo "$BK" | jq -r .name)
+check "backup taken"      "$(echo "$BK" | jq -r '.bytes | select(. > 0) | "written"')"
+check "backup named"      "$(echo "$BKNAME" | grep -qE '^yinkote-[0-9]{8}\.db$' && echo "$BKNAME")"
+# Named rather than counted. A count has to agree about what it is counting —
+# trashed items, child items — and comparing two slightly different questions
+# is how this check first failed against a backup that was perfectly good. An
+# item created earlier in this run either made it into the copy or did not.
+check "backup restores"   "$(python3 - "$DATA/backups/$BKNAME" "$KEY" <<'PY'
+import sqlite3, sys
+db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+ok = list(db.execute("PRAGMA integrity_check"))[0][0]
+found = list(db.execute("SELECT count(*) FROM items WHERE key = ?", (sys.argv[2],)))[0][0]
+total = list(db.execute("SELECT count(*) FROM items"))[0][0]
+print("restored" if ok == "ok" and found == 1 and total > 0 else "")
+PY
+)"
+# Taking one twice in a day replaces it rather than failing.
+check "backup repeats"    "$(j -X POST "$BASE/maintenance/backup" | jq -r --arg n "$BKNAME" '.name | select(. == $n)')"
+check "backups listed"    "$(j "$BASE/maintenance/backups" | jq -r --arg n "$BKNAME" '[.backups[] | select(.name == $n)] | length | select(. == 1)')"
+check "integrity checked" "$(j "$BASE/maintenance/integrity" | jq -r '.checked | tostring | select(. != "null")')"
+check "integrity reports" "$(j "$BASE/maintenance/integrity" | jq -r 'select((.missing | type) == "array" and (.orphans | type) == "array") | "both directions"')"
+
 echo "▸ duplicates"
 # Two records of one paper, one of which carries the PDF.
 # Unique to this run. The smoke database is kept between runs, so a fixed
