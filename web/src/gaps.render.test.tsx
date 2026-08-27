@@ -16,6 +16,18 @@ import { emptyScope } from './state/scope'
 import { useStore } from './state/store'
 
 const added: string[] = []
+const started: boolean[] = []
+
+let harvest = {
+  running: false,
+  total: 0,
+  done: 0,
+  stored: 0,
+  empty: 0,
+  failed: 0,
+  stopped: false,
+  message: null,
+}
 
 let works: MissingWork[] = []
 
@@ -25,6 +37,11 @@ vi.mock('./api/client', () => {
       get: (_t, key) => (key === 'then' ? undefined : build(`${path}.${String(key)}`)),
       apply: (_t, _this, args: unknown[]) => {
         if (path === 'api.references.missing') return Promise.resolve({ works })
+        if (path === 'api.references.harvest') return Promise.resolve(harvest)
+        if (path === 'api.references.startHarvest') {
+          started.push(true)
+          return Promise.resolve({ ...harvest, running: true, total: 12 })
+        }
         if (path === 'api.scrape.quickAdd') {
           const body = args[1] as { text: string }
           added.push(body.text)
@@ -63,6 +80,17 @@ let root: Root
 
 beforeEach(() => {
   added.length = 0
+  started.length = 0
+  harvest = {
+    running: false,
+    total: 0,
+    done: 0,
+    stored: 0,
+    empty: 0,
+    failed: 0,
+    stopped: false,
+    message: null,
+  }
   works = [
     {
       fingerprint: 'doi:10 1016 j cell 2020 01 001',
@@ -177,5 +205,49 @@ describe('required reading', () => {
     // An empty list here means "you have not fetched any references", not "your
     // library is complete", and saying the wrong one would be a lie.
     expect(container.textContent).toContain('fetch the references')
+  })
+})
+
+describe('fetching reference lists in bulk', () => {
+  it('offers to fetch them, because one at a time will never happen', async () => {
+    await render()
+
+    // A library of five hundred papers is not going to be right-clicked five
+    // hundred times, so without this the whole view stays empty forever.
+    expect(container.querySelector('.gaps-bar')?.textContent).toContain('Fetch reference lists')
+  })
+
+  it('starts a run when asked', async () => {
+    await render()
+    const button = [...container.querySelectorAll('.gaps-bar button')].at(-1) as HTMLElement
+
+    await act(async () => {
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(started).toHaveLength(1)
+  })
+
+  it('shows progress while a run is going, and offers to stop it', async () => {
+    harvest = { ...harvest, running: true, total: 40, done: 12, stored: 310 }
+    await render()
+
+    const bar = container.querySelector('.gaps-bar')?.textContent ?? ''
+    expect(bar).toContain('12')
+    expect(bar).toContain('40')
+    expect(bar).toContain('Stop')
+  })
+
+  it('explains a finished run that stored little', async () => {
+    harvest = { ...harvest, done: 40, stored: 12, empty: 33 }
+    await render()
+
+    // Most publishers deposit no references at all. A run that looks like it
+    // did nothing is usually a field that did nothing, and saying so is the
+    // difference between a bug report and an explanation.
+    expect(container.querySelector('.gaps-bar')?.textContent).toContain('33')
   })
 })

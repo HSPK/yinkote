@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api/client'
-import type { MissingWork } from '../api/types'
+import type { Harvest, MissingWork } from '../api/types'
 import { useT } from '../i18n'
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, toast } from '../ui'
@@ -23,6 +23,7 @@ export function GapsPage() {
   const setGapCount = useStore((s) => s.setGapCount)
 
   const [works, setWorks] = useState<MissingWork[]>([])
+  const [harvest, setHarvest] = useState<Harvest | null>(null)
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState<string | null>(null)
 
@@ -37,6 +38,25 @@ export function GapsPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  // Poll only while a run is going. A background job nobody can see the
+  // progress of is one people start twice.
+  useEffect(() => {
+    if (!harvest?.running) return
+    const timer = window.setInterval(async () => {
+      const next = await api.references.harvest(library).catch(() => null)
+      if (next) setHarvest(next)
+      if (next && !next.running) void load()
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [harvest?.running, library, load])
+
+  useEffect(() => {
+    void api.references
+      .harvest(library)
+      .then(setHarvest)
+      .catch(() => {})
+  }, [library])
 
   /** Fetch the metadata for a DOI and file it, the same way quick-add does. */
   const add = async (work: MissingWork) => {
@@ -57,11 +77,60 @@ export function GapsPage() {
     }
   }
 
+  const bar = (
+    <div className="gaps-bar">
+      {harvest?.running ? (
+        <>
+          <span>
+            {t('gaps.harvesting', {
+              done: harvest.done,
+              total: harvest.total,
+              stored: harvest.stored,
+            })}
+          </span>
+          <Button onClick={() => void api.references.stopHarvest(library).then(setHarvest)}>
+            {t('gaps.stop')}
+          </Button>
+        </>
+      ) : (
+        <>
+          <span className="dim">
+            {harvest && harvest.done > 0
+              ? t('gaps.harvested', {
+                  done: harvest.done,
+                  stored: harvest.stored,
+                  empty: harvest.empty,
+                })
+              : t('gaps.harvestHint')}
+          </span>
+          <Button
+            tone="primary"
+            onClick={() =>
+              void api.references
+                .startHarvest(library)
+                .then(setHarvest)
+                .catch((e: unknown) => toast.fromError(t('gaps.harvestFailed'), e))
+            }
+          >
+            {t('gaps.harvest')}
+          </Button>
+        </>
+      )}
+    </div>
+  )
+
   if (loading) return <Empty>{t('gaps.loading')}</Empty>
-  if (!works.length) return <Empty>{t('gaps.none')}</Empty>
+  if (!works.length)
+    return (
+      <div className="pane main browser">
+        {bar}
+        <Empty>{t('gaps.none')}</Empty>
+      </div>
+    )
 
   return (
     <div className="pane main browser">
+      {bar}
       <div className="browser-head browser-grid gaps-grid">
         <span>{t('gaps.work')}</span>
         <span className="num">{t('gaps.year')}</span>

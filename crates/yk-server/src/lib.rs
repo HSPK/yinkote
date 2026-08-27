@@ -75,7 +75,15 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
 
     let badges = badges::BadgeService::new(plugins.clone());
     let agent = build_agent(&config, &services);
-    Ok(Arc::new(AppState { services, plugins, badges, config, agent, started: Instant::now() }))
+    Ok(Arc::new(AppState {
+        services,
+        plugins,
+        badges,
+        config,
+        agent,
+        started: Instant::now(),
+        harvest: Default::default(),
+    }))
 }
 
 /// The agent, when a model has been named.

@@ -344,3 +344,16 @@ export interface MissingWork {
   /** How many papers in the library cite it. */
   citedBy: number
 }
+
+/** A run that fetches reference lists for papers that have none yet. */
+export interface Harvest {
+  running: boolean
+  total: number
+  done: number
+  stored: number
+  /** Papers whose publisher deposited no reference list at all. */
+  empty: number
+  failed: number
+  stopped: boolean
+  message: string | null
+}

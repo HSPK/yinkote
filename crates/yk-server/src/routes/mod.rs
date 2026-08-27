@@ -5,6 +5,7 @@ mod citations;
 pub(crate) mod connector;
 mod graph;
 mod references;
+pub use references::Harvest;
 mod collections;
 pub(crate) mod files;
 mod import;

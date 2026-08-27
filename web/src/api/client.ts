@@ -11,6 +11,7 @@ import type {
   BadgeValue,
   CitationList,
   CitationRender,
+  Harvest,
   MissingWork,
   CitationStyle,
   Collection,
@@ -184,6 +185,11 @@ export const api = {
   references: {
     list: (lib: number, key: string) =>
       request<CitationList>(`/libraries/${lib}/items/${key}/citations`),
+    harvest: (lib: number) => request<Harvest>(`/libraries/${lib}/citations/harvest`),
+    startHarvest: (lib: number) =>
+      request<Harvest>(`/libraries/${lib}/citations/harvest`, { method: 'POST' }),
+    stopHarvest: (lib: number) =>
+      request<Harvest>(`/libraries/${lib}/citations/harvest/stop`, { method: 'POST' }),
     missing: (lib: number, limit = 50) =>
       request<{ works: MissingWork[] }>(`/libraries/${lib}/citations/missing?limit=${limit}`),
     fetch: (lib: number, key: string) =>

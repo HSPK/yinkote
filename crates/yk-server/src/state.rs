@@ -39,6 +39,9 @@ pub struct AppState {
     /// `None` when no model is configured, which is the default.
     pub agent: Option<Arc<yk_agent::Agent>>,
     pub started: Instant,
+    /// The reference-harvesting run, if one is going. One at a time: they all
+    /// talk to the same service, and two would only get the client throttled.
+    pub harvest: parking_lot::Mutex<crate::routes::Harvest>,
 }
 
 impl AppState {

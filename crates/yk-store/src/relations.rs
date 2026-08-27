@@ -81,6 +81,14 @@ pub trait RelationRepository: Send + Sync {
     /// What in this library cites this item.
     async fn cited_by(&self, library_id: i64, key: &Key) -> Result<Vec<Citation>>;
 
+    /// Papers with an identifier whose reference list has never been fetched.
+    ///
+    /// Returned rather than counted so the caller can work through them and
+    /// stop whenever it likes: fetching is a network request per paper to
+    /// somebody else's service, and a job that cannot be stopped halfway is a
+    /// job that should not be started.
+    async fn unfetched(&self, library_id: i64, limit: u32) -> Result<Vec<(Key, String)>>;
+
     /// The works this library cites most and does not hold.
     ///
     /// This is the question a citation graph exists to answer. A paper cited by
@@ -155,6 +163,18 @@ impl RelationRepository for SqliteRelationRepository {
                     stored += 1;
                 }
             }
+            // Record that we asked, separately from what came back. A paper
+            // with no deposited references leaves no rows at all, and without
+            // this the next bulk run cannot tell that from never having asked.
+            tx.execute(
+                "INSERT INTO citation_fetches (item_id, kind, fetched_at, found)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(item_id, kind) DO UPDATE SET
+                    fetched_at = excluded.fetched_at, found = excluded.found",
+                params![id, CITES, yk_core::now_ms(), stored as i64],
+            )
+            .map_err(sql_err)?;
+
             tx.commit().map_err(sql_err)?;
             Ok(stored)
         })
@@ -247,6 +267,41 @@ impl RelationRepository for SqliteRelationRepository {
         .map_err(|e| Error::internal(e.to_string()))?
     }
 
+    async fn unfetched(&self, library_id: i64, limit: u32) -> Result<Vec<(Key, String)>> {
+        let db = self.db.clone();
+        tokio::task::spawn_blocking(move || {
+            let conn = db.conn()?;
+            // `fingerprint` is indexed and a DOI sorts under a common prefix,
+            // so this is a range scan rather than a walk of the library.
+            let mut stmt = conn
+                .prepare_cached(
+                    "SELECT i.key, i.fields FROM items i
+                     WHERE i.library_id = ?1 AND i.deleted = 0 AND i.parent_id IS NULL
+                       AND i.fingerprint LIKE 'doi:%'
+                       AND NOT EXISTS (SELECT 1 FROM citation_fetches f
+                                       WHERE f.item_id = i.id AND f.kind = ?2)
+                     LIMIT ?3",
+                )
+                .map_err(sql_err)?;
+
+            let rows = stmt
+                .query_map(params![library_id, CITES, limit], |r| {
+                    Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                })
+                .map_err(sql_err)?;
+
+            let mut out = Vec::new();
+            for row in rows {
+                let (key, fields) = row.map_err(sql_err)?;
+                let (Ok(key), Some(doi)) = (Key::parse(&key), doi_of(&fields)) else { continue };
+                out.push((key, doi));
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| Error::internal(e.to_string()))?
+    }
+
     async fn missing(&self, library_id: i64, limit: u32) -> Result<Vec<Missing>> {
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || {
@@ -307,6 +362,17 @@ fn map_citation(r: &rusqlite::Row<'_>) -> rusqlite::Result<Citation> {
         key: r.get::<_, Option<String>>(4)?.and_then(|k| Key::parse(&k).ok()),
         doi: r.get(5)?,
     })
+}
+
+/// The DOI as the item stores it, not as the fingerprint flattened it.
+fn doi_of(fields: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(fields)
+        .ok()?
+        .get("DOI")?
+        .as_str()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(str::to_string)
 }
 
 fn title_of(fields: &str) -> String {

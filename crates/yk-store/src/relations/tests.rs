@@ -283,3 +283,36 @@ async fn keeps_the_identifier_the_publisher_wrote() {
     let missing = s.relations.missing(lib, 10).await.unwrap();
     assert_eq!(missing[0].doi, "10.1016/j.cell.2020.01.001");
 }
+
+#[tokio::test]
+async fn finds_papers_whose_references_have_never_been_fetched() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+
+    let waiting = s.items.create(lib, paper("Waiting", Some("10.1/waiting"))).await.unwrap();
+    let done = s.items.create(lib, paper("Done", Some("10.1/done"))).await.unwrap();
+    s.items.create(lib, paper("No identifier", None)).await.unwrap();
+    s.relations.set_citations(lib, &done.key, vec![cite("", "Something")]).await.unwrap();
+
+    let pending = s.relations.unfetched(lib, 10).await.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].0, waiting.key);
+    // The DOI as the item stores it: the fingerprint cannot be turned back
+    // into an address to fetch.
+    assert_eq!(pending[0].1, "10.1/waiting");
+}
+
+#[tokio::test]
+async fn a_paper_whose_publisher_deposited_nothing_is_not_asked_about_twice() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+    let item = s.items.create(lib, paper("Empty bibliography", Some("10.1/none"))).await.unwrap();
+
+    // Crossref answered, and the answer was "no references". That leaves no
+    // rows at all, so only a record of the asking distinguishes it from never
+    // having asked — and without it a bulk run would re-ask about every such
+    // paper on every run, forever, against somebody else's free service.
+    s.relations.set_citations(lib, &item.key, vec![]).await.unwrap();
+
+    assert!(s.relations.unfetched(lib, 10).await.unwrap().is_empty());
+}

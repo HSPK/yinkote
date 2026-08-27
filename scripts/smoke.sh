@@ -201,6 +201,13 @@ check "refs need a doi"   "$(j -X POST "$BASE/libraries/$LIB/items/$GA/citations
                              | jq -r '.title // empty | select(contains("DOI"))')"
 # `check` passes any non-empty string, so this is phrased so that a wrong
 # answer is empty rather than merely a different number.
+check "harvest idle"      "$(j "$BASE/libraries/$LIB/citations/harvest" \
+                             | jq -r 'select(.running == false) | "idle"')"
+# Two runs would only get the client throttled by the service they share.
+check "harvest one only"  "$(j -X POST "$BASE/libraries/$LIB/citations/harvest" >/dev/null; \
+                             j -X POST "$BASE/libraries/$LIB/citations/harvest" \
+                             | jq -r '.title // .message // empty')"
+j -X POST "$BASE/libraries/$LIB/citations/harvest/stop" >/dev/null
 check "gaps listed"       "$(j "$BASE/libraries/$LIB/citations/missing" \
                              | jq -r 'select((.works | type) == "array") | "listed"')"
 check "refs both ways"    "$(j "$BASE/libraries/$LIB/items/$GA/citations" \

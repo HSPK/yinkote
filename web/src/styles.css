@@ -1922,3 +1922,14 @@ select.ctl { padding: 4px 6px; }
 .gaps-grid {
   grid-template-columns: 1fr 64px 90px 92px;
 }
+
+.gaps-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  font: 11px/1.6 var(--mono);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
