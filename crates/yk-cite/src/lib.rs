@@ -171,8 +171,23 @@ pub fn bibliography(items: &[Item], style: &Style, format: Format) -> Vec<String
 
 /// Render the marker that goes in the running text.
 pub fn citation(item: &Item, style: &Style, number: usize) -> String {
+    let body = citation_body(item, style, number);
     if style.numeric {
-        return format!("[{number}]");
+        format!("[{body}]")
+    } else {
+        format!("({body})")
+    }
+}
+
+/// The inside of a citation marker, without its brackets or parentheses.
+///
+/// A word processor needs to build the marker rather than receive it finished:
+/// one field may cite two works (`[1,2]`), and a locator or a prefix — "see
+/// Zhang 2020, p. 41" — belongs *inside* the punctuation. Composing that from a
+/// finished `(Zhang, 2020)` would mean taking it apart again.
+pub fn citation_body(item: &Item, style: &Style, number: usize) -> String {
+    if style.numeric {
+        return number.to_string();
     }
 
     let year = year(item);
@@ -185,9 +200,9 @@ pub fn citation(item: &Item, style: &Style, number: usize) -> String {
     };
 
     if year.is_empty() {
-        format!("({who})")
+        who
     } else {
-        format!("({who}, {year})")
+        format!("{who}, {year}")
     }
 }
 

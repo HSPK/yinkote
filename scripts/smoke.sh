@@ -250,6 +250,41 @@ check "graph coupling"    "$(j "$BASE/libraries/$LIB/graph/$CITER" \
 check "graph cocitation"  "$(j "$BASE/libraries/$LIB/graph/$CA" \
                              | jq -r --arg k "$CB" '[.edges[] | select(.relation == "cocitation" and .target == $k)] | length | select(. == 1)')"
 
+echo "▸ word integration"
+# The protocol every word processor uses. The point of the whole design is that
+# inserting a citation renumbers the ones after it, so that is what is checked.
+WA=$(j -X POST "$BASE/libraries/$LIB/items" \
+       -d '{"itemType":"journalArticle","title":"Alpha","date":"2020","creators":[{"creatorType":"author","lastName":"Zhang"}]}' \
+       | jq -r '.created[0].key')
+WB=$(j -X POST "$BASE/libraries/$LIB/items" \
+       -d '{"itemType":"journalArticle","title":"Beta","date":"2021","creators":[{"creatorType":"author","lastName":"Li"}]}' \
+       | jq -r '.created[0].key')
+SID=$(j -X POST "$BASE/integration/session" \
+        -d '{"docId":"smoke.docx","docPrefs":{"styleId":"ieee","format":"text"}}' | jq -r .sessionId)
+check "session opened"    "$SID"
+# Reopening the same document must land on the same session rather than leak one.
+check "session is stable" "$(j -X POST "$BASE/integration/session" \
+                              -d '{"docId":"smoke.docx"}' | jq -r --arg s "$SID" '.sessionId | select(. == $s)')"
+
+SNAP="{\"fieldsSnapshot\":[{\"id\":\"f1\",\"text\":\"\",\"citation\":{\"keys\":[\"$WB\"]}},{\"id\":\"f2\",\"text\":\"[1]\",\"citation\":{\"keys\":[\"$WA\"]}}]}"
+check "citation renumbers" "$(j -X POST "$BASE/integration/session/$SID/cite" -d "$SNAP" \
+                              | jq -r '[.updatedFields[].text] | join("") | select(. == "[1][2]")')"
+check "bibliography order" "$(j -X POST "$BASE/integration/session/$SID/bibliography" -d "$SNAP" \
+                              | jq -r --arg b "$WB" '.entries[0].key | select(. == $b)')"
+# A settled document must not report a single change, or every refresh would
+# dirty the whole file.
+SETTLED="{\"fieldsSnapshot\":[{\"id\":\"f1\",\"text\":\"[1]\",\"citation\":{\"keys\":[\"$WB\"]}},{\"id\":\"f2\",\"text\":\"[2]\",\"citation\":{\"keys\":[\"$WA\"]}}]}"
+check "refresh is quiet"  "$(j -X POST "$BASE/integration/session/$SID/refresh" -d "$SETTLED" \
+                              | jq -r '.updatedFields | length | select(. == 0) | "no changes"')"
+# Changing the style invalidates every citation, and the add-in is told so.
+check "style change"      "$(j -X PUT "$BASE/integration/session/$SID/prefs" \
+                              -d '{"styleId":"apa","format":"text"}' | jq -r '.refreshRequired')"
+check "restyled citation" "$(j -X POST "$BASE/integration/session/$SID/refresh" -d "$SETTLED" \
+                              | jq -r '[.updatedFields[].text] | join(" ") | select(test("Li, 2021"))')"
+check "session closed"    "$(j -X POST "$BASE/integration/session/$SID/close" | jq -r .closed)"
+check "closed stays shut" "$(j -X POST "$BASE/integration/session/$SID/refresh" -d "$SNAP" \
+                              | jq -r '.error.kind // .error // "rejected"' | head -c 20)"
+
 echo "▸ attachment marks"
 # A listed row must say what it has attached without a second request: the
 # table draws a glyph per kind, and a per-row lookup for a hundred rows is the

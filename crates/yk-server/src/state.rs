@@ -50,6 +50,8 @@ pub struct AppState {
     /// Agent turns in flight, one per conversation. A turn outlives the request
     /// that started it — see `runs`.
     pub runs: crate::runs::Runs,
+    /// Word-processor sessions, one per open document.
+    pub sessions: crate::integration::Sessions,
 }
 
 impl AppState {
@@ -67,6 +69,9 @@ impl AppState {
     }
     pub fn storage(&self) -> &Arc<Storage> {
         &self.services.storage
+    }
+    pub fn sessions(&self) -> &crate::integration::Sessions {
+        &self.sessions
     }
     /// The agent as it is right now.
     ///

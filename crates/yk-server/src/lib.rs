@@ -9,6 +9,7 @@ pub mod badges;
 pub mod config;
 mod error;
 pub mod hostapi;
+pub mod integration;
 pub mod routes;
 pub mod security;
 pub mod storage;
@@ -87,6 +88,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         started: Instant::now(),
         harvest: Default::default(),
         runs: Default::default(),
+        sessions: Default::default(),
     }))
 }
 

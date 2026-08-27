@@ -143,6 +143,18 @@ PUT  /integration/session/{sid}/prefs
 POST /integration/session/{sid}/close
 ```
 
+> **实现状态**：本节协议已在 `crates/yk-server/src/integration/` 落地。
+> 编号与重排的全部逻辑是纯函数 `integration::document::plan`（无 store、无 HTTP），
+> 单元测试覆盖"插入引文导致重排""同一文献重复引用共号""缺失条目不占号"
+> "作者-年份书目按渲染结果排序""定位符落在括号内"等；端到端由 `scripts/smoke.sh`
+> 的 `word integration` 一节覆盖。尚未实现的是加载项前端（Office.js 清单与任务窗格）。
+>
+> 两点实现时才暴露的约束：
+> 1. **`docPrefs` 缺省 ≠ 使用默认值。** 加载项重连时不带偏好，若用默认值填补，
+>    一篇 IEEE 论文会被静默改写成 APA。缺省表示"我没什么要告诉你"。
+> 2. **缺失的条目不能占用编号。** 否则正文出现 `[2]` 而书目从 `[1]` 开始，
+>    两边对不上；被删掉的文献保留文档原文，不清空——清空是作者找不回来的破坏。
+
 **为什么是"快照上传 + 全量返回"**：编号型样式（IEEE、GB/T 7714 顺序编码制）中插入一条引文会改变后续所有编号，服务端必须看到全文所有引文才能正确渲染。加载项负责读出所有 ContentControl 的 id 顺序，Server 负责 citeproc 计算并返回每个 id 的新文本。
 
 ### 3.4 插入引文的用户流程

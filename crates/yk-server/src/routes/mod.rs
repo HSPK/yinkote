@@ -51,6 +51,7 @@ pub fn router() -> Router<App> {
         .merge(smart::router())
         .merge(summarise::router())
         .merge(plugins::router())
+        .merge(crate::integration::router())
 }
 
 /// Look up the library version after a write and broadcast the change.
