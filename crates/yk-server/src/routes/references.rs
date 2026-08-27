@@ -24,8 +24,7 @@ pub fn router() -> Router<App> {
         .route("/libraries/:lib/items/:key/citations", get(list).put(replace))
         .route("/libraries/:lib/items/:key/citations/fetch", post(fetch))
         .route("/libraries/:lib/citations/missing", get(missing))
-        .route("/libraries/:lib/citations/harvest", get(harvest_status).post(start_harvest))
-        .route("/libraries/:lib/citations/harvest/stop", post(stop_harvest))
+        .route("/libraries/:lib/citations/harvest", post(start_harvest))
 }
 
 /// How long to wait between requests.
@@ -45,76 +44,72 @@ const GIVE_UP_AFTER: u32 = 5;
 /// How many papers one run will work through.
 const HARVEST_CAP: u32 = 2000;
 
-/// What a run is doing, for anybody who asks.
-#[derive(Debug, Clone, Default, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Harvest {
-    pub running: bool,
-    /// Papers this run set out to ask about.
-    pub total: u32,
-    pub done: u32,
-    /// References stored so far.
-    pub stored: u64,
-    /// Papers whose publisher deposited no reference list. Reported because a
-    /// run that stores little is usually not broken — most publishers simply
-    /// do not deposit — and a number nobody explains looks like a bug.
-    pub empty: u32,
-    pub failed: u32,
-    pub stopped: bool,
-    pub message: Option<String>,
-}
-
-async fn harvest_status(State(app): State<App>) -> Json<serde_json::Value> {
-    Json(json!(app.harvest.lock().clone()))
-}
-
-/// Ask the caller's library to stop the run at the next paper.
-///
-/// At the next paper, not immediately: a request already in flight is going to
-/// arrive whatever we do, and throwing away its answer would mean asking again
-/// later for nothing.
-async fn stop_harvest(State(app): State<App>) -> Json<serde_json::Value> {
-    let mut harvest = app.harvest.lock();
-    if harvest.running {
-        harvest.stopped = true;
-    }
-    Json(json!(harvest.clone()))
-}
-
 /// Work through every paper whose references have not been fetched.
+///
+/// One of the long jobs, and it goes through the same registry as the rest:
+/// it used to keep its own `Harvest` struct in the application state, with its
+/// own status and stop endpoints and its own polling in the interface. Three
+/// ways of saying "something is running" is two too many.
 async fn start_harvest(
     State(app): State<App>,
     Path(lib): Path<i64>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    {
-        let harvest = app.harvest.lock();
-        if harvest.running {
-            return Err(Error::invalid("a run is already going").into());
-        }
+    // One at a time: two runs talk to the same service and would only get the
+    // client throttled. The registry knows what is running, so it answers this
+    // rather than a flag kept beside it.
+    if app.tasks().running("harvest") {
+        return Err(Error::invalid("a run is already going").into());
     }
 
     let pending = app.store().relations.unfetched(lib, HARVEST_CAP).await?;
     if pending.is_empty() {
-        return Ok(Json(json!(Harvest { message: Some("nothing to fetch".into()), ..Default::default() })));
+        return Err(Error::invalid("every paper with a DOI has been asked about").into());
     }
 
-    *app.harvest.lock() =
-        Harvest { running: true, total: pending.len() as u32, ..Default::default() };
+    let task = app.tasks().start("harvest", "Fetching reference lists");
+    task.progress("Fetching reference lists", 0, pending.len() as u64);
 
     let worker = app.clone();
+    let handle = task.clone();
     tokio::spawn(async move {
-        run_harvest(worker, lib, pending).await;
+        run_harvest(worker, lib, pending, handle).await;
     });
 
-    Ok(Json(json!(app.harvest.lock().clone())))
+    Ok(Json(json!({ "task": task.snapshot() })))
 }
 
-async fn run_harvest(app: App, lib: i64, pending: Vec<(yk_core::Key, String)>) {
+/// What a run has managed so far. Reported as the task's `detail`, because
+/// these are numbers only this job has.
+#[derive(Default, serde::Serialize)]
+struct Progress {
+    stored: u64,
+    /// Papers whose publisher deposited no reference list. Reported because a
+    /// run that stores little is usually not broken — most publishers simply
+    /// do not deposit — and a number nobody explains looks like a bug.
+    empty: u32,
+    failed: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+async fn run_harvest(
+    app: App,
+    lib: i64,
+    pending: Vec<(yk_core::Key, String)>,
+    task: std::sync::Arc<crate::tasks::Task>,
+) {
     let crossref = yk_scrape::resolver::Crossref::default();
     let mut consecutive_failures = 0u32;
+    let mut progress = Progress::default();
+    let total = pending.len() as u64;
+    let mut done = 0u64;
+    let mut gave_up = false;
 
     for (key, doi) in pending {
-        if app.harvest.lock().stopped {
+        // At the next paper, not immediately: a request already in flight is
+        // going to arrive whatever we do, and throwing away its answer means
+        // asking again later for nothing.
+        if task.cancelled() || gave_up {
             break;
         }
 
@@ -122,36 +117,30 @@ async fn run_harvest(app: App, lib: i64, pending: Vec<(yk_core::Key, String)>) {
             Ok(found) => {
                 consecutive_failures = 0;
                 let drafts: Vec<CitationDraft> = found.iter().map(to_draft).collect();
-                let stored = app
-                    .store()
-                    .relations
-                    .set_citations(lib, &key, drafts)
-                    .await
-                    .unwrap_or(0);
-
-                let mut harvest = app.harvest.lock();
-                harvest.stored += stored;
+                let stored =
+                    app.store().relations.set_citations(lib, &key, drafts).await.unwrap_or(0);
+                progress.stored += stored;
                 if stored == 0 {
-                    harvest.empty += 1;
+                    progress.empty += 1;
                 }
             }
             Err(e) => {
                 consecutive_failures += 1;
                 tracing::info!(error = %e, doi, "reference fetch failed");
-                let mut harvest = app.harvest.lock();
-                harvest.failed += 1;
+                progress.failed += 1;
                 if consecutive_failures >= GIVE_UP_AFTER {
-                    harvest.message = Some(format!("stopped after {GIVE_UP_AFTER} failures: {e}"));
-                    harvest.stopped = true;
+                    progress.message =
+                        Some(format!("stopped after {GIVE_UP_AFTER} failures: {e}"));
+                    gave_up = true;
                 }
             }
         }
 
-        app.harvest.lock().done += 1;
+        done += 1;
+        task.progress("Fetching reference lists", done, total);
+        task.detail(json!(progress));
         tokio::time::sleep(POLITE_PAUSE).await;
     }
-
-    app.harvest.lock().running = false;
 
     // Announce once at the end rather than per paper: a run of a thousand
     // papers would otherwise be a thousand refreshes of everybody's list.
@@ -161,6 +150,13 @@ async fn run_harvest(app: App, lib: i64, pending: Vec<(yk_core::Key, String)>) {
         keys: Vec::new(),
         version,
     });
+
+    let summary = json!(progress);
+    if task.cancelled() {
+        app.tasks().stopped(&task, summary);
+    } else {
+        app.tasks().finish(&task, summary);
+    }
 }
 
 fn to_draft(r: &yk_scrape::Reference) -> CitationDraft {

@@ -18,16 +18,19 @@ import { useStore } from './state/store'
 const added: string[] = []
 const started: boolean[] = []
 
-let harvest = {
-  running: false,
-  total: 0,
+/** A harvest run as the task registry reports it. */
+const task = () => ({
+  id: 'h1',
+  kind: 'harvest',
+  phase: 'done' as string,
+  message: 'Fetching reference lists',
   done: 0,
-  stored: 0,
-  empty: 0,
-  failed: 0,
-  stopped: false,
-  message: null,
-}
+  total: 0,
+  startedAt: 0,
+  detail: {} as Record<string, number>,
+})
+
+let harvest: ReturnType<typeof task> | null = null
 
 let works: MissingWork[] = []
 
@@ -37,10 +40,16 @@ vi.mock('./api/client', () => {
       get: (_t, key) => (key === 'then' ? undefined : build(`${path}.${String(key)}`)),
       apply: (_t, _this, args: unknown[]) => {
         if (path === 'api.references.missing') return Promise.resolve({ works })
-        if (path === 'api.references.harvest') return Promise.resolve(harvest)
+        // Harvesting is a task like every other long job now, so the page
+        // finds a run in progress by asking the registry.
+        if (path === 'api.tasks.list') {
+          return Promise.resolve({ tasks: harvest ? [harvest] : [] })
+        }
+        if (path === 'api.tasks.get') return Promise.resolve(harvest)
+        if (path === 'api.tasks.cancel') return Promise.resolve({ cancelled: true })
         if (path === 'api.references.startHarvest') {
           started.push(true)
-          return Promise.resolve({ ...harvest, running: true, total: 12 })
+          return Promise.resolve({ task: { ...task(), phase: 'running', total: 12 } })
         }
         if (path === 'api.scrape.quickAdd') {
           const body = args[1] as { text: string }
@@ -81,16 +90,7 @@ let root: Root
 beforeEach(() => {
   added.length = 0
   started.length = 0
-  harvest = {
-    running: false,
-    total: 0,
-    done: 0,
-    stored: 0,
-    empty: 0,
-    failed: 0,
-    stopped: false,
-    message: null,
-  }
+  harvest = null
   works = [
     {
       fingerprint: 'doi:10 1016 j cell 2020 01 001',
@@ -237,7 +237,7 @@ describe('fetching reference lists in bulk', () => {
   })
 
   it('shows progress while a run is going, and offers to stop it', async () => {
-    harvest = { ...harvest, running: true, total: 40, done: 12, stored: 310 }
+    harvest = { ...task(), phase: 'running', total: 40, done: 12, detail: { stored: 310 } }
     await render()
 
     const bar = container.querySelector('.gaps-bar')?.textContent ?? ''
@@ -247,7 +247,7 @@ describe('fetching reference lists in bulk', () => {
   })
 
   it('explains a finished run that stored little', async () => {
-    harvest = { ...harvest, done: 40, stored: 12, empty: 33 }
+    harvest = { ...task(), phase: 'done', done: 40, detail: { stored: 12, empty: 33 } }
     await render()
 
     // Most publishers deposit no references at all. A run that looks like it

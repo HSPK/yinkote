@@ -44,9 +44,6 @@ pub struct AppState {
     /// server they did not start by hand would be a strange thing to ask.
     pub agent: parking_lot::RwLock<Option<Arc<yk_agent::Agent>>>,
     pub started: Instant,
-    /// The reference-harvesting run, if one is going. One at a time: they all
-    /// talk to the same service, and two would only get the client throttled.
-    pub harvest: parking_lot::Mutex<crate::routes::Harvest>,
     /// Agent turns in flight, one per conversation. A turn outlives the request
     /// that started it — see `runs`.
     pub runs: crate::runs::Runs,

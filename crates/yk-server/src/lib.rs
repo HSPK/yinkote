@@ -89,7 +89,6 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         config: parking_lot::RwLock::new(config),
         agent: parking_lot::RwLock::new(agent),
         started: Instant::now(),
-        harvest: Default::default(),
         runs: Default::default(),
         sessions: Default::default(),
         tasks: Default::default(),

@@ -45,6 +45,15 @@ pub struct TaskState {
     pub started_at: i64,
     #[serde(rename = "finishedAt", skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<i64>,
+    /// Counters only this kind of job has, updated as it goes.
+    ///
+    /// `done`/`total` answer "how far", which every job shares; harvesting
+    /// also has to say how many reference lists it stored and how many
+    /// publishers deposited none — numbers that mean nothing to an export.
+    /// Putting them in the message as prose would make the interface parse
+    /// English to draw a table.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<serde_json::Value>,
     /// Whatever the job produced, once it has.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<serde_json::Value>,
@@ -63,6 +72,7 @@ impl TaskState {
             total: 0,
             started_at: now_secs(),
             finished_at: None,
+            detail: None,
             result: None,
             error: None,
         }
@@ -82,6 +92,11 @@ impl Task {
         state.message = message.into();
         state.done = done;
         state.total = total;
+    }
+
+    /// Report counters specific to this kind of job.
+    pub fn detail(&self, detail: serde_json::Value) {
+        self.state.lock().expect("task state").detail = Some(detail);
     }
 
     pub fn cancelled(&self) -> bool {
@@ -122,6 +137,22 @@ impl Tasks {
         tasks.insert(id, task.clone());
         prune(&mut tasks);
         task
+    }
+
+    /// Whether a job of this kind is already going.
+    ///
+    /// Some jobs must not overlap: two harvests talk to the same service and
+    /// would only get the client throttled. The registry is the one place that
+    /// knows what is running, so it is the one place that can answer this.
+    pub fn running(&self, kind: &str) -> bool {
+        self.0
+            .lock()
+            .expect("tasks")
+            .values()
+            .any(|t| {
+                let s = t.snapshot();
+                s.kind == kind && s.phase == Phase::Running
+            })
     }
 
     pub fn get(&self, id: &str) -> Option<TaskState> {
@@ -286,6 +317,32 @@ mod tests {
             Phase::Done,
             "it finished the work, whatever was asked of it"
         );
+    }
+
+    #[test]
+    fn a_kind_that_must_not_overlap_can_ask_whether_it_is_going() {
+        let tasks = Tasks::default();
+        assert!(!tasks.running("harvest"));
+
+        let task = tasks.start("harvest", "Fetching");
+        assert!(tasks.running("harvest"));
+        assert!(!tasks.running("export"), "a different kind is a different question");
+
+        tasks.finish(&task, serde_json::json!({}));
+        assert!(!tasks.running("harvest"), "a finished run does not block the next one");
+    }
+
+    #[test]
+    fn a_job_can_report_counters_only_it_understands() {
+        // Harvesting has to say how many reference lists it stored and how
+        // many publishers deposited none. Neither means anything to an export,
+        // and putting them in the message would make the interface read prose.
+        let tasks = Tasks::default();
+        let task = tasks.start("harvest", "Fetching");
+        task.detail(serde_json::json!({ "stored": 40, "empty": 3 }));
+
+        let seen = tasks.get(&task.snapshot().id).unwrap();
+        assert_eq!(seen.detail.unwrap()["stored"], 40);
     }
 
     #[test]

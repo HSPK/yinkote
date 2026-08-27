@@ -57,6 +57,8 @@ export interface Task {
   total: number
   startedAt: number
   finishedAt?: number
+  /** Counters only this kind of job has, updated as it goes. */
+  detail?: Record<string, unknown>
   result?: Record<string, unknown>
   error?: string
 }

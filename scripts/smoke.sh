@@ -602,13 +602,21 @@ check "refs need a doi"   "$(j -X POST "$BASE/libraries/$LIB/items/$GA/citations
                              | jq -r '.title // empty | select(contains("DOI"))')"
 # `check` passes any non-empty string, so this is phrased so that a wrong
 # answer is empty rather than merely a different number.
-check "harvest idle"      "$(j "$BASE/libraries/$LIB/citations/harvest" \
-                             | jq -r 'select(.running == false) | "idle"')"
-# Two runs would only get the client throttled by the service they share.
-check "harvest one only"  "$(j -X POST "$BASE/libraries/$LIB/citations/harvest" >/dev/null; \
-                             j -X POST "$BASE/libraries/$LIB/citations/harvest" \
-                             | jq -r '.title // .message // empty')"
-j -X POST "$BASE/libraries/$LIB/citations/harvest/stop" >/dev/null
+# Harvesting is a task like every other long job now: it had a status endpoint,
+# a stop endpoint and a struct in the application state all of its own.
+HARV=$(j -X POST "$BASE/libraries/$LIB/citations/harvest")
+HARVTASK=$(echo "$HARV" | jq -r '.task.id // empty')
+if [[ -n "$HARVTASK" ]]; then
+  check "harvest is a job"  "$(j "$BASE/tasks/$HARVTASK" | jq -r '.kind | select(. == "harvest")')"
+  # Two runs would only get the client throttled by the service they share.
+  check "harvest one only"  "$(j -X POST "$BASE/libraries/$LIB/citations/harvest" \
+                               | jq -r '.title // .message // empty')"
+  j -X POST "$BASE/tasks/$HARVTASK/cancel" > /dev/null
+else
+  # Nothing left to fetch in this library, which is itself a refusal with a
+  # reason rather than an empty run.
+  check "harvest explains"  "$(echo "$HARV" | jq -r '.title // .message // empty')"
+fi
 check "gaps listed"       "$(j "$BASE/libraries/$LIB/citations/missing" \
                              | jq -r 'select((.works | type) == "array") | "listed"')"
 # The count *is* the view. It shipped as `cited_by` against a client reading

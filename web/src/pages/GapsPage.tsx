@@ -11,11 +11,12 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api/client'
-import type { Harvest, MissingWork } from '../api/types'
+import type { MissingWork, Task } from '../api/types'
 import { useT } from '../i18n'
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, toast } from '../ui'
 import { VirtualList } from '../components/VirtualList'
+import { follow } from '../lib/tasks'
 
 /** Narrower than this the columns scroll sideways rather than crush. */
 const GAP_COLUMNS = 640
@@ -27,7 +28,9 @@ export function GapsPage() {
   const setGapCount = useStore((s) => s.setGapCount)
 
   const [works, setWorks] = useState<MissingWork[]>([])
-  const [harvest, setHarvest] = useState<Harvest | null>(null)
+  // The run, as the task registry sees it. It used to have a mechanism of its
+  // own; there is one way of watching a long job now.
+  const [harvest, setHarvest] = useState<Task | null>(null)
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState<string | null>(null)
 
@@ -43,23 +46,27 @@ export function GapsPage() {
     void load()
   }, [load])
 
-  // Poll only while a run is going. A background job nobody can see the
-  // progress of is one people start twice.
+  // Pick up the last run — going, or finished before a reload. A job whose
+  // progress nobody can see is one people start twice, and a run that has
+  // already happened still has something worth saying: most publishers deposit
+  // no references, so "stored 12, and 33 had none" is the difference between a
+  // bug report and an explanation.
   useEffect(() => {
-    if (!harvest?.running) return
-    const timer = window.setInterval(async () => {
-      const next = await api.references.harvest(library).catch(() => null)
-      if (next) setHarvest(next)
-      if (next && !next.running) void load()
-    }, 1000)
-    return () => window.clearInterval(timer)
-  }, [harvest?.running, library, load])
-
-  useEffect(() => {
-    void api.references
-      .harvest(library)
-      .then(setHarvest)
+    let live = true
+    void api.tasks
+      .list()
+      .then(({ tasks }) => {
+        // Newest first, so the first harvest is the latest one.
+        const last = tasks.find((t) => t.kind === 'harvest')
+        if (!live || !last) return
+        if (last.phase === 'running') void watch(last)
+        else setHarvest(last)
+      })
       .catch(() => {})
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [library])
 
   /** Fetch the metadata for a DOI and file it, the same way quick-add does. */
@@ -81,18 +88,31 @@ export function GapsPage() {
     }
   }
 
+  /** Follow a run to the end, then refresh what it changed. */
+  const watch = async (task: Task) => {
+    setHarvest(task)
+    const done = await follow(task.id, setHarvest)
+    if (done) setHarvest(done)
+    void load()
+  }
+
+  const running = harvest?.phase === 'running'
+  /** Counters only this job has: how many lists were stored, how many
+   *  publishers deposited none. */
+  const counts = (harvest?.detail ?? {}) as { stored?: number; empty?: number }
+
   const bar = (
     <div className="gaps-bar">
-      {harvest?.running ? (
+      {running && harvest ? (
         <>
           <span>
             {t('gaps.harvesting', {
               done: harvest.done,
               total: harvest.total,
-              stored: harvest.stored,
+              stored: counts.stored ?? 0,
             })}
           </span>
-          <Button onClick={() => void api.references.stopHarvest(library).then(setHarvest)}>
+          <Button onClick={() => void api.tasks.cancel(harvest.id).catch(() => {})}>
             {t('gaps.stop')}
           </Button>
         </>
@@ -102,8 +122,8 @@ export function GapsPage() {
             {harvest && harvest.done > 0
               ? t('gaps.harvested', {
                   done: harvest.done,
-                  stored: harvest.stored,
-                  empty: harvest.empty,
+                  stored: counts.stored ?? 0,
+                  empty: counts.empty ?? 0,
                 })
               : t('gaps.harvestHint')}
           </span>
@@ -112,7 +132,7 @@ export function GapsPage() {
             onClick={() =>
               void api.references
                 .startHarvest(library)
-                .then(setHarvest)
+                .then(({ task }) => watch(task))
                 .catch((e: unknown) => toast.fromError(t('gaps.harvestFailed'), e))
             }
           >

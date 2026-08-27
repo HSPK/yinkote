@@ -5,7 +5,6 @@ mod citations;
 pub(crate) mod connector;
 mod graph;
 mod references;
-pub use references::Harvest;
 mod collections;
 pub use collections::FACET_LIMIT;
 pub(crate) mod files;
