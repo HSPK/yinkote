@@ -58,8 +58,31 @@ function makeItem(i) {
       { creatorType: 'author', firstName: 'A', lastName: pick(SURNAMES) },
       { creatorType: 'author', firstName: 'B', lastName: pick(SURNAMES) },
     ],
-    tags: [{ tag: pick(WORDS) }, { tag: pick(CJK) }],
+    tags: tagsFor(i),
   }
+}
+
+/** Tags for one item, distributed the way a real library's are.
+ *
+ *  Every item carrying one of thirty broad words is not a library, it is a
+ *  category system — and it made the benchmark pessimistic in two places at
+ *  once: a "shared tag" spanned thousands of items, so the graph aggregated
+ *  tens of thousands of rows, and a tag filter matched a fifth of the corpus.
+ *
+ *  Real tagging has a long tail: a handful of words on a lot of papers, and
+ *  a great many project-specific tags on two or three each. That is what makes
+ *  "papers sharing this tag" a small set, which is what the feature is for.
+ */
+function tagsFor(i) {
+  const tags = []
+  // A broad one, on roughly a twentieth of the library.
+  if (i % 20 === 0) tags.push({ tag: pick(WORDS) })
+  if (i % 37 === 0) tags.push({ tag: pick(CJK) })
+  // And the tail: a tag shared by a handful of neighbouring items, which is
+  // what somebody filing a reading list actually produces.
+  tags.push({ tag: `project-${Math.floor(i / 7)}` })
+  if (i % 3 === 0) tags.push({ tag: `topic-${Math.floor(i / 23)}` })
+  return tags
 }
 
 async function post(path, body) {
