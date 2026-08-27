@@ -19,6 +19,7 @@ export type TabKind =
   | 'graph'
   | 'gaps'
   | 'duplicates'
+  | 'tasks'
   | 'downloads'
   | 'files'
   | 'plugins'

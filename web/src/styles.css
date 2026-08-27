@@ -1115,6 +1115,16 @@ option {
 /* The annotations pane's header carries an action now, so it lays out. */
 .reader-notes .pane-header { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 
+/* Jobs: what, how far, how it ended, and what it produced. */
+.tasks-grid {
+  display: grid;
+  grid-template-columns: 120px minmax(160px, 1fr) minmax(180px, 2fr) 84px 72px;
+  gap: 8px;
+  align-items: center;
+}
+.row.tasks-grid[data-phase='failed'] .cell.dim { color: var(--c-red); }
+.row.tasks-grid[data-phase='cancelled'] .cell.dim { color: var(--c-amber); }
+
 /* What the server is busy with. Only present while something is running, so it
    is allowed to take room when it appears. */
 .activity {

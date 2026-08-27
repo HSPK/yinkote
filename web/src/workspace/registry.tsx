@@ -7,6 +7,7 @@ import { CollectionsPage } from '../pages/CollectionsPage'
 import { DownloadsPage } from '../pages/DownloadsPage'
 import { FilesPage } from '../pages/FilesPage'
 import { DuplicatesPage } from '../pages/DuplicatesPage'
+import { TasksPage } from '../pages/TasksPage'
 import { GapsPage } from '../pages/GapsPage'
 import { GraphView } from '../pages/GraphView'
 import { ItemTable } from '../components/ItemTable'
@@ -81,6 +82,12 @@ export const TABS: Record<TabKind, TabDefinition> = {
     labelKey: 'graph.title',
     withDetail: true,
     Footer: GraphFooter,
+    search: 'none',
+  },
+  tasks: {
+    Body: TasksPage,
+    icon: 'Gauge',
+    labelKey: 'tasks.title',
     search: 'none',
   },
   duplicates: {

@@ -144,6 +144,16 @@ export function Sidebar() {
 
         <button
           className="nav-item"
+          data-active={activeTab.startsWith('tasks')}
+          title={t('tasks.open')}
+          onClick={() => openTab({ id: tabId('tasks'), kind: 'tasks', title: '' })}
+        >
+          <Icon.Gauge className="glyph" />
+          <span className="label">{t('tasks.title')}</span>
+        </button>
+
+        <button
+          className="nav-item"
           data-active={activeTab.startsWith('duplicates')}
           title={t('duplicates.open')}
           onClick={() => openTab({ id: tabId('duplicates'), kind: 'duplicates', title: '' })}
