@@ -139,6 +139,19 @@ impl Tasks {
         task
     }
 
+    /// Jobs that write in bulk, and must not be interrupted by anything that
+    /// takes the database exclusively.
+    ///
+    /// Named rather than inferred: a task knows its kind at birth, and the
+    /// alternative — a flag every caller remembers to set — is the flag that
+    /// gets forgotten on the job added next year.
+    pub const BULK_WRITERS: [&str; 3] = ["reindex", "import", "zotero"];
+
+    /// Whether any bulk write is going.
+    pub fn bulk_write_running(&self) -> bool {
+        Self::BULK_WRITERS.iter().any(|kind| self.running(kind))
+    }
+
     /// Whether a job of this kind is already going.
     ///
     /// Some jobs must not overlap: two harvests talk to the same service and
@@ -317,6 +330,25 @@ mod tests {
             Phase::Done,
             "it finished the work, whatever was asked of it"
         );
+    }
+
+    #[test]
+    fn a_bulk_write_is_recognised_whatever_its_kind() {
+        // The checkpoint worker asks this before taking the database
+        // exclusively. Getting it wrong is not a wrong answer on screen; it is
+        // the program refusing writes for as long as the timeout allows.
+        let tasks = Tasks::default();
+        assert!(!tasks.bulk_write_running());
+
+        let importing = tasks.start("import", "Reading");
+        assert!(tasks.bulk_write_running());
+        tasks.finish(&importing, serde_json::json!({}));
+        assert!(!tasks.bulk_write_running());
+
+        // An export copies the database but does not write to it.
+        let exporting = tasks.start("export", "Packing");
+        assert!(!tasks.bulk_write_running(), "an export is not a bulk write");
+        tasks.finish(&exporting, serde_json::json!({}));
     }
 
     #[test]

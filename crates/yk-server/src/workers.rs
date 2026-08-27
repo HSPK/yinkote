@@ -134,13 +134,15 @@ fn checkpoint_worker(app: App) {
         ticker.tick().await; // the first tick fires immediately
         loop {
             ticker.tick().await;
-            // Not while a rebuild is going. A `TRUNCATE` checkpoint takes the
-            // database exclusively, and a rebuild produces exactly the large
-            // log that invites one — so the two together stopped interactive
-            // writes for the whole fifteen-second busy timeout. The log is
-            // reclaimed when the rebuild finishes; a few minutes of a big file
-            // is cheaper than a program that will not accept a keystroke.
-            if app.tasks().running("reindex") {
+            // Not while anything is writing in bulk. A `TRUNCATE` checkpoint
+            // takes the database exclusively, and a bulk write produces exactly
+            // the large log that invites one — the two together stopped
+            // interactive writes for the whole fifteen-second busy timeout
+            // during a rebuild, and made them take seconds during an import.
+            // The log is reclaimed when the job finishes; a big file for a few
+            // minutes is cheaper than a program that will not accept a
+            // keystroke.
+            if app.tasks().bulk_write_running() {
                 continue;
             }
             match app.store().db().checkpoint(WAL_TRUNCATE_BYTES).await {
