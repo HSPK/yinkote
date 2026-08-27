@@ -294,6 +294,7 @@ impl HookEvent {
 
 /// Result of one plugin handling one hook.
 #[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HookOutcome {
     pub plugin_id: String,
     pub result: Value,
