@@ -28,29 +28,50 @@ export function shouldFollow(previous: Tail | null, next: Tail): boolean {
   return next.steps > previous.steps
 }
 
+/** Where a list has been asked to scroll.
+ *
+ *  Two callers want two different things from the same list, and the
+ *  difference is not decoration:
+ *
+ *  - A *position* — "keep the keyboard cursor in view". Asking twice for the
+ *    same row means nothing new; it is already there.
+ *  - A *command* — "go to the bottom, now". Asking twice is a second request,
+ *    even when it names the row it named before.
+ *
+ *  A bare row number can only express the first, and the chat log needed the
+ *  second: while an answer streams, the live turn grows in place, so the row to
+ *  go to keeps its index and the bottom keeps moving. `shouldFollow` worked out
+ *  that the log should follow and the request was then dropped for looking
+ *  identical — the rule was right and nothing happened.
+ */
+export interface ScrollRequest {
+  index: number
+  /** Tells one request from the next when both name the same row. */
+  token: number
+}
+
 /** Whether a scroll request should be acted on now.
  *
- *  `scrollTo` is a *request* — "put this row in view" — and not a description
- *  of where the list currently is. The difference matters the moment a list
- *  loads more rows: the request has not changed, but the row count has, and an
- *  effect that watches the count will re-scroll on every page loaded.
+ *  `scrollTo` is a request, not a description of where the list currently is.
+ *  The difference shows the moment a list loads more rows: the request has not
+ *  changed, but the row count has, and an effect that watches the count will
+ *  re-scroll on every page loaded.
  *
  *  That is what made the library jump to the top each time it fetched another
- *  page. The table passes the keyboard cursor as its request, and for anyone
- *  who has not used the keyboard the cursor is row zero, so every append
- *  scrolled the reader back to the first row of a list they were scrolling
- *  down.
+ *  page. The table asks for the keyboard cursor, and for anyone who has not
+ *  used the keyboard the cursor is row zero, so every append scrolled the
+ *  reader back to the first row of a list they were scrolling down.
  *
  *  A request still has to survive arriving before the rows do — restoring a
  *  position on first load asks for a row that does not exist yet — so an
  *  unhonoured request is held until there is something to scroll to.
  */
 export function shouldScroll(
-  request: number | undefined,
+  request: ScrollRequest | undefined,
   honoured: number | null,
   rowCount: number,
 ): boolean {
   if (request === undefined || rowCount === 0) return false
   // Already done for this request; the list merely got longer.
-  return honoured !== request
+  return honoured !== request.token
 }

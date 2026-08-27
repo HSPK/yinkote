@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { useT } from '../i18n'
 import type { Item, Message, RunState, RunStep } from '../api/types'
@@ -6,7 +6,7 @@ import { MentionPicker, mentionQuery, stripMention } from '../components/Mention
 import { JumpRail, railMarks } from '../components/JumpRail'
 import { VirtualList } from '../components/VirtualList'
 import { elapsed } from '../lib/format'
-import { shouldFollow, type Tail } from '../lib/follow'
+import { type ScrollRequest, shouldFollow, type Tail } from '../lib/follow'
 import { Markdown } from '../lib/markdown'
 import { useStore } from '../state/store'
 import { Empty, Icon, Select } from '../ui'
@@ -232,7 +232,15 @@ export function ChatView() {
   const busy = sending || !!run?.running
 
   /** Which entry to bring into view: the tail as it grows, or a rail jump. */
-  const [jumpTo, setJumpTo] = useState<number | undefined>(undefined)
+  const [jumpTo, setJumpTo] = useState<ScrollRequest | undefined>(undefined)
+  // Each jump is its own request, so that "go to the bottom" still means
+  // something when the bottom is the row it was last time — which is exactly
+  // what happens while an answer streams into the live turn.
+  const requests = useRef(0)
+  const jump = useCallback(
+    (index: number) => setJumpTo({ index, token: ++requests.current }),
+    [],
+  )
   const [firstVisible, setFirstVisible] = useState(0)
 
   // One list of things to draw. The live turn and an error are entries like
@@ -269,7 +277,7 @@ export function ChatView() {
   }
   useEffect(() => {
     if (shouldFollow(seen.current, tail)) {
-      setJumpTo(entries.length ? entries.length - 1 : undefined)
+      if (entries.length) jump(entries.length - 1)
     }
     seen.current = tail
     // Depends on the tail's identity, not on the array: a re-render with the
@@ -296,7 +304,7 @@ export function ChatView() {
     const at = useStore.getState().messages.findIndex((m) => m.id === anchor)
     if (at >= 0) {
       // +1 for the marker that still sits above, when there is more still.
-      setJumpTo(at + (useStore.getState().hasOlder ? 1 : 0))
+      jump(at + (useStore.getState().hasOlder ? 1 : 0))
     }
   }
 
@@ -378,7 +386,7 @@ export function ChatView() {
           }
         </VirtualList>
 
-        {marks.length > 0 && <JumpRail marks={marks} active={firstVisible} onJump={setJumpTo} />}
+        {marks.length > 0 && <JumpRail marks={marks} active={firstVisible} onJump={jump} />}
       </div>
 
       {/* One control, not three stacked. What the question is about — the

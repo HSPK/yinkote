@@ -243,6 +243,10 @@ export function ItemTable() {
   const setColumnWidth = useStore((s) => s.setColumnWidth)
   const setColumnOrder = useStore((s) => s.setColumnOrder)
 
+  // A position rather than a command: the cursor *is* the identity of the
+  // request, so landing on the same row twice asks for nothing new.
+  const keepCursorInView = useMemo(() => ({ index: cursor, token: cursor }), [cursor])
+
   const available = useMemo(() => allColumns(badgeDefs.map((b) => badgeColumn(b))), [badgeDefs])
   const columns = useMemo(() => visibleColumns(order, available), [order, available])
   const grid = useMemo(() => gridTemplate(columns, widths), [columns, widths])
@@ -332,7 +336,7 @@ export function ItemTable() {
         // Columns have real widths, so the content may be wider than the pane;
         // the header scrolls with it because they share one scroller.
         minWidth={totalWidth}
-        scrollTo={cursor}
+        scrollTo={keepCursorInView}
         onEndReached={loadMore}
         empty={
           loading ? null : (

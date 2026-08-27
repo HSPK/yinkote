@@ -38,23 +38,32 @@ describe('following the tail', () => {
 })
 
 describe('shouldScroll', () => {
+  const at = (index: number, token = index) => ({ index, token })
+
   it('honours a request once and not again when the list grows', () => {
     // The library fetches another page while the reader is half way down. The
     // request has not changed; only the row count has.
-    expect(shouldScroll(0, null, 100)).toBe(true)
-    expect(shouldScroll(0, 0, 200)).toBe(false)
-    expect(shouldScroll(0, 0, 300)).toBe(false)
+    expect(shouldScroll(at(0), null, 100)).toBe(true)
+    expect(shouldScroll(at(0), 0, 200)).toBe(false)
+    expect(shouldScroll(at(0), 0, 300)).toBe(false)
   })
 
   it('honours a genuinely new request', () => {
-    expect(shouldScroll(42, 0, 200)).toBe(true)
+    expect(shouldScroll(at(42), 0, 200)).toBe(true)
+  })
+
+  it('honours a repeat command for the row it is already on', () => {
+    // While an answer streams, the live turn grows in place: the bottom keeps
+    // moving without changing index. A second request must not be mistaken for
+    // the first one arriving twice.
+    expect(shouldScroll({ index: 9, token: 7 }, 6, 10)).toBe(true)
   })
 
   it('waits for rows before scrolling to one', () => {
     // A restored position asks for a row that has not loaded yet; the request
     // must survive until it can be met.
-    expect(shouldScroll(30, null, 0)).toBe(false)
-    expect(shouldScroll(30, null, 100)).toBe(true)
+    expect(shouldScroll(at(30), null, 0)).toBe(false)
+    expect(shouldScroll(at(30), null, 100)).toBe(true)
   })
 
   it('does nothing when nothing was asked for', () => {

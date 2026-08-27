@@ -15,7 +15,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useEffect, useRef, type ReactNode } from 'react'
 
-import { shouldScroll } from '../lib/follow'
+import { type ScrollRequest, shouldScroll } from '../lib/follow'
 
 export interface VirtualListProps<T> {
   rows: T[]
@@ -41,8 +41,8 @@ export interface VirtualListProps<T> {
   onEndReached?: () => void
   /** The first row currently on screen, for a scrollbar or a rail. */
   onVisibleChange?: (index: number) => void
-  /** Keeps this row in view — the keyboard cursor, usually. */
-  scrollTo?: number
+  /** Puts a row in view. See `ScrollRequest` for why it carries a token. */
+  scrollTo?: ScrollRequest
   className?: string
   /** Shown instead of the rows when there are none. */
   empty?: ReactNode
@@ -88,10 +88,9 @@ export function VirtualList<T>({
   // re-run a request that was honoured pages ago. See `shouldScroll`.
   const honoured = useRef<number | null>(null)
   useEffect(() => {
-    if (scrollTo === undefined) return
     if (!shouldScroll(scrollTo, honoured.current, rows.length)) return
-    honoured.current = scrollTo
-    virtual.scrollToIndex(scrollTo, { align: 'auto' })
+    honoured.current = scrollTo!.token
+    virtual.scrollToIndex(scrollTo!.index, { align: 'auto' })
   }, [scrollTo, rows.length, virtual])
 
   // Driven by the virtualiser rather than a scroll handler, so it also fires
