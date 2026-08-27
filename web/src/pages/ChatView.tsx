@@ -1,53 +1,70 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { useT } from '../i18n'
-import type { Message } from '../api/types'
+import type { Message, RunState, RunStep } from '../api/types'
 import { useStore } from '../state/store'
 import { Empty, Icon } from '../ui'
 
-/** One entry in an assistant turn, in the order it happened. */
-type Step =
-  | { kind: 'text'; content: string }
-  | { kind: 'tool'; name: string; arguments: unknown; result: string; writes: boolean }
-
 /**
- * A tool call, drawn where it happened.
+ * One step of a turn.
  *
- * An answer assembled from searches the reader cannot see is one they have no
- * way to check, and a list of calls *after* the answer loses the thing that
- * makes it checkable: which step led to which. So each call sits between the
- * sentence that prompted it and the sentence that followed it.
+ * The shape is deliberate. A step is a *row* — a fixed-height header with the
+ * tool's name on the left and a disclosure caret on the right — and its body
+ * grows underneath when opened. The header does not move: everything above it
+ * stays where it was, so opening a step to read a result never shifts the
+ * sentence you were in the middle of. That is why this is a header plus a body
+ * rather than a `<details>` whose summary is part of the flow.
  *
- * The arguments are always visible — they are short, and they are the part that
- * says what was actually asked. The result is folded, because it is often a
- * page of JSON.
+ * Steps are inset to the same left edge as the reply, so a turn reads as one
+ * column: thought, action, thought, answer — rather than as prose with
+ * machinery bolted to the side.
  */
-function ToolStep({ step }: { step: Extract<Step, { kind: 'tool' }> }) {
+function Step({ step }: { step: RunStep }) {
   const t = useT()
+  const [open, setOpen] = useState(false)
+
+  if (step.kind === 'text') return <div className="turn-text">{step.content}</div>
+
+  const thinking = step.kind === 'thinking'
+  const label = thinking ? t('chat.thinking') : step.name
+  const body = thinking ? step.content : step.result
+
   return (
-    <div className="step" data-writes={step.writes || undefined}>
-      <div className="step-head">
-        <Icon.Plugin size={11} />
-        <code>{step.name}</code>
-        {step.writes && <span className="step-writes">{t('chat.changed')}</span>}
-      </div>
-      <div className="step-args">{JSON.stringify(step.arguments)}</div>
-      {step.result && (
-        <details className="step-result">
-          <summary>{t('chat.result')}</summary>
-          <pre>{step.result}</pre>
-        </details>
-      )}
+    <div className="turn-step" data-writes={!thinking && step.writes ? '' : undefined}>
+      <button className="step-bar" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        <Icon.ChevronDown size={11} className="step-caret" data-open={open || undefined} />
+        {thinking ? <Icon.Bulb size={11} /> : <Icon.Plugin size={11} />}
+        <span className="step-name">{label}</span>
+        {/* What was asked, on the header line: it is short, and it is the part
+            that says what actually happened. The answer is what needs folding. */}
+        {!thinking && (
+          <span className="step-args">{JSON.stringify(step.arguments)}</span>
+        )}
+        {!thinking && step.writes && (
+          <span className="step-writes">{t('chat.changed')}</span>
+        )}
+      </button>
+      {open && body && <pre className="step-body">{body}</pre>}
     </div>
+  )
+}
+
+/** The steps of a turn, live or as they were recorded. */
+function Steps({ steps }: { steps: RunStep[] }) {
+  return (
+    <>
+      {steps.map((step, i) => (
+        <Step key={i} step={step} />
+      ))}
+    </>
   )
 }
 
 function Turn({ message }: { message: Message }) {
   const t = useT()
   const meta = message.meta as
-    | { model?: string; truncated?: boolean; trace?: Step[] }
+    | { model?: string; truncated?: boolean; stopped?: boolean; trace?: RunStep[] }
     | undefined
-  const trace = meta?.trace ?? []
 
   return (
     <div className="bubble" data-role={message.role}>
@@ -56,20 +73,38 @@ function Turn({ message }: { message: Message }) {
         {meta?.model && <span className="bubble-model">{meta.model}</span>}
       </div>
 
-      {/* The trace is the turn as it unfolded; the final answer is the last
-          thing in it, so it is rendered once, after. */}
-      {trace.map((step, i) =>
-        step.kind === 'tool' ? (
-          <ToolStep key={i} step={step} />
-        ) : (
-          <div key={i} className="bubble-body dim">
-            {step.content}
-          </div>
-        ),
-      )}
-
+      {meta?.trace && <Steps steps={meta.trace} />}
       {message.content && <div className="bubble-body">{message.content}</div>}
-      {meta?.truncated && <div className="bubble-note">{t('chat.truncated')}</div>}
+      {meta?.stopped && <div className="bubble-note">{t('chat.stopped')}</div>}
+      {meta?.truncated && !meta.stopped && (
+        <div className="bubble-note">{t('chat.truncated')}</div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The turn currently being produced.
+ *
+ * Rendered from the run rather than from stored messages, and only while one is
+ * going: the moment it finishes the server has written it down as an ordinary
+ * message and this disappears, so there is never a window where the same turn
+ * is on screen twice.
+ */
+function LiveTurn({ run, onCancel }: { run: RunState; onCancel: () => void }) {
+  const t = useT()
+  return (
+    <div className="bubble" data-role="assistant" data-live="">
+      <div className="bubble-role">
+        {t('chat.role.assistant')}
+        <span className="bubble-working">{t('chat.working')}</span>
+        <span className="spacer" />
+        <button className="link" onClick={onCancel}>
+          {t('chat.stop')}
+        </button>
+      </div>
+      <Steps steps={run.steps} />
+      {run.steps.length === 0 && <div className="turn-text dim">{t('chat.thinkingNow')}</div>}
     </div>
   )
 }
@@ -81,12 +116,18 @@ export function ChatView() {
   const messages = useStore((s) => s.messages)
   const sendMessage = useStore((s) => s.sendMessage)
   const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [sending, setSending] = useState(false)
+  // Whether a turn is going is the *server's* fact, not this component's: it
+  // survives a reload, and a second tab watching the same conversation must
+  // agree with the first.
+  const run = useStore((st) => (conversation ? st.runs[conversation] : undefined))
+  const cancelRun = useStore((st) => st.cancelRun)
+  const busy = sending || !!run?.running
   const tail = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     tail.current?.scrollIntoView({ block: 'end' })
-  }, [messages.length, conversation])
+  }, [messages.length, conversation, run?.steps.length])
 
   if (!conversation) {
     return (
@@ -101,12 +142,12 @@ export function ChatView() {
   const submit = async () => {
     const text = draft.trim()
     if (!text || busy) return
-    setBusy(true)
+    setSending(true)
     setDraft('')
     try {
       await sendMessage(text)
     } finally {
-      setBusy(false)
+      setSending(false)
     }
   }
 
@@ -119,7 +160,8 @@ export function ChatView() {
         {messages.map((m) => (
           <Turn key={m.id} message={m} />
         ))}
-        {busy && <div className="bubble" data-role="assistant"><div className="bubble-body dim">…</div></div>}
+        {run?.running && <LiveTurn run={run} onCancel={() => void cancelRun()} />}
+        {run?.error && <div className="bubble-note">{run.error}</div>}
         <div ref={tail} />
       </div>
 

@@ -152,6 +152,12 @@ export const Icon = {
       <path d="m4 9.8 4-3.6 4 3.6" />
     </Svg>
   ),
+  Bulb: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M6 11.5h4M6.6 13.5h2.8" />
+      <path d="M5 7.2a3 3 0 1 1 6 0c0 1.4-1 2-1.2 3.1H6.2C6 9.2 5 8.6 5 7.2Z" />
+    </Svg>
+  ),
   ChevronDown: (p: IconProps) => (
     <Svg {...p}>
       <path d="M3.6 6 8 10.4 12.4 6" />

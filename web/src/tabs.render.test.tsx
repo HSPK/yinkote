@@ -27,6 +27,7 @@ vi.mock('./api/client', () => {
         if (path === 'api.conversations.append') return Promise.resolve({})
         if (path === 'api.conversations.ask') return Promise.resolve({})
         if (path === 'api.conversations.rename') return Promise.resolve({})
+        if (path === 'api.conversations.run') return Promise.resolve({ running: false })
         return new Promise(() => {})
       },
     })

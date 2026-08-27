@@ -27,6 +27,8 @@ pub fn router() -> Router<App> {
         .route("/libraries/:lib/conversations/:key/messages", get(messages).post(append))
         .route("/libraries/:lib/conversations/:key/ask", post(ask))
         .route("/agent", get(status))
+        .route("/libraries/:lib/conversations/:key/run", get(run_state))
+        .route("/libraries/:lib/conversations/:key/cancel", post(cancel_run))
 }
 
 /// Whether asking is possible, so the UI can explain itself rather than
@@ -56,96 +58,137 @@ struct AskBody {
     content: String,
 }
 
-/// Record the question, run the agent, record the answer.
+/// Record the question and start the turn.
 ///
-/// The user's turn is persisted *before* the model is called: if the model
-/// times out or the server dies mid-request, what they typed is still there.
+/// Returns as soon as the run exists rather than when it finishes. A turn that
+/// takes half a minute must not be tied to one HTTP request: switching tabs,
+/// reloading, or a dropped connection would otherwise throw away work the model
+/// is going to do anyway. Progress arrives on the event bus; the state is
+/// readable at `GET …/run`, which is what lets a fresh page rejoin.
 async fn ask(
     State(app): State<App>,
     Path((lib, k)): Path<(i64, String)>,
     Json(body): Json<AskBody>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let key = key(&k)?;
-    let question = body.content.trim();
+    let question = body.content.trim().to_string();
     if question.is_empty() {
         return Err(Error::invalid("a question must not be empty").into());
     }
-
-    let store = app.store();
-    store
+    // Stored before anything else can go wrong. What the user typed is theirs,
+    // and it must survive a missing model, a timeout, or the server dying
+    // mid-turn — a test holds this, and it caught me reordering it.
+    app.store()
         .conversations
-        .append(lib, &key, MessageDraft { role: "user".into(), content: question.into(), meta: None })
+        .append(
+            lib,
+            &key,
+            MessageDraft { role: "user".into(), content: question.clone(), meta: None },
+        )
         .await?;
 
-    let agent = app.agent().ok_or_else(|| {
-        Error::invalid("no model is configured; set agent.endpoint and agent.model")
-    })?;
+    if app.agent().is_none() {
+        return Err(Error::invalid(
+            "no model is configured; set agent.endpoint and agent.model",
+        )
+        .into());
+    }
 
-    let history = store.conversations.messages(lib, &key).await?;
-    let turn = agent.run(lib, history.iter().map(to_chat).collect()).await?;
+    // Refused rather than queued: two turns in one conversation would
+    // interleave their tool calls into a transcript nobody can read.
+    let run = app
+        .runs
+        .start(app.events(), lib, key.as_str(), &question)
+        .ok_or_else(|| Error::invalid("this conversation is already answering"))?;
 
-    let reply = store
+    let worker = app.clone();
+    let conversation = key.clone();
+    tokio::spawn(async move {
+        run_turn(worker, lib, conversation, run).await;
+    });
+
+    Ok(Json(json!({ "started": true })))
+}
+
+/// Run the turn to its end, whatever happens to whoever asked for it.
+async fn run_turn(app: App, lib: i64, key: yk_core::Key, run: std::sync::Arc<crate::runs::Run>) {
+    let Some(agent) = app.agent() else { return };
+
+    let history = match app.store().conversations.messages(lib, &key).await {
+        Ok(messages) => messages.iter().map(to_chat).collect(),
+        Err(e) => return run.fail(e.to_string()),
+    };
+
+    let progress = crate::runs::RunProgress {
+        run: run.clone(),
+        writers: crate::agent::ACTIONS.iter().filter(|a| a.writes()).map(|a| a.name()).collect(),
+    };
+
+    let turn = match agent.run_with(lib, history, &progress).await {
+        Ok(turn) => turn,
+        Err(e) => return run.fail(e.to_string()),
+    };
+
+    run.finish(turn.reply.clone(), turn.truncated, turn.stopped);
+
+    // The steps are persisted from the run rather than rebuilt from the
+    // transcript, so a turn watched live and one read back tomorrow are the
+    // same thing rather than two renderings that can drift.
+    let state = run.snapshot();
+    let stored = app
+        .store()
         .conversations
         .append(
             lib,
             &key,
             MessageDraft {
                 role: "assistant".into(),
-                content: turn.reply.clone(),
-                // The turn is kept as an ordered trace rather than a pile of
-                // tool traffic at the end. An answer built from searches the
-                // reader cannot see is one they cannot check, and a summary
-                // *after* the fact loses the one thing that makes it checkable:
-                // which step led to which. See `trace`.
+                content: turn.reply,
                 meta: Some(json!({
                     "model": agent.model(),
                     "truncated": turn.truncated,
-                    "trace": trace(&turn.transcript),
+                    "stopped": turn.stopped,
+                    "trace": crate::runs::steps_json(&state),
                 })),
             },
         )
-        .await?;
+        .await;
 
-    Ok(Json(json!({ "message": reply, "truncated": turn.truncated })))
+    if let Err(e) = stored {
+        tracing::warn!(error = %e, "could not store the agent's answer");
+    }
+    app.runs.forget_finished(key.as_str());
 }
 
-/// Flatten a turn into the sequence a reader should see.
-///
-/// The agent already produces its transcript in order — assistant text, the
-/// calls it made, what came back, more text. This pairs each call with its
-/// result so the client can draw them where they happened, interleaved with the
-/// prose, instead of folding them into a footnote nobody reads.
-///
-/// Write steps are marked. A library that changed should be traceable to the
-/// sentence that changed it, and "which of these actually did something" is the
-/// first question anybody asks.
-fn trace(transcript: &[ChatMessage]) -> Vec<serde_json::Value> {
-    use std::collections::HashMap;
+/// What a conversation's turn is doing, for a client that just arrived.
+async fn run_state(
+    State(app): State<App>,
+    Path((_lib, k)): Path<(i64, String)>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let key = key(&k)?;
+    Ok(Json(match app.runs.get(key.as_str()) {
+        Some(run) => json!(run.snapshot()),
+        None => json!({ "running": false }),
+    }))
+}
 
-    let results: HashMap<&str, &str> = transcript
-        .iter()
-        .filter(|m| m.role == "tool")
-        .filter_map(|m| Some((m.tool_call_id.as_deref()?, m.content.as_str())))
-        .collect();
-
-    let mut out = Vec::new();
-    for message in transcript.iter().filter(|m| m.role == "assistant") {
-        if !message.content.trim().is_empty() {
-            out.push(json!({ "kind": "text", "content": message.content }));
+/// Ask the turn to stop at its next step.
+///
+/// Not mid-request: a call already in flight is going to arrive whatever we do,
+/// and discarding its answer would only mean paying for it again.
+async fn cancel_run(
+    State(app): State<App>,
+    Path((_lib, k)): Path<(i64, String)>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let key = key(&k)?;
+    let stopping = match app.runs.get(key.as_str()) {
+        Some(run) => {
+            run.cancel.stop();
+            true
         }
-        for call in &message.tool_calls {
-            out.push(json!({
-                "kind": "tool",
-                "name": call.name,
-                "arguments": call.arguments,
-                "result": results.get(call.id.as_str()).copied().unwrap_or_default(),
-                "writes": crate::agent::ACTIONS
-                    .iter()
-                    .any(|a| a.name() == call.name && a.writes()),
-            }));
-        }
-    }
-    out
+        None => false,
+    };
+    Ok(Json(json!({ "stopping": stopping })))
 }
 
 /// A stored message as the model should see it.

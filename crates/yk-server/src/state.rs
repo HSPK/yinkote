@@ -42,6 +42,9 @@ pub struct AppState {
     /// The reference-harvesting run, if one is going. One at a time: they all
     /// talk to the same service, and two would only get the client throttled.
     pub harvest: parking_lot::Mutex<crate::routes::Harvest>,
+    /// Agent turns in flight, one per conversation. A turn outlives the request
+    /// that started it — see `runs`.
+    pub runs: crate::runs::Runs,
 }
 
 impl AppState {

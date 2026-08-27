@@ -7,6 +7,7 @@
 //! provider with no network and no database.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use serde_json::json;
@@ -32,6 +33,63 @@ pub struct AgentTurn {
     /// model was finished. Surfaced rather than hidden: a truncated answer the
     /// reader knows about is far better than one they do not.
     pub truncated: bool,
+    /// True when the *user* stopped it, as opposed to the loop running out of
+    /// steps. Both are truncated; only one of them is a surprise.
+    pub stopped: bool,
+}
+
+/// Told about a turn as it happens.
+///
+/// The loop reports rather than returns, because a turn that takes half a
+/// minute and shows nothing until it ends is indistinguishable from one that
+/// has hung — and because a reader who can see the searches can judge the
+/// answer, while one who is shown them afterwards can only take it on trust.
+pub trait Progress: Send + Sync {
+    /// The model said something, tool calls or not.
+    fn said(&self, _message: &ChatMessage) {}
+    /// A tool was called and answered.
+    fn tool_done(&self, _call: &ToolCall, _result: &str) {}
+    /// Whether the caller has asked for this to stop.
+    fn cancelled(&self) -> bool {
+        false
+    }
+}
+
+/// Why a turn ended early, when it did.
+///
+/// Reported rather than hidden. An answer the reader knows is partial is far
+/// more useful than one they believe is complete — and the two reasons are not
+/// the same thing: `stopped` is what they asked for, `budget` is the loop
+/// giving up.
+fn cut_short(transcript: Vec<ChatMessage>, reason: &str) -> AgentTurn {
+    AgentTurn {
+        reply: transcript
+            .iter()
+            .rev()
+            .find(|m| m.role == "assistant" && !m.content.is_empty())
+            .map(|m| m.content.clone())
+            .unwrap_or_default(),
+        transcript,
+        truncated: true,
+        stopped: reason == "stopped",
+    }
+}
+
+/// The do-nothing observer, for callers that just want an answer.
+pub struct Silent;
+impl Progress for Silent {}
+
+/// A cancellation flag anybody can hold.
+#[derive(Debug, Default)]
+pub struct Cancel(AtomicBool);
+
+impl Cancel {
+    pub fn stop(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+    pub fn stopped(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
 }
 
 pub struct Agent {
@@ -60,6 +118,20 @@ impl Agent {
     /// Run one turn: send the history, satisfy any tool calls, repeat until the
     /// model answers in prose or the step budget runs out.
     pub async fn run(&self, library_id: i64, history: Vec<ChatMessage>) -> Result<AgentTurn> {
+        self.run_with(library_id, history, &Silent).await
+    }
+
+    /// Run one turn, reporting each step as it happens and stopping when asked.
+    ///
+    /// Cancellation is checked *between* steps rather than mid-request: a call
+    /// already in flight is going to arrive whatever we do, and throwing away
+    /// its answer would only mean asking again later.
+    pub async fn run_with(
+        &self,
+        library_id: i64,
+        history: Vec<ChatMessage>,
+        progress: &dyn Progress,
+    ) -> Result<AgentTurn> {
         let specs: Vec<_> = self.tools.values().map(|t| t.spec()).collect();
 
         let mut messages = Vec::with_capacity(history.len() + 1);
@@ -69,6 +141,10 @@ impl Agent {
         let mut transcript = Vec::new();
 
         for step in 0..MAX_STEPS {
+            if progress.cancelled() {
+                return Ok(cut_short(transcript, "stopped"));
+            }
+
             let reply = self
                 .provider
                 .complete(ChatRequest { messages: messages.clone(), tools: specs.clone() })
@@ -76,19 +152,30 @@ impl Agent {
 
             messages.push(reply.clone());
             transcript.push(reply.clone());
+            progress.said(&reply);
 
             if reply.tool_calls.is_empty() {
-                return Ok(AgentTurn { reply: reply.content, transcript, truncated: false });
+                return Ok(AgentTurn {
+                    reply: reply.content,
+                    transcript,
+                    truncated: false,
+                    stopped: false,
+                });
             }
 
             tracing::debug!(step, calls = reply.tool_calls.len(), "agent tool step");
             for call in &reply.tool_calls {
+                if progress.cancelled() {
+                    return Ok(cut_short(transcript, "stopped"));
+                }
                 let result = self.invoke(library_id, call).await;
+                progress.tool_done(call, &result.to_string());
                 let message = ChatMessage {
                     role: "tool".into(),
                     content: result.to_string(),
                     tool_calls: Vec::new(),
                     tool_call_id: Some(call.id.clone()),
+                    reasoning: None,
                 };
                 messages.push(message.clone());
                 transcript.push(message);
@@ -97,16 +184,7 @@ impl Agent {
 
         // Out of steps with tool calls still outstanding. Say so plainly rather
         // than returning the last tool result as if it were an answer.
-        Ok(AgentTurn {
-            reply: transcript
-                .iter()
-                .rev()
-                .find(|m| m.role == "assistant" && !m.content.is_empty())
-                .map(|m| m.content.clone())
-                .unwrap_or_default(),
-            transcript,
-            truncated: true,
-        })
+        Ok(cut_short(transcript, "budget"))
     }
 
     /// Run one tool, turning any failure into a result the model can read.
@@ -200,6 +278,7 @@ mod tests {
             role: "assistant".into(),
             content: String::new(),
             tool_calls: vec![ToolCall { id: id.into(), name: name.into(), arguments: json!({}) }],
+            reasoning: None,
             tool_call_id: None,
         }
     }

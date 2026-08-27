@@ -13,7 +13,8 @@ pub mod routes;
 pub mod security;
 pub mod storage;
 pub mod state;
-pub mod workers;
+pub mod runs;
+mod workers;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -83,6 +84,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         agent,
         started: Instant::now(),
         harvest: Default::default(),
+        runs: Default::default(),
     }))
 }
 

@@ -357,3 +357,22 @@ export interface Harvest {
   stopped: boolean
   message: string | null
 }
+
+/** One entry in an agent turn, in the order it happened. */
+export type RunStep =
+  | { kind: 'text'; content: string }
+  | { kind: 'thinking'; content: string }
+  | { kind: 'tool'; name: string; arguments: unknown; result: string; writes: boolean }
+
+/** What a conversation's turn is doing. */
+export interface RunState {
+  running: boolean
+  question: string
+  steps: RunStep[]
+  /** Empty while the turn is going. */
+  reply: string
+  truncated: boolean
+  /** True when the user stopped it, as opposed to the loop running out. */
+  stopped: boolean
+  error: string | null
+}

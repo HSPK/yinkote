@@ -8,7 +8,7 @@
 import type { StateCreator } from 'zustand'
 
 import { api } from '../../api/client'
-import type { AgentStatus, Conversation, Message } from '../../api/types'
+import type { AgentStatus, Conversation, Message, RunState } from '../../api/types'
 import { tabId } from '../../lib/tabs'
 import type { State } from '../store'
 
@@ -22,6 +22,12 @@ export interface ChatSlice {
   messages: Message[]
 
   openConversation: (key: string, keep?: boolean) => Promise<void>
+  /** The turn in flight for each conversation, by key. */
+  runs: Record<string, RunState>
+  /** Apply a state pushed by the server, or fetched on arrival. */
+  applyRun: (conversation: string, state: unknown) => void
+  /** Ask the current turn to stop at its next step. */
+  cancelRun: () => Promise<void>
   newConversation: () => Promise<void>
   renameConversation: (key: string, title: string) => Promise<void>
   removeConversation: (key: string) => Promise<void>
@@ -36,6 +42,27 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
   asking: false,
   conversation: null,
   messages: [],
+  runs: {},
+
+  applyRun(conversation, state) {
+    if (!conversation) return
+    const run = state as RunState
+    set({ runs: { ...get().runs, [conversation]: run } })
+
+    // A finished turn's answer is stored as an ordinary message, so reload the
+    // thread rather than trying to splice one in: the server knows the id.
+    if (!run.running && get().conversation === conversation) {
+      void api.conversations
+        .messages(get().library, conversation)
+        .then((messages) => set({ messages }))
+        .catch(() => {})
+    }
+  },
+
+  async cancelRun() {
+    const key = get().conversation
+    if (key) await api.conversations.cancel(get().library, key).catch(() => {})
+  },
 
   /** Show a conversation.
    *
@@ -58,6 +85,11 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
     } catch {
       set({ messages: [] })
     }
+
+    // Rejoin whatever is already happening. Without this a reload during a
+    // long turn shows an idle conversation while the model is still working.
+    const run = await api.conversations.run(get().library, key).catch(() => null)
+    if (run) get().applyRun(key, run)
   },
 
   async newConversation() {
@@ -99,12 +131,15 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
 
     try {
       if (s.agent?.configured) {
+        // Returns as soon as the turn exists; the answer arrives on the event
+        // bus. Awaiting it here would tie a half-minute of work to one request
+        // and lose it on a reload.
         await api.conversations.ask(s.library, s.conversation, body)
+        const run = await api.conversations.run(s.library, s.conversation).catch(() => null)
+        if (run) get().applyRun(s.conversation, run)
       } else {
         await api.conversations.append(s.library, s.conversation, { role: 'user', content: body })
       }
-      // Re-read rather than splice: the server may have appended several
-      // messages, and it is the one that knows their ids.
       set({ messages: await api.conversations.messages(s.library, s.conversation) })
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) })

@@ -213,6 +213,11 @@ pub struct ChatMessage {
     /// Which call this message answers, when `role` is `tool`.
     #[serde(default, rename = "toolCallId", skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// The model's own reasoning, when it reports it separately from the
+    /// answer. Kept apart because it is *not* the answer: it is working, it is
+    /// often long, and presenting it as prose would be misleading.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
 }
 
 impl ChatMessage {
@@ -222,6 +227,7 @@ impl ChatMessage {
             content: content.into(),
             tool_calls: Vec::new(),
             tool_call_id: None,
+            reasoning: None,
         }
     }
 }

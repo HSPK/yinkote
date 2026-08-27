@@ -34,6 +34,7 @@ vi.mock('./api/client', () => {
           return Promise.resolve({})
         }
         if (path === 'api.conversations.messages') return Promise.resolve([])
+        if (path === 'api.conversations.run') return Promise.resolve({ running: false })
         if (path === 'api.conversations.list') return Promise.resolve([])
         return new Promise(() => {})
       },
@@ -93,6 +94,7 @@ beforeEach(() => {
       message(2, 'assistant', 'Three papers, all from 2017.', {
         model: 'gpt-5.6-sol',
         trace: [
+          { kind: 'thinking', content: 'The user wants papers about attention.' },
           { kind: 'text', content: 'Let me look.' },
           {
             kind: 'tool',
@@ -156,7 +158,7 @@ describe('the chat surface', () => {
 
     // A list of calls after the answer loses the thing that makes an answer
     // checkable: which step led to which.
-    const parts = [...container.querySelectorAll('.bubble-body, .step')].map(
+    const parts = [...container.querySelectorAll('.bubble-body, .turn-text, .turn-step')].map(
       (n) => n.textContent ?? '',
     )
     const look = parts.findIndex((p) => p.includes('Let me look'))
@@ -173,8 +175,10 @@ describe('the chat surface', () => {
 
     // The arguments are short and are the part that says what was actually
     // asked; the result is a page of JSON and stays folded.
+    // The header carries what was asked; the answer is what needs folding, and
+    // nothing is unfolded until somebody asks.
     expect(container.querySelector('.step-args')?.textContent).toContain('attention')
-    expect((container.querySelector('.step-result') as HTMLDetailsElement).open).toBe(false)
+    expect(container.querySelector('.step-body')).toBeNull()
   })
 
   it('marks the step that changed the library', async () => {
@@ -182,7 +186,7 @@ describe('the chat surface', () => {
 
     // "Which of these actually did something" is the first question anybody
     // asks of a trace, and an agent with write access must answer it.
-    const written = container.querySelectorAll('.step[data-writes]')
+    const written = container.querySelectorAll('.turn-step[data-writes]')
     expect(written).toHaveLength(1)
     expect(written[0]?.textContent).toContain('tag_items')
   })
@@ -243,5 +247,56 @@ describe('the chat surface', () => {
 
     expect(sent).toEqual([])
     expect(field.value).toBe('first line')
+  })
+})
+
+describe('a turn in flight', () => {
+  it('keeps the header still when a step is opened', async () => {
+    await render()
+    const bar = container.querySelector('.step-bar') as HTMLElement
+
+    // Nothing is unfolded to begin with, so opening one can only add below it.
+    expect(container.querySelector('.step-body')).toBeNull()
+    await act(async () => {
+      bar.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const bars = [...container.querySelectorAll('.step-bar')]
+    expect(bars[0]).toBe(bar)
+    expect(container.querySelector('.step-body')).toBeTruthy()
+  })
+
+  it('folds the model’s reasoning away rather than reading it as prose', async () => {
+    await render()
+
+    // Reasoning is working, not an answer. Showing it as prose would be
+    // presenting a draft as a conclusion.
+    const thinking = [...container.querySelectorAll('.step-name')].find(
+      (n) => n.textContent === 'Thinking',
+    )
+    expect(thinking).toBeTruthy()
+    expect(container.textContent).not.toContain('The user wants papers about attention.')
+  })
+
+  it('shows a running turn with a way to stop it', async () => {
+    useStore.setState({
+      runs: {
+        K1: {
+          running: true,
+          question: 'and diffusion?',
+          steps: [{ kind: 'text', content: 'Looking.' }],
+          reply: '',
+          truncated: false,
+          stopped: false,
+          error: null,
+        },
+      },
+    })
+    await render()
+
+    const live = container.querySelector('.bubble[data-live]')
+    expect(live).toBeTruthy()
+    // A turn that cannot be interrupted is one you have to wait out.
+    expect(live?.textContent).toContain('Stop')
   })
 })

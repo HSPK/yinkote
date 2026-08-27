@@ -21,6 +21,11 @@ pub enum DomainEvent {
     TagsChanged { library_id: i64 },
     #[serde(rename_all = "camelCase")]
     IndexProgress { done: i64, total: i64 },
+    /// An agent turn's state changed. Carries the whole state rather than a
+    /// delta: it is small, and a client that missed one delta would otherwise
+    /// be permanently out of step with no way to notice.
+    #[serde(rename_all = "camelCase")]
+    AgentProgress { library_id: i64, conversation: String, state: serde_json::Value },
     #[serde(rename_all = "camelCase")]
     PluginsChanged,
     #[serde(rename_all = "camelCase")]

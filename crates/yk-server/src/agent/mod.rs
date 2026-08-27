@@ -121,6 +121,14 @@ fn from_wire(value: &Value) -> ChatMessage {
             .filter(|c| !c.name.is_empty())
             .collect(),
         tool_call_id: None,
+        // Providers disagree about where reasoning lives, and none of them
+        // agree with the base spec. Try the two spellings in the wild and
+        // treat its absence as ordinary — most models expose none.
+        reasoning: value["reasoning_content"]
+            .as_str()
+            .or_else(|| value["reasoning"].as_str())
+            .map(str::to_string)
+            .filter(|r| !r.trim().is_empty()),
     }
 }
 
@@ -355,6 +363,7 @@ mod tests {
                 arguments: json!({ "query": "diffusion" }),
             }],
             tool_call_id: None,
+                    reasoning: None,
         };
 
         let wire = to_wire(&message);

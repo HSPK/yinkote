@@ -1937,6 +1937,72 @@ select.ctl { padding: 4px 6px; }
 
 /* ─── agent steps, drawn where they happened ─────────────────────────────── */
 
+/* A turn reads as one column — thought, action, thought, answer — so a step
+   shares the reply's left edge rather than being bolted to the side. */
+.turn-text { padding: 2px 0 4px; color: var(--fg-dim); white-space: pre-wrap; }
+
+.turn-step { margin: 3px 0; }
+
+/* The header is a fixed row and the body grows *under* it. Opening a step
+   therefore never moves anything above it — which is the difference between
+   reading a transcript and chasing it up the screen. */
+.step-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 22px;
+  padding: 0 6px;
+  font: 11px/1 var(--mono);
+  color: var(--fg-dim);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--line-2);
+  cursor: pointer;
+  text-align: left;
+}
+.step-bar:hover { color: var(--fg); border-color: var(--line-2); }
+.turn-step[data-writes] .step-bar { border-left-color: var(--accent); }
+
+.step-caret { transition: transform 90ms ease; flex: none; }
+.step-caret[data-open] { transform: rotate(180deg); }
+.step-name { color: var(--fg); flex: none; }
+.step-args {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+.step-writes {
+  flex: none;
+  padding: 0 5px;
+  color: #1b2026;
+  background: var(--accent);
+  border-radius: 2px;
+  font-size: 10px;
+}
+.step-body {
+  margin: 0;
+  padding: 6px 8px;
+  max-height: 260px;
+  overflow: auto;
+  font: 11px/1.5 var(--mono);
+  color: var(--fg-dim);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-top: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubble[data-live] { border-left: 2px solid var(--accent); }
+.bubble-working { color: var(--accent); font-size: 10px; }
+.bubble-role .spacer { flex: 1; }
+.bubble-role { display: flex; align-items: center; gap: 6px; }
+
+
 .step {
   margin: 5px 0 5px 10px;
   padding: 5px 8px;
@@ -1979,17 +2045,20 @@ select.ctl { padding: 4px 6px; }
 /* Named colours rather than hexes at the call site: a name keeps its meaning
    when the theme changes, and the theme is the only place that decides what
    "green" looks like against this background. */
-[data-colour='red']    { --tag: #c0554b; }
-[data-colour='amber']  { --tag: #d6a44c; }
-[data-colour='green']  { --tag: #5fb236; }
-[data-colour='blue']   { --tag: #4da3ff; }
-[data-colour='violet'] { --tag: #a28ae5; }
-[data-colour='cyan']   { --tag: #3fb8b0; }
-[data-colour='pink']   { --tag: #d67ab1; }
-[data-colour='lime']   { --tag: #9bc53d; }
+/* Tints, not signals. A tag is a label, not a warning: at saturation they all
+   shout, they fight the accent colour, and a row of six looks like an error
+   state. These are muted enough to sit under text and still be told apart. */
+[data-colour='red']    { --tag: #e8a09a; }
+[data-colour='amber']  { --tag: #e6c79c; }
+[data-colour='green']  { --tag: #a8cfa0; }
+[data-colour='blue']   { --tag: #9dc4e8; }
+[data-colour='violet'] { --tag: #bdb0e0; }
+[data-colour='cyan']   { --tag: #9ccfcb; }
+[data-colour='pink']   { --tag: #e3b3cd; }
+[data-colour='lime']   { --tag: #cbd9a3; }
 
 .tag-chip[data-colour] { border-left: 2px solid var(--tag); }
-.tag-chip[data-colour][data-active] { background: var(--tag); color: var(--bg); }
+.tag-chip[data-colour][data-active] { background: var(--tag); color: #1b2026; }
 
 .chip[data-colour] { border-left: 2px solid var(--tag); }
 

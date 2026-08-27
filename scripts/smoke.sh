@@ -266,6 +266,19 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
        | jq -r '.created[0].key')
   # An agent that can change the library must be able to prove it did.
   check "agent tools"    "$(j "$BASE/agent" | jq -r '.tools // empty | length | tostring | select(. != "0")')"
+  # A turn belongs to the conversation, not to the request that started it.
+  CK2=$(j -X POST "$BASE/libraries/$LIB/conversations" -d '{"title":"Run smoke"}' | jq -r .key)
+  check "ask returns now"  "$(j -X POST "$BASE/libraries/$LIB/conversations/$CK2/ask" \
+                               -d '{"content":"how many items are in my library?"}' \
+                               | jq -r 'select(.started == true) | "started"')"
+  check "run is readable"  "$(j "$BASE/libraries/$LIB/conversations/$CK2/run" \
+                               | jq -r 'select((.running | type) == "boolean") | "readable"')"
+  # Two turns in one conversation would interleave into a transcript nobody
+  # can read, so the second is refused rather than queued.
+  check "one turn at once" "$(j -X POST "$BASE/libraries/$LIB/conversations/$CK2/ask" \
+                               -d '{"content":"again"}' | jq -r '.title // empty')"
+  check "run is stoppable" "$(j -X POST "$BASE/libraries/$LIB/conversations/$CK2/cancel" \
+                               | jq -r 'select(.stopping == true) | "stopping"')"
   check "summarise"      "$(j -X POST "$BASE/libraries/$LIB/items/$AK/summarise" -d '{}' | jq -r '.note.itemType')"
   check "summary is a child" "$(j "$BASE/libraries/$LIB/items/$AK/children" | jq -r 'length')"
   # Re-running must replace the note, not add a second one.
@@ -273,9 +286,21 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
   check "summary replaced" "$(j "$BASE/libraries/$LIB/items/$AK/children" | jq -r 'if length == 1 then "one" else "duplicated" end')"
 
   ACONV=$(j -X POST "$BASE/libraries/$LIB/conversations" -d '{"title":"smoke"}' | jq -r .key)
-  check "agent answers"  "$(j -X POST "$BASE/libraries/$LIB/conversations/$ACONV/ask" \
-                              -d '{"content":"How many items are in the library? Use your tools."}' \
-                            | jq -r '.message.content | length > 0')"
+  # Starting returns at once now, so the answer is waited for the way a client
+  # does: by watching the run, not by holding the request open.
+  j -X POST "$BASE/libraries/$LIB/conversations/$ACONV/ask" \
+    -d '{"content":"How many items are in the library? Use your tools."}' > /dev/null
+  for _ in $(seq 1 60); do
+    [[ "$(j "$BASE/libraries/$LIB/conversations/$ACONV/run" | jq -r .running)" == "true" ]] || break
+    sleep 1
+  done
+  check "agent answers"  "$(j "$BASE/libraries/$LIB/conversations/$ACONV/messages" \
+                            | jq -r '[.[] | select(.role == "assistant")][0].content
+                                     | select(length > 0) | "answered"')"
+  # A turn that ran must leave its steps behind, or the answer is unverifiable.
+  check "agent shows work" "$(j "$BASE/libraries/$LIB/conversations/$ACONV/messages" \
+                              | jq -r '[.[] | select(.role == "assistant")][0].meta.trace
+                                       | select(length > 0) | "traced"')"
   j -X DELETE "$BASE/libraries/$LIB/conversations/$ACONV" > /dev/null
 else
   printf '  \033[33mskip\033[0m %-44s %s\n' "agent round trip" "no model configured"

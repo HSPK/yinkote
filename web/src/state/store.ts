@@ -229,6 +229,11 @@ export const useStore = create<State>((set, get, store) => ({
           // current page is cheap and always correct.
           void get().refresh()
           void get().reloadSidebar()
+        } else if (type === 'agentProgress') {
+          // A turn belongs to the conversation, so progress arrives whether or
+          // not the chat tab is in front — and is kept, so switching to it
+          // shows the turn already under way rather than an empty pane.
+          get().applyRun(String(event.conversation ?? ''), event.state)
         } else if (type === 'pluginsChanged') {
           // Badge columns come and go with their plugin, and any answers the
           // old one gave are no longer trustworthy.

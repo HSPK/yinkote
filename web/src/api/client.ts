@@ -13,6 +13,7 @@ import type {
   CitationRender,
   Harvest,
   MissingWork,
+  RunState,
   CitationStyle,
   Collection,
   GraphNeighbourhood,
@@ -209,6 +210,12 @@ export const api = {
   },
 
   conversations: {
+    run: (lib: number, key: string) =>
+      request<RunState>(`/libraries/${lib}/conversations/${key}/run`),
+    cancel: (lib: number, key: string) =>
+      request<{ stopping: boolean }>(`/libraries/${lib}/conversations/${key}/cancel`, {
+        method: 'POST',
+      }),
     list: (lib: number) => request<Conversation[]>(`/libraries/${lib}/conversations`),
     create: (lib: number, body: { title?: string; scope?: string } = {}) =>
       request<Conversation>(`/libraries/${lib}/conversations`, { method: 'POST', ...json(body) }),
