@@ -1108,3 +1108,91 @@ async fn a_note_that_stands_on_its_own_still_comes_across() {
     let hits = c.get(&format!("/libraries/{lib}/search?q=winter&mode=keyword")).await;
     assert!(!hits["hits"].as_array().unwrap().is_empty(), "the standalone note is searchable");
 }
+
+/// A rebuild must not stop the program it runs inside.
+///
+/// This property was established by hand three rounds running — start a job,
+/// hammer writes, watch — and by hand is exactly how it will be lost. Every
+/// part of it was a real failure at some point: clearing the index in one
+/// transaction held the write lock for eighteen seconds, batches without a
+/// retry let the rebuild lose its own race and fail, and a `TRUNCATE`
+/// checkpoint took the database exclusively while the log was at its largest.
+///
+/// The assertion is not "it is fast". It is "an ordinary write still works",
+/// which is the difference between a program that is busy and one that is
+/// broken.
+#[tokio::test]
+async fn writing_still_works_while_the_index_is_rebuilt() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    // Enough for the rebuild to still be going when the writes arrive; the
+    // point is the overlap, not the size.
+    for batch in 0..16 {
+        let items: Vec<Value> =
+            (0..500).map(|i| article(&format!("Rebuildable {batch}-{i}"))).collect();
+        c.post(&format!("/libraries/{lib}/items"), json!(items)).await;
+    }
+
+    let started = c.post(&format!("/maintenance/reindex/{lib}"), json!({})).await;
+    let task = started["task"]["id"].as_str().expect("a task").to_string();
+
+    let mut written = 0;
+    let mut overlapped = 0;
+    let mut slowest = std::time::Duration::ZERO;
+    for i in 0..25 {
+        // Whether the rebuild was still going *for this write*. Counted rather
+        // than assumed: a test where the job finishes before the first write is
+        // a test of nothing, and it would pass for ever.
+        if c.get(&format!("/tasks/{task}")).await["phase"] == "running" {
+            overlapped += 1;
+        }
+        let began = std::time::Instant::now();
+        let (status, body) = c
+            .send("POST", &format!("/libraries/{lib}/items"), Some(json!([article(&format!("During {i}"))])))
+            .await;
+        let took = began.elapsed();
+        if took > slowest {
+            slowest = took;
+        }
+        assert!(
+            status.is_success(),
+            "a write failed while the index was rebuilding: {status} {body}"
+        );
+        written += 1;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    assert_eq!(written, 25);
+    // Printed rather than asserted: the separation between a healthy rebuild
+    // and a broken one is tens of milliseconds at a scale a test can reach
+    // (69ms against 106ms when the index was cleared in one transaction), which
+    // is too close to hold a threshold against. At production scale it is the
+    // difference between 232ms and a write that fails after fifteen seconds —
+    // measured by hand and recorded in docs/16 §3.103.
+    eprintln!("slowest write during the rebuild: {slowest:?}");
+
+    // The real guard. Too few overlaps means one of two things, and neither is
+    // the property holding: the rebuild finished before the writes arrived, or
+    // the writes were blocked long enough that it finished while they queued.
+    // Reintroducing the one-transaction clear drops this from 25 to 9.
+    assert!(
+        overlapped >= 15,
+        "only {overlapped} of 25 writes met a running rebuild — either it ended \
+         too early to prove anything, or they were held up long enough that it did"
+    );
+
+    // And the rebuild itself must survive being competed with: losing the lock
+    // is a reason to wait, not to abandon a half-built index.
+    let finished = loop {
+        let state = c.get(&format!("/tasks/{task}")).await;
+        if state["phase"] != "running" {
+            break state;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    };
+    assert_eq!(finished["phase"], "done", "the rebuild gave up: {finished}");
+
+    // The index is usable afterwards, which is the whole point of rebuilding.
+    let hits = c.get(&format!("/libraries/{lib}/search?q=rebuildable&limit=5")).await;
+    assert!(!hits["hits"].as_array().unwrap().is_empty());
+}
