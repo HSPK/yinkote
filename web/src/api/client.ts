@@ -295,6 +295,11 @@ export const api = {
       request<{ updated: number }>(`/libraries/${lib}/tags`, { method: 'PATCH', ...json({ from, to }) }),
     remove: (lib: number, name: string) =>
       request<{ deleted: number }>(`/libraries/${lib}/tags`, { method: 'DELETE', ...json({ name }) }),
+    setColor: (lib: number, name: string, color: string) =>
+      request<{ name: string; color: string }>(`/libraries/${lib}/tags/color`, {
+        method: 'POST',
+        ...json({ name, color }),
+      }),
   },
 
   search: (lib: number, query: ListQuery) =>

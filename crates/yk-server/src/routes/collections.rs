@@ -1,7 +1,7 @@
 //! Collections and tags.
 
 use axum::extract::{Path, Query, State};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
@@ -20,6 +20,7 @@ pub fn router() -> Router<App> {
             get(get_one).patch(update).delete(remove),
         )
         .route("/libraries/:lib/tags", get(tags).patch(rename_tag).delete(delete_tag))
+        .route("/libraries/:lib/tags/color", post(set_tag_color))
         .route("/libraries/:lib/facets", get(facets))
 }
 
@@ -103,6 +104,34 @@ async fn facets(
 struct RenameBody {
     from: String,
     to: String,
+}
+
+#[derive(Deserialize)]
+struct TagColour {
+    name: String,
+    /// A palette name, or empty to go back to the colour derived from the name.
+    #[serde(default)]
+    color: String,
+}
+
+/// Give a tag a colour, or take one away.
+///
+/// Clearing is not the same as grey: a tag with no stored colour still draws in
+/// one derived from its name, because a library where colours only exist after
+/// somebody assigns two hundred of them is a library with no colours.
+async fn set_tag_color(
+    State(app): State<App>,
+    Path(lib): Path<i64>,
+    Json(body): Json<TagColour>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let chosen = body.color.trim();
+    app.store()
+        .tags
+        .set_color(lib, body.name.trim(), (!chosen.is_empty()).then_some(chosen))
+        .await?;
+
+    let version = announce(&app, lib, |_| DomainEvent::TagsChanged { library_id: lib }).await?;
+    Ok(Json(json!({ "name": body.name, "color": chosen, "version": version })))
 }
 
 async fn rename_tag(

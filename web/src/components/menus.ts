@@ -5,7 +5,8 @@
  *  the wording and ordering stay consistent.
  */
 import { api } from '../api/client'
-import type { Collection, Item, SmartCollection } from '../api/types'
+import type { Collection, Item, SmartCollection, Tag } from '../api/types'
+import { hasChosenColour, TAG_COLOURS } from '../lib/tags'
 import { t } from '../i18n'
 import { useStore } from '../state/store'
 import { confirmAction, promptFor, toast, withToast, type MenuItem } from '../ui'
@@ -168,6 +169,62 @@ export function itemMenu(item: Item): MenuItem[] {
               }),
           },
         ]),
+  ]
+}
+
+/**
+ * What a tag can do.
+ *
+ * Colour first because it is the only thing here that is not destructive, and
+ * because a tag's colour is how a library becomes readable at a glance.
+ */
+export function tagMenu(tag: Tag): MenuItem[] {
+  const store = useStore.getState()
+
+  return [
+    {
+      label: t('tag.colour'),
+      items: TAG_COLOURS.map((colour) => ({
+        label: `${t(`colour.${colour}`)}${tag.color === colour ? ' \u2713' : ''}`,
+        onSelect: () =>
+          withToast(() => store.setTagColour(tag.name, colour), {
+            failure: t('tag.colourFailed'),
+          }),
+      })),
+    },
+    {
+      // Clearing is not "no colour": the tag goes back to the one derived from
+      // its name, which is what it wore before anybody chose.
+      label: t('tag.colourAuto'),
+      disabled: !hasChosenColour(tag.color),
+      onSelect: () =>
+        withToast(() => store.setTagColour(tag.name, ''), { failure: t('tag.colourFailed') }),
+    },
+    {},
+    {
+      label: t('tag.rename'),
+      onSelect: async () => {
+        const next = await promptFor(t('tag.rename'), { label: t('dialog.tag'), defaultValue: tag.name })
+        if (next && next !== tag.name) {
+          await withToast(() => store.renameTag(tag.name, next), {
+            success: t('toast.saved'),
+            failure: t('tag.renameFailed'),
+          })
+        }
+      },
+    },
+    {
+      label: t('tag.delete'),
+      danger: true,
+      onSelect: async () => {
+        if (await confirmAction(t('tag.deleteConfirm', { name: tag.name }))) {
+          await withToast(() => store.deleteTag(tag.name), {
+            success: t('toast.saved'),
+            failure: t('tag.deleteFailed'),
+          })
+        }
+      },
+    },
   ]
 }
 

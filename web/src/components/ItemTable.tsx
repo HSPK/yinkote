@@ -14,9 +14,30 @@ import {
 } from '../lib/columns'
 import { beginDrag, endDrag } from '../lib/dnd'
 import { creatorSummary, shortDate, snippetParts, year } from '../lib/format'
+import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
 import { contextMenu, type MenuItem } from '../ui'
 import { itemMenu } from './menus'
+
+/**
+ * Tags in a table cell.
+ *
+ * Coloured because that is the whole point of a tag in a dense list: the eye
+ * finds a colour in a hundred rows long before it reads a word. The name is
+ * still there — a colour alone is a code nobody has been given the key to.
+ */
+function TagDots({ tags }: { tags: string[] }) {
+  const colours = useStore((s) => s.tagColours)
+  return (
+    <span className="cell-tags">
+      {tags.map((tag) => (
+        <span key={tag} className="cell-tag" data-colour={tagColour(tag, colours[tag])}>
+          {tag}
+        </span>
+      ))}
+    </span>
+  )
+}
 
 const MAX_WIDTH = 640
 
@@ -75,7 +96,7 @@ const CELLS: Record<
   type: { className: 'dim', render: ({ typeLabel }) => typeLabel },
   tags: {
     className: 'dim',
-    render: ({ item }) => item.tags.map((t) => t.tag).join(' · '),
+    render: ({ item }) => <TagDots tags={item.tags.map((t) => t.tag)} />,
     title: (i) => i.tags.map((t) => t.tag).join(', '),
   },
   publication: {

@@ -1972,3 +1972,40 @@ select.ctl { padding: 4px 6px; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+
+/* ─── tag colour ─────────────────────────────────────────────────────────── */
+
+/* Named colours rather than hexes at the call site: a name keeps its meaning
+   when the theme changes, and the theme is the only place that decides what
+   "green" looks like against this background. */
+[data-colour='red']    { --tag: #c0554b; }
+[data-colour='amber']  { --tag: #d6a44c; }
+[data-colour='green']  { --tag: #5fb236; }
+[data-colour='blue']   { --tag: #4da3ff; }
+[data-colour='violet'] { --tag: #a28ae5; }
+[data-colour='cyan']   { --tag: #3fb8b0; }
+[data-colour='pink']   { --tag: #d67ab1; }
+[data-colour='lime']   { --tag: #9bc53d; }
+
+.tag-chip[data-colour] { border-left: 2px solid var(--tag); }
+.tag-chip[data-colour][data-active] { background: var(--tag); color: var(--bg); }
+
+.chip[data-colour] { border-left: 2px solid var(--tag); }
+
+.cell-tags { display: inline-flex; gap: 6px; overflow: hidden; }
+.cell-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  color: var(--fg-dim);
+}
+.cell-tag::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tag, var(--line-2));
+}

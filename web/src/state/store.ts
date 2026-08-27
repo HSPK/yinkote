@@ -144,6 +144,12 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   setPluginEnabled: (id: string, enabled: boolean) => Promise<void>
   reloadPlugins: () => Promise<void>
   reindex: () => Promise<void>
+  /** Give a tag a colour, or clear it back to the one derived from its name. */
+  setTagColour: (name: string, colour: string) => Promise<void>
+  /** Stored colours by tag name, for the places that only carry names. */
+  tagColours: Record<string, string>
+  renameTag: (from: string, to: string) => Promise<void>
+  deleteTag: (name: string) => Promise<void>
 }
 
 const PAGE = 200
@@ -468,6 +474,7 @@ export const useStore = create<State>((set, get, store) => ({
 
 
 
+  tagColours: {},
   graphSize: { nodes: 0, edges: 0 },
   gapCount: 0,
   detached: null,
@@ -719,6 +726,21 @@ export const useStore = create<State>((set, get, store) => ({
 
   async reloadPlugins() {
     set({ plugins: await api.plugins.reload() })
+  },
+
+  async setTagColour(name, colour) {
+    await api.tags.setColor(get().library, name, colour)
+    await get().reloadSidebar()
+  },
+
+  async renameTag(from, to) {
+    await api.tags.rename(get().library, from, to)
+    await Promise.all([get().refresh(), get().reloadSidebar()])
+  },
+
+  async deleteTag(name) {
+    await api.tags.remove(get().library, name)
+    await Promise.all([get().refresh(), get().reloadSidebar()])
   },
 
   async reindex() {

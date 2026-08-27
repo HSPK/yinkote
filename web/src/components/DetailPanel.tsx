@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { Item } from '../api/types'
 import { creatorName } from '../lib/format'
+import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
 import { useSchemaLabel, useT } from '../i18n'
 
@@ -55,6 +56,9 @@ function FieldEditor({ item, field, label }: { item: Item; field: string; label:
 function TagEditor({ item }: { item: Item }) {
   const t = useT()
   const patchItem = useStore((s) => s.patchItem)
+  // The stored colours live with the tag list, not on the item's tags — an
+  // item carries names, and a name is what a colour belongs to.
+  const tagColours = useStore((s) => s.tagColours)
   const [draft, setDraft] = useState('')
 
   const setTags = (tags: { tag: string; type?: number }[]) =>
@@ -69,6 +73,7 @@ function TagEditor({ item }: { item: Item }) {
             <span
               key={tag.tag}
               className="chip"
+              data-colour={tagColour(tag.tag, tagColours[tag.tag])}
               title={tag.type === 1 ? t('detail.tagAuto') : t('detail.tagManual')}
             >
               {tag.tag}

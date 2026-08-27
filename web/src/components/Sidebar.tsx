@@ -6,10 +6,11 @@ import { collectionColour, collectionIcon } from '../lib/collections'
 import { tabId } from '../lib/tabs'
 import type { DragPayload } from '../lib/dnd'
 import { buildTree } from '../lib/tree'
+import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
 import { Icon, contextMenu, confirmAction, promptFor, withToast } from '../ui'
 import { newCollection } from './actions'
-import { collectionMenu, libraryMenu, smartMenu, trashMenu } from './menus' 
+import { collectionMenu, libraryMenu, smartMenu, tagMenu, trashMenu } from './menus' 
 import { useT } from '../i18n'
 
 /** How many rows each sidebar group shows before offering the rest elsewhere. */
@@ -199,7 +200,9 @@ export function Sidebar() {
               key={tag.name}
               className="tag-chip"
               data-active={activeTags.includes(tag.name)}
+              data-colour={tagColour(tag.name, tag.color)}
               onClick={() => toggleTag(tag.name)}
+              onContextMenu={contextMenu(() => tagMenu(tag))}
               title={`${tag.name} · ${tag.count}`}
               {...zone(
                 `t:${tag.name}`,

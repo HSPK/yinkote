@@ -56,7 +56,26 @@ export const createSidebarSlice: StateCreator<State, [], [], SidebarSlice> = (se
           api.badges.descriptors(),
           api.agent().catch(() => ({ configured: false }) as AgentStatus),
         ])
-      set({ collections, smartCollections, conversations, tags, stats, plugins, badgeDefs, agent })
+      // Colours are remembered by name across the whole session, not just for
+      // the tags this view happens to show: the facet list changes with the
+      // filter, and a chip must not lose its colour because the sidebar is
+      // showing a narrower set.
+      const tagColours = { ...get().tagColours }
+      for (const tag of tags) {
+        if (tag.color) tagColours[tag.name] = tag.color
+      }
+
+      set({
+        collections,
+        smartCollections,
+        conversations,
+        tags,
+        tagColours,
+        stats,
+        plugins,
+        badgeDefs,
+        agent,
+      })
     } catch {
       /* sidebar is decoration; never block the main view on it */
     }

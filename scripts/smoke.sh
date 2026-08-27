@@ -156,6 +156,19 @@ check "import notes"      "$(j "$BASE/libraries/$LIB/items/SMOKEZ01/children" \
                              | jq -r '.[] | select(.itemType == "note") | .note')"
 rm -rf "$(dirname "$ZDB")"
 
+echo "▸ tag colour"
+j -X POST "$BASE/libraries/$LIB/items" \
+  -d '[{"itemType":"journalArticle","title":"Colour smoke","tags":[{"tag":"colour-smoke"}]}]' >/dev/null
+check "tag colour set"    "$(j -X POST "$BASE/libraries/$LIB/tags/color" \
+                             -d '{"name":"colour-smoke","color":"violet"}' | jq -r '.color')"
+check "tag colour listed" "$(j "$BASE/libraries/$LIB/tags?q=colour-smoke" \
+                             | jq -r '.[] | select(.name == "colour-smoke") | .color')"
+# Clearing is not "no colour": the client derives one from the name.
+check "tag colour clears" "$(j -X POST "$BASE/libraries/$LIB/tags/color" \
+                             -d '{"name":"colour-smoke","color":""}' >/dev/null; \
+                             j "$BASE/libraries/$LIB/tags?q=colour-smoke" \
+                             | jq -r '.[] | select(.name == "colour-smoke") | select(.color == null) | "cleared"')"
+
 echo "▸ browser connector"
 # The extension knows only Zotero's paths and holds no key, so these live
 # outside /api and outside the guard. They are checked on the main port; the
