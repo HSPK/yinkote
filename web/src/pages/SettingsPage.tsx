@@ -8,7 +8,8 @@ import { ZoteroImport } from '../components/ZoteroImport'
 import { filterSettings, type SettingSection } from '../lib/settings'
 import { THEMES } from '../lib/theme'
 import { useStore } from '../state/store'
-import { Badge, Button, Field, Icon, Input, Section, Select, toast, withToast } from '../ui'
+import { runOptimize, runReindex } from '../lib/maintenance'
+import { Badge, Button, Field, Icon, Input, Section, Select, toast } from '../ui'
 
 const DENSITIES = ['compact', 'comfortable'] as const
 
@@ -267,20 +268,14 @@ export function SettingsPage() {
               <div className="button-row">
                 <Button
                   onClick={() =>
-                    withToast(useStore.getState().reindex, {
-                      success: t('toast.reindexed'),
-                      failure: t('toast.reindexFailed'),
-                    })
+runReindex()
                   }
                 >
                   {t('menu.reindex')}
                 </Button>
                 <Button
                   onClick={() =>
-                    withToast(useStore.getState().optimize, {
-                      success: t('toast.optimized'),
-                      failure: t('toast.optimizeFailed'),
-                    })
+runOptimize()
                   }
                 >
                   {t('statusPage.optimize')}

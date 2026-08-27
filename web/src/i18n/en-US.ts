@@ -461,6 +461,8 @@ export const enUS: Record<MessageKey, string> = {
   'detail.referencesFailed': 'Could not fetch the references',
   'detail.referencesHeld': '{held} of {total} in your library',
   'detail.noteGenerated': 'summary',
+  'toast.reindexing': 'Rebuilding the search index…',
+  'toast.optimizing': 'Compacting the database…',
   'tabs.emptyTitle': 'No tab open',
   'tabs.emptyHint': 'Open your library, or pick anything from the sidebar.',
   'tabs.openLibrary': 'Open library',

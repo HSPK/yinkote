@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 
 import { compact } from '../lib/format'
 import { useStore } from '../state/store'
-import { Badge, Button, Section, withToast } from '../ui'
+import { runOptimize, runReindex } from '../lib/maintenance'
+import { Badge, Button, Section } from '../ui'
 import { useT } from '../i18n'
 
 /** Ordered worst-first, so a failure is the first thing read. */
@@ -40,8 +41,6 @@ export function StatusPage() {
   const server = useStore((s) => s.server)
   const tookMs = useStore((s) => s.tookMs)
   const connected = useStore((s) => s.connected)
-  const reindex = useStore((s) => s.reindex)
-  const optimize = useStore((s) => s.optimize)
   const reloadSidebar = useStore((s) => s.reloadSidebar)
   const plugins = useStore((s) => s.plugins)
 
@@ -92,10 +91,7 @@ export function StatusPage() {
         action={
           <Button
             onClick={() =>
-              withToast(reindex, {
-              success: t('toast.reindexed'),
-              failure: t('toast.reindexFailed'),
-            })
+runReindex()
             }
           >
             {t('statusPage.rebuild')}
@@ -129,10 +125,7 @@ export function StatusPage() {
         action={
           <Button
             onClick={() =>
-              withToast(optimize, {
-              success: t('toast.optimized'),
-              failure: t('toast.optimizeFailed'),
-            })
+runOptimize()
             }
           >
             {t('statusPage.optimize')}

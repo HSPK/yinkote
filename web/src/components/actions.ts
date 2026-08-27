@@ -10,6 +10,7 @@
  */
 import { t, type MessageKey } from '../i18n'
 import { useStore } from '../state/store'
+import { runOptimize, runReindex } from '../lib/maintenance'
 import { confirmAction, withToast } from '../ui'
 
 export interface Action {
@@ -70,21 +71,11 @@ export function destroySelected(count: number): Action {
 }
 
 export function reindex(): Action {
-  return action('reindex', 'menu.reindex', () =>
-    withToast(useStore.getState().reindex, {
-      success: t('toast.reindexed'),
-      failure: t('toast.reindexFailed'),
-    }),
-  )
+  return action('reindex', 'menu.reindex', runReindex)
 }
 
 export function optimize(): Action {
-  return action('optimize', 'statusPage.optimize', () =>
-    withToast(useStore.getState().optimize, {
-      success: t('toast.optimized'),
-      failure: t('toast.optimizeFailed'),
-    }),
-  )
+  return action('optimize', 'statusPage.optimize', runOptimize)
 }
 
 export function clearFilters(): Action {
