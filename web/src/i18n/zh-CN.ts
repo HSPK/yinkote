@@ -406,6 +406,8 @@ export const zhCN = {
   'search.noMatches': '无匹配',
   'collections.selectOne': '选择一个收藏夹查看详情',
   'chat.steps': '{count} 次工具调用',
+  'chat.changed': '修改了文献库',
+  'chat.result': '返回',
   'chat.truncated': '已达步数上限，回答可能不完整',
   'chat.askAbout': '就这篇提问',
   'error.surface': '这个面板出错了',

@@ -5,9 +5,9 @@
 //! expose — so "which model" is a URL and a name in the config file rather than
 //! a code change.
 //!
-//! Every tool here is **read-only**. An agent that can answer questions about a
-//! library is useful; one that can quietly rewrite it is a liability, and the
-//! difference must be structural rather than a matter of prompting.
+//! The read-only tools are here; everything that *changes* the library lives in
+//! `actions`, in its own file, so "what can this thing do to my data" is
+//! answerable by reading one list.
 
 use std::sync::Arc;
 
@@ -22,6 +22,9 @@ use yk_store::Store;
 
 use crate::config::AgentConfig;
 
+pub mod actions;
+pub use actions::{Action, LibraryAction, ACTIONS};
+
 /// How much of an abstract to show a model. Enough to judge relevance, short
 /// enough that ten results still fit in a modest context.
 const ABSTRACT_CHARS: usize = 400;
@@ -31,7 +34,14 @@ You are a research assistant working inside the user's personal reference \
 library. Answer questions using the tools to look things up; never invent a \
 citation, a title or an author. When you refer to an item, give its title and \
 its key so the user can find it. If the library has nothing relevant, say so \
-plainly instead of answering from memory. Be concise.";
+plainly instead of answering from memory. Be concise.
+
+You can also change the library: add, edit, tag, file and remove items. Do what \
+the user asks without asking permission for ordinary edits, but say afterwards \
+what you changed. Two habits matter. When you have a DOI, arXiv id or URL, use \
+quick_add rather than writing the fields yourself — the publisher's metadata is \
+better than your memory of it. And when removing something, use trash_items: it \
+is what the user can undo. Only delete permanently if they say so.";
 
 // ─── provider ───────────────────────────────────────────────────────────────
 
@@ -170,7 +180,7 @@ fn truncate(text: &str, limit: usize) -> String {
 }
 
 /// The fields worth spending context on, and no more.
-fn summarise(item: &yk_core::model::Item) -> Value {
+pub(crate) fn summarise(item: &yk_core::model::Item) -> Value {
     json!({
         "key": item.key.as_str(),
         "title": item.title(),
@@ -309,14 +319,25 @@ impl Tool for LibraryOverview {
     }
 }
 
-/// Everything the agent may do, in one place so the read-only guarantee can be
-/// checked by reading a single function.
-pub fn tools(store: &Store, search: &Arc<dyn SearchIndex>) -> Vec<Arc<dyn Tool>> {
-    vec![
+/// Everything the agent may do, in one place.
+pub fn tools(
+    store: &Store,
+    search: &Arc<dyn SearchIndex>,
+    scrape: &Arc<yk_scrape::ScrapeEngine>,
+) -> Vec<Arc<dyn Tool>> {
+    let mut tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(SearchLibrary { store: store.clone(), search: search.clone() }),
         Arc::new(GetItem { store: store.clone() }),
         Arc::new(LibraryOverview { store: store.clone() }),
-    ]
+    ];
+    tools.extend(ACTIONS.iter().map(|action| {
+        Arc::new(LibraryAction {
+            action: *action,
+            store: store.clone(),
+            scrape: scrape.clone(),
+        }) as Arc<dyn Tool>
+    }));
+    tools
 }
 
 #[cfg(test)]

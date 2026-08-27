@@ -46,6 +46,13 @@ impl Agent {
         Self { provider, tools, system }
     }
 
+    /// The tools this agent was built with, sorted so the list is stable.
+    pub fn tool_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.tools.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
     pub fn model(&self) -> String {
         self.provider.model()
     }

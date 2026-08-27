@@ -100,7 +100,7 @@ fn build_agent(
     match agent::OpenAiProvider::new(&config.agent) {
         Ok(provider) => Some(Arc::new(yk_agent::Agent::new(
             Arc::new(provider),
-            agent::tools(&services.store, &services.search),
+            agent::tools(&services.store, &services.search, &services.scrape),
             agent::SYSTEM_PROMPT.to_string(),
         ))),
         Err(error) => {

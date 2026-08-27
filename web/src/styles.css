@@ -1933,3 +1933,42 @@ select.ctl { padding: 4px 6px; }
   border-bottom: 1px solid var(--line);
   background: var(--bg-2);
 }
+
+
+/* ─── agent steps, drawn where they happened ─────────────────────────────── */
+
+.step {
+  margin: 5px 0 5px 10px;
+  padding: 5px 8px;
+  border-left: 2px solid var(--line-2);
+  font: 11px/1.5 var(--mono);
+  background: var(--bg-2);
+}
+/* A step that changed the library is marked, because "which of these actually
+   did something" is the first question anybody asks of a trace. */
+.step[data-writes] { border-left-color: var(--accent); }
+.step-head { display: flex; align-items: center; gap: 6px; color: var(--fg); }
+.step-head code { color: var(--accent); }
+.step-writes {
+  padding: 0 5px;
+  color: var(--bg);
+  background: var(--accent);
+  border-radius: 2px;
+  font-size: 10px;
+}
+.step-args {
+  color: var(--fg-dim);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.step-result summary { color: var(--fg-dim); cursor: pointer; margin-top: 3px; }
+.step-result pre {
+  margin: 4px 0 0;
+  padding: 6px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg);
+  color: var(--fg-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

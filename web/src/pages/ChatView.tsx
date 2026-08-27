@@ -3,47 +3,51 @@ import { useEffect, useRef, useState } from 'react'
 import { useT } from '../i18n'
 import type { Message } from '../api/types'
 import { useStore } from '../state/store'
-import { Empty } from '../ui'
+import { Empty, Icon } from '../ui'
 
-/** One assistant turn's tool traffic, as stored beside the answer. */
-interface ChatStep {
-  toolCalls?: { name: string; arguments: unknown }[]
-}
+/** One entry in an assistant turn, in the order it happened. */
+type Step =
+  | { kind: 'text'; content: string }
+  | { kind: 'tool'; name: string; arguments: unknown; result: string; writes: boolean }
 
 /**
- * The transcript for the selected conversation.
+ * A tool call, drawn where it happened.
  *
- * Turns are persisted server-side, so a thread survives a reload and can later
- * be replayed into the agent loop without the UI owning any of that state.
+ * An answer assembled from searches the reader cannot see is one they have no
+ * way to check, and a list of calls *after* the answer loses the thing that
+ * makes it checkable: which step led to which. So each call sits between the
+ * sentence that prompted it and the sentence that followed it.
+ *
+ * The arguments are always visible — they are short, and they are the part that
+ * says what was actually asked. The result is folded, because it is often a
+ * page of JSON.
  */
-/** The tool calls behind an answer, folded away until asked for.
- *
- *  Shown at all because an answer built from searches the reader cannot see is
- *  an answer they have no way to check; folded because most of the time they
- *  do not want to. */
-function Steps({ steps }: { steps: ChatStep[] }) {
+function ToolStep({ step }: { step: Extract<Step, { kind: 'tool' }> }) {
   const t = useT()
-  const calls = steps.flatMap((s) => s.toolCalls ?? [])
-  if (!calls.length) return null
-
   return (
-    <details className="steps">
-      <summary>{t('chat.steps', { count: calls.length })}</summary>
-      {calls.map((call, i) => (
-        <div key={i} className="step">
-          <code>{call.name}</code>
-          <span className="dim">{JSON.stringify(call.arguments)}</span>
-        </div>
-      ))}
-    </details>
+    <div className="step" data-writes={step.writes || undefined}>
+      <div className="step-head">
+        <Icon.Plugin size={11} />
+        <code>{step.name}</code>
+        {step.writes && <span className="step-writes">{t('chat.changed')}</span>}
+      </div>
+      <div className="step-args">{JSON.stringify(step.arguments)}</div>
+      {step.result && (
+        <details className="step-result">
+          <summary>{t('chat.result')}</summary>
+          <pre>{step.result}</pre>
+        </details>
+      )}
+    </div>
   )
 }
 
 function Turn({ message }: { message: Message }) {
   const t = useT()
   const meta = message.meta as
-    | { model?: string; truncated?: boolean; steps?: ChatStep[] }
+    | { model?: string; truncated?: boolean; trace?: Step[] }
     | undefined
+  const trace = meta?.trace ?? []
 
   return (
     <div className="bubble" data-role={message.role}>
@@ -51,8 +55,20 @@ function Turn({ message }: { message: Message }) {
         {t(`chat.role.${message.role}`)}
         {meta?.model && <span className="bubble-model">{meta.model}</span>}
       </div>
-      <div className="bubble-body">{message.content}</div>
-      {meta?.steps && <Steps steps={meta.steps} />}
+
+      {/* The trace is the turn as it unfolded; the final answer is the last
+          thing in it, so it is rendered once, after. */}
+      {trace.map((step, i) =>
+        step.kind === 'tool' ? (
+          <ToolStep key={i} step={step} />
+        ) : (
+          <div key={i} className="bubble-body dim">
+            {step.content}
+          </div>
+        ),
+      )}
+
+      {message.content && <div className="bubble-body">{message.content}</div>}
       {meta?.truncated && <div className="bubble-note">{t('chat.truncated')}</div>}
     </div>
   )

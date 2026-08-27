@@ -92,7 +92,23 @@ beforeEach(() => {
       message(1, 'user', 'What did I read about attention?'),
       message(2, 'assistant', 'Three papers, all from 2017.', {
         model: 'gpt-5.6-sol',
-        steps: [{ toolCalls: [{ name: 'search_library', arguments: { q: 'attention' } }] }],
+        trace: [
+          { kind: 'text', content: 'Let me look.' },
+          {
+            kind: 'tool',
+            name: 'search_library',
+            arguments: { query: 'attention' },
+            result: '{"count":3}',
+            writes: false,
+          },
+          {
+            kind: 'tool',
+            name: 'tag_items',
+            arguments: { keys: ['AAAA1111'], tags: ['read'] },
+            result: '{"changed":1}',
+            writes: true,
+          },
+        ],
       }),
     ],
   })
@@ -135,20 +151,40 @@ describe('the chat surface', () => {
     expect(container.querySelector('.bubble-model')?.textContent).toBe('gpt-5.6-sol')
   })
 
-  it('lets the reader see the searches behind an answer', async () => {
+  it('draws each tool call where it happened, in order', async () => {
     await render()
 
-    const steps = container.querySelector('.steps')
-    expect(steps).toBeTruthy()
-    expect(steps?.textContent).toContain('search_library')
+    // A list of calls after the answer loses the thing that makes an answer
+    // checkable: which step led to which.
+    const parts = [...container.querySelectorAll('.bubble-body, .step')].map(
+      (n) => n.textContent ?? '',
+    )
+    const look = parts.findIndex((p) => p.includes('Let me look'))
+    const search = parts.findIndex((p) => p.includes('search_library'))
+    const answer = parts.findIndex((p) => p.includes('Three papers'))
+
+    expect(look).toBeGreaterThanOrEqual(0)
+    expect(search).toBeGreaterThan(look)
+    expect(answer).toBeGreaterThan(search)
   })
 
-  it('keeps the tool calls folded away until asked for', async () => {
+  it('shows what was asked without unfolding anything', async () => {
     await render()
 
-    // Shown because an unverifiable answer is worth little; folded because
-    // most of the time nobody wants the machinery.
-    expect((container.querySelector('.steps') as HTMLDetailsElement).open).toBe(false)
+    // The arguments are short and are the part that says what was actually
+    // asked; the result is a page of JSON and stays folded.
+    expect(container.querySelector('.step-args')?.textContent).toContain('attention')
+    expect((container.querySelector('.step-result') as HTMLDetailsElement).open).toBe(false)
+  })
+
+  it('marks the step that changed the library', async () => {
+    await render()
+
+    // "Which of these actually did something" is the first question anybody
+    // asks of a trace, and an agent with write access must answer it.
+    const written = container.querySelectorAll('.step[data-writes]')
+    expect(written).toHaveLength(1)
+    expect(written[0]?.textContent).toContain('tag_items')
   })
 
   it('says when a transcript was cut rather than pretending it was whole', async () => {

@@ -37,6 +37,17 @@ async fn status(State(app): State<App>) -> Json<serde_json::Value> {
         "configured": agent.is_configured(),
         "model": agent.model,
         "endpoint": agent.endpoint,
+        // What it may do, so that "can it change my library?" is answerable
+        // without reading the source.
+        "tools": app
+            .agent()
+            .map(|a| a.tool_names())
+            .unwrap_or_default(),
+        "writes": crate::agent::ACTIONS
+            .iter()
+            .filter(|a| a.writes())
+            .map(|a| a.name())
+            .collect::<Vec<_>>(),
     }))
 }
 
@@ -81,18 +92,60 @@ async fn ask(
             MessageDraft {
                 role: "assistant".into(),
                 content: turn.reply.clone(),
-                // The tool traffic is kept beside the answer so a reader can
-                // see what it was based on, without cluttering the transcript.
+                // The turn is kept as an ordered trace rather than a pile of
+                // tool traffic at the end. An answer built from searches the
+                // reader cannot see is one they cannot check, and a summary
+                // *after* the fact loses the one thing that makes it checkable:
+                // which step led to which. See `trace`.
                 meta: Some(json!({
                     "model": agent.model(),
                     "truncated": turn.truncated,
-                    "steps": turn.transcript,
+                    "trace": trace(&turn.transcript),
                 })),
             },
         )
         .await?;
 
     Ok(Json(json!({ "message": reply, "truncated": turn.truncated })))
+}
+
+/// Flatten a turn into the sequence a reader should see.
+///
+/// The agent already produces its transcript in order — assistant text, the
+/// calls it made, what came back, more text. This pairs each call with its
+/// result so the client can draw them where they happened, interleaved with the
+/// prose, instead of folding them into a footnote nobody reads.
+///
+/// Write steps are marked. A library that changed should be traceable to the
+/// sentence that changed it, and "which of these actually did something" is the
+/// first question anybody asks.
+fn trace(transcript: &[ChatMessage]) -> Vec<serde_json::Value> {
+    use std::collections::HashMap;
+
+    let results: HashMap<&str, &str> = transcript
+        .iter()
+        .filter(|m| m.role == "tool")
+        .filter_map(|m| Some((m.tool_call_id.as_deref()?, m.content.as_str())))
+        .collect();
+
+    let mut out = Vec::new();
+    for message in transcript.iter().filter(|m| m.role == "assistant") {
+        if !message.content.trim().is_empty() {
+            out.push(json!({ "kind": "text", "content": message.content }));
+        }
+        for call in &message.tool_calls {
+            out.push(json!({
+                "kind": "tool",
+                "name": call.name,
+                "arguments": call.arguments,
+                "result": results.get(call.id.as_str()).copied().unwrap_or_default(),
+                "writes": crate::agent::ACTIONS
+                    .iter()
+                    .any(|a| a.name() == call.name && a.writes()),
+            }));
+        }
+    }
+    out
 }
 
 /// A stored message as the model should see it.

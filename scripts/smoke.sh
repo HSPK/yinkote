@@ -251,6 +251,8 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
   AK=$(j -X POST "$BASE/libraries/$LIB/items" \
          -d '[{"itemType":"journalArticle","title":"Agent smoke","abstractNote":"A study of nothing in particular, conducted carefully."}]' \
        | jq -r '.created[0].key')
+  # An agent that can change the library must be able to prove it did.
+  check "agent tools"    "$(j "$BASE/agent" | jq -r '.tools // empty | length | tostring | select(. != "0")')"
   check "summarise"      "$(j -X POST "$BASE/libraries/$LIB/items/$AK/summarise" -d '{}' | jq -r '.note.itemType')"
   check "summary is a child" "$(j "$BASE/libraries/$LIB/items/$AK/children" | jq -r 'length')"
   # Re-running must replace the note, not add a second one.

@@ -410,6 +410,8 @@ export const enUS: Record<MessageKey, string> = {
   'search.noMatches': 'No matches',
   'collections.selectOne': 'Select a collection to see its details',
   'chat.steps': '{count} tool calls',
+  'chat.changed': 'changed the library',
+  'chat.result': 'result',
   'chat.truncated': 'Stopped at the step limit; this answer may be incomplete',
   'chat.askAbout': 'Ask about this',
   'error.surface': 'This panel failed to draw',
