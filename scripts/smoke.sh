@@ -132,6 +132,23 @@ check "tag operator"     "$(j "$BASE/libraries/$LIB/search?q=tag:nlp" | jq -r '.
 check "snippet mark"     "$(j "$BASE/libraries/$LIB/search?q=transformer" | jq -r '.hits[0].snippet' | grep -c '<mark>')"
 check "items?q= hydrate" "$(j "$BASE/libraries/$LIB/items?q=attention" | jq -r '.items[0].match.sources|length')"
 
+echo "▸ quick add"
+# Quick add had no coverage at all, which is how "nothing resolved" managed to
+# be a flat 404 for three different situations. A refusal and an absence need
+# opposite responses from the user, so the reason has to survive to the client.
+QA_NOPE="$(j -X POST "$BASE/libraries/$LIB/quick-add" -d '{"text":"10.9999/definitely-not-a-real-doi"}')"
+check "unresolved kept"  "$(echo "$QA_NOPE" | jq -r '.unresolved | length | select(. > 0)')"
+check "absence is notFound" "$(echo "$QA_NOPE" | jq -r '[.unresolved[].problem] | select(index("notFound")) | "notFound"')"
+check "nothing created"  "$(echo "$QA_NOPE" | jq -r '.created | length | select(. == 0) | "none"')"
+# A well-formed request that resolves nothing is an outcome, not a failure.
+check "outcome not error" "$(curl -sf -o /dev/null -w '%{http_code}' -X POST \
+                               -H 'content-type: application/json' \
+                               -d '{"text":"10.9999/definitely-not-a-real-doi"}' \
+                               "$BASE/libraries/$LIB/quick-add")"
+# Every problem the server can report must be a code the catalogues translate.
+check "problem is a code" "$(echo "$QA_NOPE" \
+                               | jq -r '[.unresolved[].problem] | map(select(. == "notFound" or . == "blocked" or . == "unavailable")) | length | select(. > 0)')"
+
 echo "▸ tags & facets"
 check "tags"             "$(j "$BASE/libraries/$LIB/tags" | jq -r 'length')"
 check "facets"           "$(j "$BASE/libraries/$LIB/facets" | jq -r 'length')"

@@ -380,10 +380,16 @@ impl Tool for LibraryAction {
             Action::QuickAdd => {
                 let text = yk_agent::required_str(&arguments, "text")?;
                 let resolved = self.scrape.resolve_text(&text, 1).await;
-                let found = resolved
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| Error::invalid(format!("nothing found for {text}")))?;
+                // Say why, not just that: "blocked" and "no such paper" send
+                // the agent down completely different paths.
+                let found = resolved.resolutions.into_iter().next().ok_or_else(|| {
+                    let why = resolved
+                        .unresolved
+                        .first()
+                        .map(|u| format!("{:?}: {}", u.problem, u.detail))
+                        .unwrap_or_else(|| "no identifier recognised".into());
+                    Error::invalid(format!("nothing found for {text} ({why})"))
+                })?;
                 let item = self.store.items.create(lib, found.draft).await?;
                 Ok(summarise(&item))
             }

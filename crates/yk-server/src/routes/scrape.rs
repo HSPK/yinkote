@@ -13,7 +13,7 @@ use yk_core::event::DomainEvent;
 use yk_core::model::{Item, ItemDraft, ItemTag};
 use yk_core::plugin::hooks;
 use yk_core::{Error, Key};
-use yk_scrape::{Identifier, Resolution, SourceInfo};
+use yk_scrape::{Identifier, Resolution, SourceInfo, Unresolved};
 
 use super::{announce, key, notify_plugins};
 use crate::error::ApiResult;
@@ -57,6 +57,9 @@ struct ResolveResponse {
     /// so the UI can explain what happened.
     identifiers: Vec<DetectedIdentifier>,
     resolutions: Vec<Resolution>,
+    /// The ones that produced nothing, each with a reason. An empty result and
+    /// a blocked publisher look identical without this.
+    unresolved: Vec<Unresolved>,
     took_ms: u64,
 }
 
@@ -67,11 +70,12 @@ async fn resolve(
     let started = std::time::Instant::now();
     let identifiers = yk_scrape::detect(&body.text);
     let limit = body.limit.unwrap_or(3).clamp(1, MAX_RESOLVE);
-    let resolutions = app.scrape().resolve_text(&body.text, limit).await;
+    let outcome = app.scrape().resolve_text(&body.text, limit).await;
 
     Ok(Json(ResolveResponse {
         identifiers: identifiers.iter().map(DetectedIdentifier::from).collect(),
-        resolutions,
+        resolutions: outcome.resolutions,
+        unresolved: outcome.unresolved,
         took_ms: started.elapsed().as_millis() as u64,
     }))
 }
@@ -101,8 +105,8 @@ struct QuickAddResponse {
     created: Vec<Item>,
     /// Already in the library; reported rather than silently re-added.
     duplicates: Vec<Duplicate>,
-    /// Recognised but no source could resolve it.
-    unresolved: Vec<DetectedIdentifier>,
+    /// Recognised but no source could resolve it, each with a reason.
+    unresolved: Vec<Unresolved>,
     version: i64,
 }
 
@@ -125,19 +129,17 @@ async fn quick_add(
     let collection = body.collection.as_deref().map(key).transpose()?;
     let limit = body.limit.unwrap_or(3).clamp(1, MAX_RESOLVE);
 
-    let detected = yk_scrape::detect(&body.text);
-    let resolutions = app.scrape().resolve_text(&body.text, limit).await;
-    if resolutions.is_empty() {
-        return Err(Error::not_found("no metadata could be resolved for that input").into());
-    }
-
-    // Which identifiers did we recognise but fail to resolve?
-    let resolved: Vec<&str> = resolutions.iter().map(|r| r.identifier.as_str()).collect();
-    let unresolved: Vec<DetectedIdentifier> = detected
-        .iter()
-        .filter(|id| !resolved.contains(&id.value()))
-        .map(DetectedIdentifier::from)
-        .collect();
+    // The engine now says which identifiers failed and why, so the set
+    // difference that used to be computed here is gone: it produced the same
+    // list with the reason missing, which is the half that mattered.
+    let outcome = app.scrape().resolve_text(&body.text, limit).await;
+    let resolutions = outcome.resolutions;
+    let unresolved = outcome.unresolved;
+    // Deliberately not an error. The request was well formed and the server
+    // did its job; "the publisher refused us" is an *outcome*, and a 404 threw
+    // away the distinction between that and "no such paper" — the client got
+    // one flat "not found" for both, which is wrong half the time and
+    // unactionable in the other half. `unresolved` carries the reason.
 
     let mut drafts: Vec<ItemDraft> = Vec::new();
     let mut duplicates = Vec::new();

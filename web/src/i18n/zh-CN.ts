@@ -28,6 +28,10 @@ export const zhCN = {
   'quickAdd.addedMore': '已添加：{title} 等 {count} 条',
   'quickAdd.duplicate': '文库中已有该文献',
   'quickAdd.noMetadata': '没有解析到元数据',
+  'quickAdd.blocked': '出版商拒绝了请求',
+  'quickAdd.blockedHint': '该站点只回应带会话的浏览器。请用浏览器插件保存，或改贴 DOI。',
+  'quickAdd.unavailable': '无法访问该来源',
+  'quickAdd.unavailableHint': '服务没有响应，请稍后重试。',
   'quickAdd.failed': '添加失败',
 
   'sidebar.library': '我的文库',

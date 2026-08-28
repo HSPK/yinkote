@@ -189,16 +189,28 @@ export interface Resolution {
   draft: Record<string, unknown> & { itemType: string; title?: string }
 }
 
+/** Why an identifier produced nothing. Wording lives in the catalogues. */
+export type ScrapeProblem = 'notFound' | 'blocked' | 'unavailable'
+
+export interface Unresolved {
+  kind: string
+  identifier: string
+  problem: ScrapeProblem
+  /** The source's own words: English, untranslated. Tooltip only. */
+  detail: string
+}
+
 export interface ResolveResponse {
   identifiers: DetectedIdentifier[]
   resolutions: Resolution[]
+  unresolved: Unresolved[]
   tookMs: number
 }
 
 export interface QuickAddResponse {
   created: Item[]
   duplicates: { identifier: string; existingKey: string; title: string }[]
-  unresolved: DetectedIdentifier[]
+  unresolved: Unresolved[]
   version: number
 }
 

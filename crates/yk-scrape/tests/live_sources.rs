@@ -200,9 +200,9 @@ async fn the_fallback_chain_reaches_past_the_first_source() {
     // answer proves the chain continued rather than stopping at the first
     // source that claimed the kind.
     let hits = engine.resolve_text("10.5061/dryad.8515", 1).await;
-    assert_eq!(hits.len(), 1, "the fallback never ran");
-    assert_ne!(hits[0].source, "crossref");
-    assert_eq!(hits[0].draft.item_type, "dataset", "a dataset is not an article");
+    assert_eq!(hits.resolutions.len(), 1, "the fallback never ran: {:?}", hits.unresolved);
+    assert_ne!(hits.resolutions[0].source, "crossref");
+    assert_eq!(hits.resolutions[0].draft.item_type, "dataset", "a dataset is not an article");
 }
 
 /// The `webpage` fallback against the publishers people actually paste.

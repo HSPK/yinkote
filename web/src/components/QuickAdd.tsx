@@ -66,7 +66,17 @@ export function QuickAdd() {
         useStore.setState({ selected: [dup.existingKey] })
         setText('')
       } else {
-        toast.error(t('quickAdd.noMetadata'))
+        // Say which kind of nothing. "The publisher refused us" and "no such
+        // paper" need opposite responses from the user, and one shared message
+        // told them neither.
+        const why = result.unresolved[0]
+        if (why?.problem === 'blocked') {
+          toast.error(t('quickAdd.blocked'), t('quickAdd.blockedHint'))
+        } else if (why?.problem === 'unavailable') {
+          toast.error(t('quickAdd.unavailable'), t('quickAdd.unavailableHint'))
+        } else {
+          toast.error(t('quickAdd.noMetadata'))
+        }
       }
 
       await Promise.all([refresh(), reloadSidebar()])

@@ -27,6 +27,10 @@ export const enUS: Record<MessageKey, string> = {
   'quickAdd.addedMore': 'Added: {title} and {count} more',
   'quickAdd.duplicate': 'Already in your library',
   'quickAdd.noMetadata': 'No metadata could be resolved',
+  'quickAdd.blocked': 'The publisher refused the request',
+  'quickAdd.blockedHint': 'This site only answers browsers with a session. Save it with the browser connector, or paste its DOI.',
+  'quickAdd.unavailable': 'Could not reach the source',
+  'quickAdd.unavailableHint': 'The service did not answer. Try again in a moment.',
   'quickAdd.failed': 'Could not add',
 
   'sidebar.library': 'My Library',

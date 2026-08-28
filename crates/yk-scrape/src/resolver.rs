@@ -56,6 +56,15 @@ fn client() -> reqwest::Client {
 }
 
 /// GET a URL, treating 404 as "absent" rather than as a failure.
+/// A refusal is not an outage.
+///
+/// `403`/`401`/`451` mean this server will not answer *us*, from here, without
+/// a session it can see — retrying changes nothing, and roughly a third of the
+/// publishers people paste answer this way to a plain fetch. Lumping them in
+/// with `Unavailable` ("try later") throws away the one fact that makes the
+/// failure actionable: the browser connector runs inside the user's session
+/// and would get through. `429` stays unavailable, because there waiting is
+/// genuinely the answer.
 async fn get(http: &reqwest::Client, url: &str) -> Result<Option<reqwest::Response>> {
     let response = http
         .get(url)
@@ -65,6 +74,12 @@ async fn get(http: &reqwest::Client, url: &str) -> Result<Option<reqwest::Respon
     match response.status() {
         s if s.is_success() => Ok(Some(response)),
         s if s == reqwest::StatusCode::NOT_FOUND || s == reqwest::StatusCode::GONE => Ok(None),
+        s if s == reqwest::StatusCode::UNAUTHORIZED
+            || s == reqwest::StatusCode::FORBIDDEN
+            || s == reqwest::StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS =>
+        {
+            Err(Error::Forbidden(format!("{url}: {s}")))
+        }
         s => Err(Error::Unavailable(format!("{url}: {s}"))),
     }
 }
