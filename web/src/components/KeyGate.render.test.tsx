@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
 

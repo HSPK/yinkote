@@ -80,7 +80,33 @@ export function setApiKey(key: string | null) {
   } catch {
     /* nothing to do: the request will ask again */
   }
+  mirrorToCookie(key)
 }
+
+/**
+ * Also keep the key in a cookie, because three things are fetched by the
+ * browser rather than by us and none of them can carry a header: an `<img>`
+ * for a thumbnail, the byte stream a PDF viewer opens, and the WebSocket
+ * handshake. With a key set they all answered 401, so the workbench listed
+ * items while every picture, document and live update stayed broken.
+ *
+ * `SameSite=Strict` is what makes this safe rather than an invitation: a
+ * request coming from any other site carries no cookie at all, so there is
+ * nothing cross-site to forge with.
+ */
+function mirrorToCookie(key: string | null) {
+  // Guarded because this module is imported by tests that run without a DOM,
+  // and a module doing work at import time is why that mattered at all.
+  if (typeof document === 'undefined') return
+  const attrs = 'Path=/; SameSite=Strict'
+  document.cookie = key
+    ? `yk_key=${encodeURIComponent(key)}; ${attrs}`
+    : `yk_key=; ${attrs}; Max-Age=0`
+}
+
+// A key kept from a previous visit has to reach the cookie too, or the first
+// page load after a restart shows a library with no thumbnails.
+mirrorToCookie(apiKey())
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const key = apiKey()
