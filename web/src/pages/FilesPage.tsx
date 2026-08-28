@@ -14,7 +14,7 @@ import type { LibraryFile, RenamePlan } from '../api/types'
 import { useT } from '../i18n'
 import { bytes as formatBytes } from '../lib/format'
 import { useStore } from '../state/store'
-import { Button, Empty, Icon, Input, toast } from '../ui'
+import { Button, Empty, Icon, Input, contextMenu, toast, withToast } from '../ui'
 import { VirtualList } from '../components/VirtualList'
 
 /** Narrower than this the columns scroll sideways rather than crush. */
@@ -138,6 +138,19 @@ export function FilesPage() {
           <div
             className="row browser-grid files-grid"
             onClick={() => file.parentKey && void showItem(file.parentKey)}
+            onContextMenu={contextMenu(() => [
+              {
+                label: t('menu.reveal'),
+                onSelect: () =>
+                  withToast(
+                    async () => {
+                      const shown = await api.files.reveal(library, file.key)
+                      toast.success(t('toast.revealed', { path: shown.revealed }))
+                    },
+                    { failure: t('toast.revealFailed') },
+                  ),
+              },
+            ])}
           >
             <div className="cell name-cell" title={file.filename}>
               <Icon.Library className="glyph" />

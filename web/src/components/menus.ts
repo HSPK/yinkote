@@ -121,6 +121,20 @@ export function itemMenu(item: Item): MenuItem[] {
         ]
       : []),
     {
+      // Only offered for one row: revealing five files would open five windows,
+      // which is not what anybody means by "show me where this is".
+      label: t('menu.reveal'),
+      disabled: many,
+      onSelect: () =>
+        withToast(
+          async () => {
+            const shown = await api.files.reveal(store.library, item.key)
+            toast.success(t('toast.revealed', { path: shown.revealed }))
+          },
+          { failure: t('toast.revealFailed') },
+        ),
+    },
+    {
       label: t('reader.fetch'),
       onSelect: () =>
         withToast(() => store.fetchPdf(item.key), {

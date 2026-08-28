@@ -112,8 +112,23 @@ GET    /libraries/{lib}/items/{key}/file            下载（支持 Range，供 
 GET    /libraries/{lib}/items/{key}/file/view       内联查看（Content-Disposition: inline）
 GET    /libraries/{lib}/items/{key}/thumbnail?page=1&w=240
 DELETE /libraries/{lib}/items/{key}/file
-POST   /libraries/{lib}/items/{key}/reveal          在系统文件管理器中显示（需 Tauri 壳）
+POST   /libraries/{lib}/items/{key}/reveal          在系统文件管理器中显示
 ```
+
+> **`reveal` 不需要 Tauri 壳**：server 本来就跑在用户自己的机器上，直接起
+> 文件管理器即可。两条规则撑起这个端点的全部安全性：
+> **① 客户端只给 key，不给路径**——路径由服务端按自己的存储布局解析出来；
+> 一个 `path` 参数会让它变成"远程打开磁盘上任意文件"的原语，而且浏览器里
+> 任何一个页面都够得着。**② 全程不经 shell**——`command()` 返回
+> 程序名与 argv 数组直接交给 `Command`，文件名里的 `;` 或 `$(…)` 没有任何
+> 地方会被解释。
+>
+> 各平台都要求"选中"而非"打开所在目录"：macOS `open -R`、
+> Windows `explorer /select,<path>`（逗号是标志的一部分，路径必须粘在同一个
+> 参数上，拆成两个会静默打开"文档"目录）、Linux 走 D-Bus 的
+> `org.freedesktop.FileManager1.ShowItems`——对文件用 `xdg-open` 会把它*打开*，
+> 那是另一个功能。无桌面会话时**如实报错**而不是回 ok：两种情况下屏幕上都
+> 什么都不会发生，用户无从分辨。见 `crates/yk-server/src/routes/reveal.rs`。
 
 ### 3.4 标注与阅读器
 

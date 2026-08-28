@@ -15,6 +15,7 @@ mod conversations;
 mod items;
 mod plugins;
 mod reader;
+mod reveal;
 mod scrape;
 mod search;
 mod smart;
@@ -52,6 +53,7 @@ pub fn router() -> Router<App> {
         .merge(summarise::router())
         .merge(plugins::router())
         .merge(reader::router())
+        .merge(reveal::router())
         .merge(crate::integration::router())
         .merge(crate::maintenance::router())
 }

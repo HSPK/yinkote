@@ -1279,3 +1279,78 @@ async fn the_addin_icon_is_a_png_and_absurd_sizes_are_refused() {
     let (status, _, _) = c.raw("/addin/icon-99999.png").await;
     assert_eq!(status, StatusCode::NOT_FOUND, "a size nobody asked for is not an allocation");
 }
+
+#[tokio::test]
+async fn revealing_a_paper_finds_the_file_hanging_off_it() {
+    // "Show me this paper on disk" is asked of the paper, not of the
+    // attachment the user never sees in the table.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let paper = c.post(&format!("/libraries/{lib}/items"), json!([article("On disk")])).await
+        ["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let attachment = c
+        .post(
+            &format!("/libraries/{lib}/items"),
+            json!([{ "itemType": "attachment", "parentKey": paper, "filename": "p.pdf" }]),
+        )
+        .await["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    app.storage().put(&attachment.parse().unwrap(), "p.pdf", b"%PDF-1.7").await.unwrap();
+
+    let (status, body) = c.send("POST", &format!("/libraries/{lib}/items/{paper}/reveal"), None).await;
+    // CI has no desktop session, and the endpoint says so rather than
+    // reporting success for something that visibly did nothing. Getting this
+    // far proves the path resolution worked, which is the part worth testing.
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body.to_string().contains("headless"), "{body}");
+}
+
+#[tokio::test]
+async fn revealing_says_which_thing_is_missing() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let bare = c.post(&format!("/libraries/{lib}/items"), json!([article("No file")])).await
+        ["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, body) = c.send("POST", &format!("/libraries/{lib}/items/{bare}/reveal"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(body.to_string().contains("no file to show"), "{body}");
+
+    // Recorded but not on disk is a different problem from having no
+    // attachment, and opening the folder anyway would send the user hunting
+    // for something that is not there.
+    let ghost = c
+        .post(
+            &format!("/libraries/{lib}/items"),
+            json!([{ "itemType": "attachment", "filename": "gone.pdf" }]),
+        )
+        .await["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, body) = c.send("POST", &format!("/libraries/{lib}/items/{ghost}/reveal"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(body.to_string().contains("missing from disk"), "{body}");
+}
+
+#[tokio::test]
+async fn reveal_takes_a_key_and_never_a_path() {
+    // The security of the whole endpoint rests on this: there is no parameter
+    // through which a caller can name a file. A path in the key position is a
+    // malformed key, not a traversal.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let (status, _) = c
+        .send("POST", &format!("/libraries/{lib}/items/..%2f..%2fetc%2fpasswd/reveal"), None)
+        .await;
+    assert!(status.is_client_error(), "{status}");
+}

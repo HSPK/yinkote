@@ -388,6 +388,17 @@ export const api = {
         `/libraries/${lib}/items/${key}/fetch`,
         { method: 'POST', ...json({ url }) },
       ),
+    /**
+     * Show the file in the desktop's own file manager.
+     *
+     * Takes a key and never a path: the server resolves the location from its
+     * own storage, so there is no parameter here through which a page could
+     * name a file to open.
+     */
+    reveal: (lib: number, key: string) =>
+      request<{ revealed: string; with: string }>(`/libraries/${lib}/items/${key}/reveal`, {
+        method: 'POST',
+      }),
   },
 
   smart: {

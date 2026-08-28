@@ -547,6 +547,29 @@ check "session closed"    "$(j -X POST "$BASE/integration/session/$SID/close" | 
 check "closed stays shut" "$(j -X POST "$BASE/integration/session/$SID/refresh" -d "$SNAP" \
                               | jq -r '.error.kind // .error // "rejected"' | head -c 20)"
 
+echo "▸ reveal"
+# Takes a key and never a path: the server resolves the location from its own
+# storage, so there is no parameter here a page could use to name a file.
+BARE=$(j -X POST "$BASE/libraries/$LIB/items" \
+         -d '{"itemType":"journalArticle","title":"Nothing on disk"}' | jq -r '.created[0].key')
+check "no file says so"   "$(j -X POST "$BASE/libraries/$LIB/items/$BARE/reveal" \
+                              | jq -r '.title | select(test("no file to show")) | "refused"')"
+# This box is headless, so a resolved file cannot actually be shown — and the
+# endpoint says so rather than reporting success for something invisible.
+# Either answer proves the path resolution ran.
+# A row with a filename: the browser also lists linked_url attachments, which
+# are addresses rather than files and have nothing on disk to show.
+WITHFILE=$(j "$BASE/libraries/$LIB/files" \
+             | jq -r 'first(.files[] | select(.filename != "") | .key) // empty')
+if [[ -n "$WITHFILE" ]]; then
+  check "reveal resolves"  "$(j -X POST "$BASE/libraries/$LIB/items/$WITHFILE/reveal" \
+                               | jq -r '(.revealed // .title) | select(test("headless|\\.")) | "resolved"')"
+else
+  skip "reveal resolves" "no stored file in this library"
+fi
+check "path is not a key" "$(curl -sS -o /dev/null -w '%{http_code}' \
+                              -X POST "$BASE/libraries/$LIB/items/..%2fetc/reveal" | grep -E '4[0-9][0-9]')"
+
 echo "▸ word add-in"
 # The pane is served by the binary, outside /api/v1 and outside the SPA
 # fallback. The fallback answering manifest.xml with index.html is the failure
