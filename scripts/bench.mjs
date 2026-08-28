@@ -343,12 +343,11 @@ async function main() {
   const shelves = await seedShelves(lib)
   await seedSmart(lib)
 
-  // Give the planner the statistics a real library has. A database that has
-  // been in use accumulates `sqlite_stat1`/`stat4` through `PRAGMA optimize`,
-  // and SQLite chooses differently with them than without — a freshly seeded
-  // corpus is a different planner, so measuring one and comparing it to the
-  // other compares two things. Collection pages moved 22.6ms -> 14.6ms on this
-  // corpus purely from running it.
+  // Give the planner the statistics a real library has — which it now does,
+  // because a worker runs `PRAGMA optimize` five seconds after startup and
+  // every half hour after that. This call is no longer compensating for a
+  // missing behaviour (§3.187); it just does it *now* rather than waiting out
+  // the first tick, so a freshly seeded corpus is measurable immediately.
   await fetch(`${BASE}/maintenance/optimize`, { method: 'POST' }).catch(() => {})
 
   const stat0 = await get('/stats')

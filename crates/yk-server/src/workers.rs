@@ -40,8 +40,17 @@ fn keep_statistics_current(app: App) {
         // whether they answer, so nobody should wait on this to open the page.
         tokio::time::sleep(Duration::from_secs(5)).await;
         loop {
-            if let Err(error) = app.store().db().maintenance().await {
-                tracing::debug!(%error, "could not refresh planner statistics");
+            // Same restraint as `checkpoint_worker`, for the same reason: a
+            // bulk write is already holding the database as much as it can,
+            // and `ANALYZE` reads every index it looks at. The statistics of
+            // a library mid-import are about to be wrong anyway.
+            if !app.tasks().bulk_write_running() {
+                // Statistics only. The checkpoint half of `maintenance` takes
+                // the database exclusively and has a worker of its own that
+                // knows when that is safe.
+                if let Err(error) = app.store().db().refresh_statistics().await {
+                    tracing::debug!(%error, "could not refresh planner statistics");
+                }
             }
             // Often enough to follow a big import, rare enough to be invisible.
             tokio::time::sleep(Duration::from_secs(60 * 30)).await;

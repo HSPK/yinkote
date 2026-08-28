@@ -2868,3 +2868,30 @@ emphasis 传过去，并有一条测试盯着。
 `PRAGMA optimize` 本就为此设计：只分析变化足够大的表，重复调用几乎不花钱。
 实测：一个统计为空的库启动 25 秒后 `sqlite_stat1` 从 0 涨到 26 行，
 分栏分页 14.2ms → 4.5ms，**用户什么都不用做**。
+
+### 3.188 上一轮的修复自己踩进了本文档里已有的一条
+
+§3.187 加的 `keep_statistics_current` 调的是 `db.maintenance()`。
+翻开 `db.rs` 才看清它是：
+
+```sql
+PRAGMA optimize; PRAGMA wal_checkpoint(TRUNCATE);
+```
+
+而旁边的 `checkpoint_worker` 对 TRUNCATE 检查点是**有政策的**：
+`bulk_write_running()` 时直接跳过——因为它会独占数据库，
+而批量写正好会产生那种"大到诱人做检查点"的日志，两者相撞会让交互写入
+卡满整个 busy timeout（§3.12 里那条"前台 checkpoint"的近亲）。
+
+**我新加的 worker 每 30 分钟无条件做一次同样的事**，包括导入进行到一半的时候。
+这条规则本文档里已经写着，而我在写新代码时没有回头看。
+
+修法分两步：
+1. 拆出 `refresh_statistics()`，只做 `PRAGMA optimize`。
+   `maintenance()` 保留两件事给"立即优化"那个显式端点——**用户点它的时候正在等，
+   那是做重活的正确时机**。
+2. 新 worker 同样加上 `bulk_write_running()` 的让路。
+   导入中途的统计信息反正马上就要作废，抢那一下毫无意义。
+
+**教训**：加一个后台 worker 时，先看这个仓库里已有的 worker **回避了什么**。
+它们回避的那些东西，通常是有人已经付过学费的。
