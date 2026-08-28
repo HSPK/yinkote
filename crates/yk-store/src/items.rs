@@ -12,7 +12,7 @@ use yk_core::schema::schema;
 use yk_core::{text, Error, Key, Result};
 
 use crate::db::{sql_err, write_tx, Db};
-use crate::filter::{order_by, placeholders, Predicate};
+use crate::filter::{order_by, placeholders, Predicate, TagForm};
 use crate::index;
 
 const COLS: &str = "i.id, i.key, i.library_id, i.item_type, p.key, i.fields, i.creators, \
@@ -94,12 +94,35 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<(i64, Item)> {
 /// away — 95.7ms at offset 50000 against 2.1ms. The outer `ORDER BY` re-sorts a
 /// hundred rows, which is free, and is needed because `IN` does not preserve
 /// order.
+/// Roughly how many rows `items` holds, from the statistics `ANALYZE` left.
+///
+/// An estimate is the right precision here: it decides between two plans whose
+/// costs differ by orders of magnitude either side of the crossover, so being
+/// out by a few percent cannot change the answer. It is also free — a single
+/// row from a tiny table, measured at 0.005ms — where counting the table is
+/// 5.8ms, which would cost more than the plan it is choosing.
+///
+/// Zero when there are no statistics yet. `should_walk` then keeps today's
+/// plan: on a library nobody has ever analysed, the safe choice is the one
+/// that cannot degrade.
+fn estimated_items(c: &rusqlite::Connection) -> i64 {
+    c.query_row(
+        "SELECT CAST(stat AS INTEGER) FROM sqlite_stat1 WHERE tbl = 'items' LIMIT 1",
+        [],
+        |r| r.get::<_, i64>(0),
+    )
+    .unwrap_or(0)
+}
+
 fn page_sql(p: &Predicate, sort: SortField, direction: Direction) -> String {
     let order = order_by(sort, direction);
     // Name the index for a plain browse. See `filter::sort_index`: one unrelated
     // index with the same leading columns was enough to make the planner throw
     // the order away and re-sort the library — 9ms to 69ms, same results.
-    let hint = if p.base_only {
+    // Also named for the probe form, and for the same reason: its whole point
+    // is to read the sort order and stop at a full page, which it can only do
+    // if the walk is the index that already holds that order.
+    let hint = if p.base_only || p.tags_only {
         format!("INDEXED BY {}", crate::filter::sort_index(sort))
     } else {
         String::new()
@@ -823,6 +846,20 @@ impl ItemRepository for SqliteItemRepository {
                         .map_err(sql_err)?
                         .query_row(params_from_iter(p.params.iter()), |r| r.get(0))
                         .map_err(sql_err)?
+                };
+
+                // Which way to write the tag filter is a cost decision, and
+                // `total` is the number it turns on — which is why the count
+                // runs first. See `filter::should_walk`.
+                let p = if p.tags_only
+                    && crate::filter::should_walk(
+                        total,
+                        (query.offset + query.limit) as i64,
+                        estimated_items(c),
+                    ) {
+                    Predicate::build_with(&query.filter, cols.as_deref(), TagForm::Probe)
+                } else {
+                    p
                 };
 
                 // A deferred join: pick the page's ids from the index alone,
@@ -1737,6 +1774,118 @@ mod plan_tests {
                     "sorting by {name} {direction:?} settles ties in a temp b-tree: {plan}"
                 );
             }
+        }
+    }
+}
+
+/// The two ways a tag filter can be written must return the same rows.
+///
+/// The optimisation is only sound if the choice is invisible, so this is the
+/// test that matters most: it runs both plans over the same library and
+/// compares them page by page. Everything else here is about speed; this is
+/// about being allowed to choose at all.
+#[cfg(test)]
+mod tag_form_equivalence {
+    use super::*;
+    use yk_core::model::ItemTag;
+    use yk_core::query::{Direction, ItemFilter, ItemQuery, SortField};
+
+    async fn library() -> (crate::Store, i64) {
+        let store = crate::Store::in_memory().unwrap();
+        let lib = store.default_library;
+        for i in 0..200 {
+            let mut draft = yk_core::model::ItemDraft::new("journalArticle")
+                .with_field("title", format!("Paper {i:03}"))
+                .with_field("date", format!("{}", 1990 + i % 30));
+            // A common tag, a rare one, and one nothing carries — the three
+            // cases the rule has to get right.
+            let mut tags = vec![ItemTag::manual("common")];
+            if i % 97 == 0 {
+                tags.push(ItemTag::manual("rare"));
+            }
+            if i % 2 == 0 {
+                tags.push(ItemTag::manual("even"));
+            }
+            draft.tags = tags;
+            store.items.create(lib, draft).await.unwrap();
+        }
+        (store, lib)
+    }
+
+    async fn keys(store: &crate::Store, lib: i64, tags: &[&str], form: TagForm) -> Vec<String> {
+        let filter = ItemFilter {
+            library_id: lib,
+            tags: tags.iter().map(|t| t.to_string()).collect(),
+            ..Default::default()
+        };
+        let query = ItemQuery {
+            filter: filter.clone(),
+            sort: SortField::DateModified,
+            direction: Direction::Desc,
+            limit: 25,
+            offset: 0,
+        };
+        let cols: Option<Vec<i64>> = None;
+        let p = Predicate::build_with(&filter, cols.as_deref(), form);
+        let sql = page_sql(&p, query.sort, query.direction);
+        let mut args = p.params.clone();
+        args.push(rusqlite::types::Value::Integer(query.limit as i64));
+        args.push(rusqlite::types::Value::Integer(query.offset as i64));
+
+        let conn = store.db().conn().unwrap();
+        let mut stmt = conn.prepare(&sql).unwrap();
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+        rows
+    }
+
+    #[tokio::test]
+    async fn both_forms_return_the_same_page() {
+        let (store, lib) = library().await;
+        for tags in [&["common"][..], &["rare"][..], &["nobody-has-this"][..], &["common", "even"][..]] {
+            let materialised = keys(&store, lib, tags, TagForm::Materialise).await;
+            let probed = keys(&store, lib, tags, TagForm::Probe).await;
+            assert_eq!(materialised, probed, "the two plans disagreed for {tags:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unknown_tag_matches_nothing_either_way() {
+        // The inner scalar subquery yields NULL for a tag that does not exist,
+        // and NULL behaves differently in `IN` and in `=`. Both must still say
+        // "no rows" rather than "every row".
+        let (store, lib) = library().await;
+        assert!(keys(&store, lib, &["nobody-has-this"], TagForm::Materialise).await.is_empty());
+        assert!(keys(&store, lib, &["nobody-has-this"], TagForm::Probe).await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn every_sort_order_agrees_too() {
+        // The probe form names the sort index, so a disagreement would show up
+        // as rows in the wrong order rather than the wrong rows.
+        let (store, lib) = library().await;
+        let filter = ItemFilter { library_id: lib, tags: vec!["even".into()], ..Default::default() };
+        for sort in [SortField::Title, SortField::DateAdded, SortField::Year, SortField::Creator] {
+            let cols: Option<Vec<i64>> = None;
+            let read = |form| {
+                let p = Predicate::build_with(&filter, cols.as_deref(), form);
+                let sql = page_sql(&p, sort, Direction::Asc);
+                let mut args = p.params.clone();
+                args.push(rusqlite::types::Value::Integer(25));
+                args.push(rusqlite::types::Value::Integer(0));
+                let conn = store.db().conn().unwrap();
+                let mut stmt = conn.prepare(&sql).unwrap();
+                let out: Vec<String> = stmt
+                    .query_map(rusqlite::params_from_iter(args), |r| r.get::<_, String>(1))
+                    .unwrap()
+                    .filter_map(|r| r.ok())
+                    .collect();
+                out
+            };
+            assert_eq!(read(TagForm::Materialise), read(TagForm::Probe), "sort {sort:?}");
         }
     }
 }

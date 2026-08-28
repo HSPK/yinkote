@@ -123,6 +123,10 @@ const BUDGET = {
   'list first page (sort=modified)': 25,
   'list deep page (offset=50000)': 25,
   'list sorted by title': 25,
+  // 36.2ms before the plan was chosen from the tag's cardinality, 17.3 after,
+  // and nearly all of what is left is the count rather than the page. A
+  // regression to materialising every tag would land back above this.
+  'list filtered by tag': 28,
   'list one collection': 25,
   'list collection + children': 25,
   facets: 15,
