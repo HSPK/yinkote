@@ -146,7 +146,9 @@ const BUDGET = {
   'list one collection': 25,
   'list collection + children': 25,
   facets: 15,
-  stats: 30,
+  // 10.9ms when it counted the library twice and awaited six queries in turn,
+  // 2.0 once every count went through the shared cache.
+  stats: 15,
 }
 
 const overBudget = []

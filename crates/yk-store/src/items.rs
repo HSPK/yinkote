@@ -958,16 +958,20 @@ impl ItemRepository for SqliteItemRepository {
         limit: u32,
         offset: u32,
     ) -> Result<Page<(Item, Option<Item>)>> {
+        let counts = self.counts.clone();
         self.db
             .call(move |c| {
-                let total: i64 = c
-                    .query_row(
-                        "SELECT count(*) FROM items \
-                         WHERE library_id = ?1 AND deleted = 0 AND item_type = 'attachment'",
-                        params![library_id],
-                        |r| r.get(0),
-                    )
-                    .map_err(sql_err)?;
+                // Through the same cache as every other count. Hand-written SQL
+                // here was a fourth copy of a question three other places ask,
+                // and the only one that recomputed it — 1.54ms on every file
+                // browser page and on every whole-library rename preview.
+                let filter = ItemFilter {
+                    library_id,
+                    item_types: vec!["attachment".to_string()],
+                    ..Default::default()
+                };
+                let total =
+                    cached_count(c, &counts, library_id, &Predicate::build(&filter, None))?;
 
                 // The attachment and its parent in one statement. The join is
                 // already there for `parent_key`; taking the rest of the parent

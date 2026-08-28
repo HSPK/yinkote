@@ -174,3 +174,29 @@ async fn the_graph_sees_the_same_library_size_as_everything_else() {
          ceiling could only know that by reading the new total"
     );
 }
+
+#[tokio::test]
+async fn the_attachment_total_is_the_same_question_too() {
+    // The file browser reports how many files there are; that is the item
+    // count with one more clause, and it was the fourth place to write the SQL
+    // by hand. It has to move with the library like every other count.
+    let (s, lib) = store().await;
+    let paper = s.items.create(lib, article("Paper")).await.unwrap();
+
+    let files = || async {
+        s.items.attachments(lib, 10, 0).await.unwrap().total
+    };
+    assert_eq!(files().await, 0);
+
+    let mut att = ItemDraft::new("attachment").with_field("filename", "a.pdf");
+    att.parent_key = Some(paper.key.clone());
+    let created = s.items.create(lib, att).await.unwrap();
+    assert_eq!(files().await, 1, "a new file is counted");
+
+    s.items.set_trashed(lib, std::slice::from_ref(&created.key), true).await.unwrap();
+    assert_eq!(files().await, 0, "and a trashed one stops being");
+
+    // The paper is not a file, so the two counts are genuinely different
+    // questions and must not answer each other.
+    assert_eq!(s.items.count(&all(lib)).await.unwrap(), 1);
+}
