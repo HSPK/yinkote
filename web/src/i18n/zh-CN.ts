@@ -313,6 +313,7 @@ export const zhCN = {
   'search.why.short': '太短：精确匹配',
   'settings.currentMode': '当前检索方式',
   'settings.currentModeHint': '根据输入内容自动判断，无需手动选择',
+  'smart.atLeast': '\u81f3\u5c11\u8fd9\u4e48\u591a\uff1b\u6392\u5e8f\u68c0\u7d22\u53ea\u7edf\u8ba1\u6709\u9650\u5019\u9009\u96c6',
   'smart.rules': '规则',
   'smart.rulesHint': '全部条件同时满足',
   'smart.addRule': '+ 添加条件',

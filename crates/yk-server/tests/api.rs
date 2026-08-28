@@ -1630,3 +1630,94 @@ async fn a_capped_search_says_its_total_is_a_floor() {
     assert!(small["total"].as_i64().unwrap() >= 12, "{small}");
     assert!(small["approximate"].is_null(), "a small search is exact: {small}");
 }
+
+#[tokio::test]
+async fn a_saved_search_says_when_its_count_is_a_floor() {
+    // The sidebar shows this number next to a name. A filter counts exactly; a
+    // text query has to be run, and a ranked search stops at a bounded pool —
+    // so "300" beside a search matching twenty thousand is a wrong answer
+    // rather than a rounded one.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let drafts: Vec<Value> = (0..15)
+        .map(|i| {
+            json!({ "itemType": "journalArticle", "title": format!("Graph theory {i:02}"),
+                    "tags": [{ "tag": "maths" }] })
+        })
+        .collect();
+    c.post(&format!("/libraries/{lib}/items"), json!(drafts)).await;
+
+    for (name, query) in [("Words", "graph"), ("Filter", "tag:maths")] {
+        c.post(
+            &format!("/libraries/{lib}/smart-collections"),
+            json!({ "name": name, "query": query }),
+        )
+        .await;
+    }
+
+    let listed = c.get(&format!("/libraries/{lib}/smart-collections?counts=true")).await;
+    let of = |name: &str| -> Value {
+        listed
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == name)
+            .cloned()
+            .expect("the saved search")
+    };
+
+    // Both find everything, and neither is anywhere near a pool, so neither is
+    // marked. A mark on every search would stop meaning anything.
+    assert_eq!(of("Words")["itemCount"], 15);
+    assert!(of("Words")["itemCountApproximate"].is_null(), "{}", of("Words"));
+    assert_eq!(of("Filter")["itemCount"], 15);
+    assert!(of("Filter")["itemCountApproximate"].is_null());
+}
+
+#[tokio::test]
+async fn a_query_with_no_words_is_answered_as_a_filter() {
+    // `tag:survey` is not a search, it is a filter written in the search box.
+    // Sending it down the ranked path answered "at least 2" for a tag on
+    // thousands of items, because that path only reads as far as the page.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let drafts: Vec<Value> = (0..30)
+        .map(|i| {
+            json!({ "itemType": if i % 3 == 0 { "book" } else { "journalArticle" },
+                    "title": format!("Paper {i:02}"), "tags": [{ "tag": "shelf" }] })
+        })
+        .collect();
+    c.post(&format!("/libraries/{lib}/items"), json!(drafts)).await;
+
+    let tagged = c.get(&format!("/libraries/{lib}/items?q=tag:shelf&limit=5")).await;
+    assert_eq!(tagged["total"], 30, "an exact count, not a page: {tagged}");
+    assert!(tagged["approximate"].is_null(), "and not marked as a floor");
+
+    let typed = c.get(&format!("/libraries/{lib}/items?q=type:book&limit=5")).await;
+    assert_eq!(typed["total"], 10);
+
+    // Words alongside the operator put it back on the ranked path, where the
+    // filter still applies.
+    let mixed = c.get(&format!("/libraries/{lib}/items?q=tag:shelf%20Paper&limit=5")).await;
+    assert!(mixed["total"].as_i64().unwrap() > 0, "{mixed}");
+}
+
+#[tokio::test]
+async fn year_and_author_are_not_treated_as_filters() {
+    // Neither has an ItemFilter field — the engine applies them after
+    // retrieval — so answering them from the store would count the library.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let drafts: Vec<Value> = (0..8)
+        .map(|i| json!({ "itemType": "journalArticle", "title": format!("Old {i}"), "date": "1999" }))
+        .collect();
+    c.post(&format!("/libraries/{lib}/items"), json!(drafts)).await;
+
+    let none = c.get(&format!("/libraries/{lib}/items?q=year:2020&limit=5")).await;
+    assert_eq!(none["total"], 0, "nothing was published in 2020 here: {none}");
+
+    let nobody = c.get(&format!("/libraries/{lib}/items?q=author:nobody&limit=5")).await;
+    assert_eq!(nobody["total"], 0, "{nobody}");
+}

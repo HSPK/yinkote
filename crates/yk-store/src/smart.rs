@@ -25,6 +25,7 @@ fn map(r: &rusqlite::Row<'_>) -> rusqlite::Result<SmartCollection> {
         icon: r.get(9)?,
         version: r.get(10)?,
         item_count: None,
+        item_count_approximate: false,
     })
 }
 

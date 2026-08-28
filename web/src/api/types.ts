@@ -234,6 +234,9 @@ export interface SmartCollection {
   direction: 'asc' | 'desc'
   sortIndex: number
   version: number
+  /** Present when `itemCount` is a floor: a text query is counted by
+   *  running it, and a ranked search scores a bounded pool. */
+  itemCountApproximate?: boolean
   itemCount?: number
 }
 

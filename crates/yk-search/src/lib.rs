@@ -418,6 +418,7 @@ impl SearchIndex for SearchEngine {
 
         let (keyword_len, fuzzy_len) = (keyword_hits.len(), fuzzy_hits.len());
         let semantic_len = semantic_hits.len();
+        let filter_len = filter_only.len();
 
         let lists = vec![
             RankedList { source: MatchSource::Keyword, weight: W_KEYWORD, ids: keep(keyword_hits) },
@@ -438,7 +439,10 @@ impl SearchIndex for SearchEngine {
         // A retriever that returned exactly what it was allowed to return had
         // more to give. That is the difference between "three hundred matches"
         // and "the first three hundred of twenty thousand".
-        let capped = [keyword_len, semantic_len, fuzzy_len].iter().any(|n| *n >= CANDIDATES);
+        let capped = [keyword_len, semantic_len, fuzzy_len].iter().any(|n| *n >= CANDIDATES)
+            // A pure filter is read only as far as the page needs, so a full
+            // one means there was more behind it.
+            || (filter_len > 0 && filter_len >= needed);
 
         let start = request.offset as usize;
         let page: Vec<fusion::Fused> =

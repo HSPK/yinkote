@@ -66,6 +66,20 @@ impl ParsedQuery {
         filter.tags.extend(self.tags.iter().cloned());
         filter.item_types.extend(self.item_types.iter().cloned());
     }
+
+    /// Whether [`apply_to`](Self::apply_to) carries the whole query.
+    ///
+    /// Only tags and types become filter clauses. Free text has to be ranked,
+    /// and authors and years have no `ItemFilter` field at all — they are
+    /// applied by the engine after retrieval. A caller that wants to answer a
+    /// query from the store alone must ask this first: treating `year:2020` as
+    /// a filter that happens to be empty counts the entire library.
+    pub fn is_fully_filterable(&self) -> bool {
+        self.text.trim().is_empty()
+            && self.creators.is_empty()
+            && self.year_from.is_none()
+            && self.year_to.is_none()
+    }
 }
 
 fn apply_year(q: &mut ParsedQuery, value: &str) {
@@ -221,5 +235,38 @@ mod tests {
         assert_eq!(q.tags, vec!["综述"]);
         assert_eq!(q.item_types, vec!["book"]);
         assert_eq!(q.text, "扩散");
+    }
+}
+
+#[cfg(test)]
+mod filterable_tests {
+    use super::*;
+
+    #[test]
+    fn tags_and_types_are_carried_by_the_filter() {
+        assert!(ParsedQuery::parse("tag:survey").is_fully_filterable());
+        assert!(ParsedQuery::parse("type:book tag:llm -tag:old").is_fully_filterable());
+    }
+
+    #[test]
+    fn words_are_not() {
+        assert!(!ParsedQuery::parse("transformer").is_fully_filterable());
+        assert!(!ParsedQuery::parse("tag:survey transformer").is_fully_filterable());
+    }
+
+    #[test]
+    fn authors_and_years_are_not_either() {
+        // These have no ItemFilter field, so a caller answering from the store
+        // alone would silently count everything.
+        assert!(!ParsedQuery::parse("year:2020").is_fully_filterable());
+        assert!(!ParsedQuery::parse("year:2020..2024").is_fully_filterable());
+        assert!(!ParsedQuery::parse("author:zhang").is_fully_filterable());
+        assert!(!ParsedQuery::parse("tag:survey year:2020").is_fully_filterable());
+    }
+
+    #[test]
+    fn an_empty_query_is_trivially_filterable() {
+        assert!(ParsedQuery::parse("").is_fully_filterable());
+        assert!(ParsedQuery::parse("   ").is_fully_filterable());
     }
 }

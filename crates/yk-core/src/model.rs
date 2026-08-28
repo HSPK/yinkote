@@ -395,6 +395,18 @@ pub struct SmartCollection {
     /// Filled in on demand; `None` when not evaluated.
     #[serde(rename = "itemCount", skip_serializing_if = "Option::is_none")]
     pub item_count: Option<i64>,
+    /// Whether `item_count` is a floor.
+    ///
+    /// A saved search with no words is a filter and counts exactly. One with
+    /// words has to be *run* to be counted, and a ranked search scores a
+    /// bounded pool — so "500" in the sidebar might mean five hundred or twenty
+    /// thousand, and only this tells them apart.
+    #[serde(
+        rename = "itemCountApproximate",
+        default,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub item_count_approximate: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

@@ -18,8 +18,15 @@ use super::{announce, key, ListParams};
 use crate::error::ApiResult;
 use crate::state::App;
 
-/// Counting a text query means running it; cap the work so a sidebar refresh
-/// stays cheap. Anything at the cap is reported as "500+".
+/// Counting a text query means running it; cap the page so a sidebar refresh
+/// stays cheap.
+///
+/// This bounds the *page*, not the count. The count comes from the fused
+/// candidate list, which the retrievers cap lower still — a keyword query
+/// tops out around three hundred however many documents match. Whether that
+/// happened is what [`count_of`] returns alongside the number, because a bare
+/// "300" beside a saved search that matches twenty thousand is a wrong answer
+/// rather than a rounded one.
 const COUNT_CAP: u32 = 500;
 
 pub fn router() -> Router<App> {
@@ -51,13 +58,22 @@ fn to_params(smart: &SmartCollection) -> ListParams {
     }
 }
 
-async fn count_of(app: &App, lib: i64, smart: &SmartCollection) -> ApiResult<i64> {
+/// How many items a saved search holds, and whether that number is a floor.
+async fn count_of(app: &App, lib: i64, smart: &SmartCollection) -> ApiResult<(i64, bool)> {
     let params = to_params(smart);
     let filter = params.filter(lib)?;
 
-    if params.text().is_empty() {
-        // Pure filter: exact and index-backed.
-        return Ok(app.store().items.count(&filter).await?);
+    // Whether there are *words* left after the operators have been taken out,
+    // not whether the query string is empty. `tag:survey` has a query and no
+    // words: it is a filter, and a filter can be counted exactly through the
+    // index. Testing the raw string sent it through the ranked path instead,
+    // where it came back capped at the page size — 501 for a tag on 28,757
+    // items, and presented as a figure.
+    let mut parsed_filter = filter.clone();
+    let parsed = yk_search::parse::ParsedQuery::parse(params.text());
+    parsed.apply_to(&mut parsed_filter);
+    if parsed.is_fully_filterable() {
+        return Ok((app.store().items.count(&parsed_filter).await?, false));
     }
 
     let hits = app
@@ -71,7 +87,7 @@ async fn count_of(app: &App, lib: i64, smart: &SmartCollection) -> ApiResult<i64
             highlight: false,
         })
         .await?;
-    Ok(hits.total)
+    Ok((hits.total, hits.capped))
 }
 
 async fn list(
@@ -100,11 +116,13 @@ async fn list(
             .cloned()
             .map(|smart| {
                 let app = app.clone();
-                tokio::spawn(async move { count_of(&app, lib, &smart).await.unwrap_or(0) })
+                tokio::spawn(async move { count_of(&app, lib, &smart).await.unwrap_or((0, false)) })
             })
             .collect();
         for (smart, handle) in collections.iter_mut().zip(running) {
-            smart.item_count = Some(handle.await.unwrap_or(0));
+            let (count, approximate) = handle.await.unwrap_or((0, false));
+            smart.item_count = Some(count);
+            smart.item_count_approximate = approximate;
         }
         if version >= 0 {
             app.smart_counts.put(cache_key, version, collections.clone());
@@ -118,7 +136,9 @@ async fn get_one(
     Path((lib, k)): Path<(i64, String)>,
 ) -> ApiResult<Json<SmartCollection>> {
     let mut smart = app.store().smart.get(lib, &key(&k)?).await?;
-    smart.item_count = Some(count_of(&app, lib, &smart).await.unwrap_or(0));
+    let (count, approximate) = count_of(&app, lib, &smart).await.unwrap_or((0, false));
+    smart.item_count = Some(count);
+    smart.item_count_approximate = approximate;
     Ok(Json(smart))
 }
 
@@ -170,7 +190,9 @@ async fn create(
 ) -> ApiResult<Json<SmartCollection>> {
     validate_mode(draft.mode.as_deref())?;
     let mut created = app.store().smart.create(lib, draft).await?;
-    created.item_count = Some(count_of(&app, lib, &created).await.unwrap_or(0));
+    let (count, approximate) = count_of(&app, lib, &created).await.unwrap_or((0, false));
+    created.item_count = Some(count);
+    created.item_count_approximate = approximate;
     announce(&app, lib, |version| DomainEvent::CollectionsChanged { library_id: lib, version })
         .await?;
     Ok(Json(created))
@@ -183,7 +205,9 @@ async fn update(
 ) -> ApiResult<Json<SmartCollection>> {
     validate_mode(patch.mode.as_deref())?;
     let mut updated = app.store().smart.update(lib, &key(&k)?, patch).await?;
-    updated.item_count = Some(count_of(&app, lib, &updated).await.unwrap_or(0));
+    let (count, approximate) = count_of(&app, lib, &updated).await.unwrap_or((0, false));
+    updated.item_count = Some(count);
+    updated.item_count_approximate = approximate;
     announce(&app, lib, |version| DomainEvent::CollectionsChanged { library_id: lib, version })
         .await?;
     Ok(Json(updated))

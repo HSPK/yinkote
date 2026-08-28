@@ -188,7 +188,13 @@ export function Sidebar() {
             >
               <Glyph className="glyph" />
               <span className="label">{sc.name}</span>
-              <span className="count">{sc.itemCount ?? ''}</span>
+              {/* A saved search with words has to be *run* to be counted, and
+                  a ranked search stops at a bounded pool — so this number can
+                  be a floor. A bare "300" beside a search matching twenty
+                  thousand is a wrong answer, not a rounded one. */}
+              <span className="count" title={sc.itemCountApproximate ? t('smart.atLeast') : undefined}>
+                {sc.itemCount === undefined ? '' : `${sc.itemCount}${sc.itemCountApproximate ? '+' : ''}`}
+              </span>
             </button>
           )
         })}

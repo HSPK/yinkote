@@ -317,6 +317,7 @@ export const enUS: Record<MessageKey, string> = {
   'search.why.short': 'Too short to embed: matched exactly',
   'settings.currentMode': 'Current retrieval mode',
   'settings.currentModeHint': 'Chosen from what you type; there is nothing to configure',
+  'smart.atLeast': 'At least this many; a ranked search counts a bounded pool',
   'smart.rules': 'Rules',
   'smart.rulesHint': 'All rules must match',
   'smart.addRule': '+ Add rule',

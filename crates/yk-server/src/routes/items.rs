@@ -119,12 +119,21 @@ async fn list(
         return list_by_badge(app, lib, params, badge, version).await;
     }
 
-    if text.is_empty() {
-        let page = app.store().items.list(&params.query(lib)?).await?;
+    // A query with no words is a filter, and a filter is the store's job: it
+    // pages from an index and counts exactly. Sending `tag:survey` down the
+    // ranked path instead answered "at least 2" for a tag on 28,763 items,
+    // because the ranked path only reads as far as the page needs.
+    //
+    // Only when the whole query fits in an `ItemFilter`: `year:` and `author:`
+    // have no field there and are applied after retrieval, so treating them as
+    // filters would quietly match everything.
+    let mut query = params.query(lib)?;
+    let parsed = yk_search::parse::ParsedQuery::parse(&text);
+    if parsed.is_fully_filterable() {
+        parsed.apply_to(&mut query.filter);
+        let page = app.store().items.list(&query).await?;
         return Ok((version_header(version), Json(page.map(ItemView::from))));
     }
-
-    let query = params.query(lib)?;
     let hits = app
         .search()
         .search(&SearchRequest {
