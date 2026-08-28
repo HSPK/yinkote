@@ -4,6 +4,7 @@
  *  never touch `fetch` directly.
  */
 import type {
+  ConnectorStatus,
   ReaderState,
   Task,
   MessagePage,
@@ -538,6 +539,13 @@ export const api = {
     reload: () => request<PluginStatus[]>('/plugins/reload', { method: 'POST' }),
     call: (id: string, method: string, params: unknown) =>
       request<unknown>(`/plugins/${id}/call`, { method: 'POST', ...json({ method, params }) }),
+  },
+
+  connector: {
+    /** `null` turns browser saving off. Answers the resulting status, because
+     *  binding can fail: a running Zotero owns port 23119. */
+    set: (port: number | null) =>
+      request<ConnectorStatus>('/connector', { method: 'PUT', ...json({ port }) }),
   },
 
   settings: {

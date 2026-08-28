@@ -23,6 +23,7 @@ pub fn router() -> Router<App> {
         .route("/stats", get(stats))
         .route("/libraries", get(libraries))
         .route("/settings", get(get_settings).put(put_settings))
+        .route("/connector", axum::routing::put(put_connector))
         .route("/maintenance/reindex/:lib", post(reindex))
         .route("/maintenance/optimize", post(optimize))
         .route("/events", get(events))
@@ -150,6 +151,48 @@ async fn put_settings(
         app.store().settings.set(&key, &v).await?;
     }
     Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConnectorBody {
+    /// `null` turns it off. Absent is the same as null: there is no third
+    /// state to express, and "leave it as it was" is served by not calling.
+    #[serde(default)]
+    port: Option<u16>,
+}
+
+/// Turn browser saving on or off, now and for next time.
+///
+/// This exists because the switch used to be a command-line flag on a product
+/// whose recommended install is a background service — so the one documented
+/// way to enable a headline feature was unreachable from the only interface
+/// the user has. It got worse once quick add started advising people to use
+/// the connector when a publisher refuses us.
+///
+/// The reply is the *resulting* status, not an acknowledgement: binding can
+/// fail because a running Zotero owns port 23119, and the caller needs to know
+/// that now rather than the next time they try to save a page.
+async fn put_connector(
+    State(app): State<App>,
+    Json(body): Json<ConnectorBody>,
+) -> ApiResult<Json<crate::state::ConnectorStatus>> {
+    match body.port {
+        Some(port) => {
+            crate::connector_listener::start(&app, &app.connector, port).await.map_err(|e| {
+                yk_core::Error::Conflict(format!("could not listen on 127.0.0.1:{port}: {e}"))
+            })?;
+        }
+        None => crate::connector_listener::stop(&app.connector),
+    }
+
+    // Persist only once the port is actually serving. Storing the wish would
+    // make the next start fail the same way, silently, with nobody watching.
+    app.set_connector_port(body.port);
+    let stored = body.port.map_or(Value::Null, |p| json!(p));
+    app.store().settings.set(crate::CONNECTOR_PORT_SETTING, &stored).await?;
+
+    Ok(Json(app.connector_status()))
 }
 
 /// Rebuild the search index.

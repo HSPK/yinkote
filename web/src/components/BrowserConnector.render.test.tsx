@@ -25,12 +25,18 @@ function mount(status?: ConnectorStatus) {
   return container
 }
 
-it('says browser saving is off, and how to turn it on', () => {
+it('says browser saving is off, and offers to turn it on here', () => {
   // The whole reason this component exists: the feature was off and said so
   // nowhere, so "off" has to be legible and actionable rather than absent.
+  //
+  // "Actionable" used to mean naming the `--connector-port` flag, which is
+  // unreachable on a service install — the advice was real and the user could
+  // not follow it. The switch is on this page now, so the flag is no longer
+  // the answer and this asserts the answer that is.
   const text = mount({ state: 'off' }).textContent ?? ''
   expect(text).toContain('Off')
-  expect(text).toContain('--connector-port')
+  expect(text).not.toContain('--connector-port')
+  expect([...container.querySelectorAll('button')].map((b) => b.textContent)).toContain('Turn on')
   // No port to show when none was ever asked for.
   expect(container.querySelector('code')).toBeNull()
 })

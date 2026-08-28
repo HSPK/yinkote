@@ -9,7 +9,13 @@ pub mod workbench;
 pub mod agent;
 pub mod badges;
 pub mod browser;
+
+/// Where the interface's connector choice is kept. `null` means "off on
+/// purpose", which is a different fact from "never chosen".
+pub const CONNECTOR_PORT_SETTING: &str = "server.connectorPort";
+
 pub mod config;
+pub mod connector_listener;
 mod error;
 pub mod hostapi;
 pub mod integration;
@@ -99,7 +105,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         tasks: Default::default(),
         smart_counts: Default::default(),
         stats: Default::default(),
-        connector_bound: Default::default(),
+        connector: Default::default(),
     }))
 }
 
@@ -318,34 +324,40 @@ pub async fn serve(app: App) -> anyhow::Result<()> {
 ///
 /// A refusal to bind is reported and survived: the workbench is the product,
 /// and it must not fail to start because a port is busy.
+/// Bring the connector up at startup, if it is wanted.
+///
+/// Precedence: what the user last chose in the interface wins, and the
+/// command-line flag is the default when nothing has been chosen. Anything
+/// else makes one of the two switches silently dead — and the interface is the
+/// one a service install can reach.
 async fn serve_connector(app: &App) {
-    let Some(port) = app.config().connector_port else { return };
-    let addr = format!("127.0.0.1:{port}");
+    let stored = app
+        .store()
+        .settings
+        .get(CONNECTOR_PORT_SETTING)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| if v.is_null() { Some(None) } else { v.as_u64().map(|p| Some(p as u16)) });
 
-    match tokio::net::TcpListener::bind(&addr).await {
-        Ok(listener) => {
-            tracing::info!(%addr, "browser connector listening");
-            app.connector_bound.store(true, std::sync::atomic::Ordering::Relaxed);
-            let router = router(app.clone());
-            tokio::spawn(async move {
-                if let Err(e) = axum::serve(
-                    listener,
-                    router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-                )
-                .await
-                {
-                    tracing::warn!(error = %e, "browser connector stopped");
-                }
-            });
-        }
-        // Left false, which is what the settings page reports. A warning in a
-        // log nobody is reading is not how somebody finds out that saving from
-        // their browser is not going to work.
-        Err(e) => tracing::warn!(
-            %addr,
+    let wanted = match stored {
+        Some(choice) => choice,
+        None => app.config().connector_port,
+    };
+    // Keep the snapshot honest: `/ping` reports "asked for but unavailable"
+    // from this, so it has to reflect the choice actually in force.
+    app.set_connector_port(wanted);
+
+    let Some(port) = wanted else { return };
+    if let Err(e) = connector_listener::start(app, &app.connector, port).await {
+        // Left unbound, which is what the settings page reports. A warning in
+        // a log nobody is reading is not how somebody finds out that saving
+        // from their browser is not going to work.
+        tracing::warn!(
+            port,
             error = %e,
             "could not listen for the browser connector; is Zotero running?"
-        ),
+        );
     }
 }
 

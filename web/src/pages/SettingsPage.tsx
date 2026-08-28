@@ -28,6 +28,7 @@ export function SettingsPage() {
   const locale = useI18n((s) => s.locale)
 
   const server = useStore((s) => s.server)
+  const refreshServer = useStore((s) => s.refreshServer)
   const stats = useStore((s) => s.stats)
   const mode = useStore((s) => s.mode)
   const density = useStore((s) => s.density)
@@ -294,7 +295,7 @@ export function SettingsPage() {
             label: t('connector.label'),
             hint: t('connector.hint'),
             keywords: t('settings.keywords.connector'),
-            render: () => <BrowserConnector status={server?.connector} />,
+            render: () => <BrowserConnector status={server?.connector} onChange={refreshServer} />,
           },
         ],
       },

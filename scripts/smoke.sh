@@ -276,6 +276,40 @@ check "connector tags"    "$(j "$BASE/libraries/$LIB/items?q=Connector%20smoke&l
 check "connector session" "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$CONN/connector/updateSession" \
                              -H 'Content-Type: application/json' -d '{"sessionID":"smoke"}' | grep -x 200)"
 
+echo "▸ connector switch"
+# Browser saving used to be reachable only through a command-line flag, on a
+# product whose recommended install is a background service. Quick add now
+# advises using the connector when a publisher refuses us, so the advice has to
+# be followable from the only interface the user has.
+#
+# Every value here is *compared*, never merely non-empty: `check` passes on any
+# non-empty string, so a bare status code would pass on exactly the failure it
+# is meant to catch (see the audit that found two of those).
+CONN_BEFORE="$(j "$BASE/ping" | jq -r '.connector.state')"
+check "connector on"     "$(j -X PUT "$BASE/connector" -d '{"port":23219}' \
+                             | jq -r '.state | select(. == "listening")')"
+check "listening now"    "$(j "$BASE/ping" | jq -r '.connector | select(.port == 23219) | .state')"
+# The bound port must actually speak the protocol, not merely be open.
+check "port serves"      "$(curl -s -o /dev/null -w '%{http_code}' \
+                             127.0.0.1:23219/connector/ping | grep -x 200)"
+check "connector off"    "$(j -X PUT "$BASE/connector" -d '{"port":null}' \
+                             | jq -r '.state | select(. == "off")')"
+# Off means the socket is gone, not merely that the badge changed. `000` is
+# curl for "nothing accepted the connection", which is the point.
+check "port closed"      "$(curl -s -o /dev/null -m 3 -w '%{http_code}' \
+                             127.0.0.1:23219/connector/ping | grep -x 000)"
+# Asking for a port something else owns is a conflict, and the status must not
+# claim success: the whole point of reporting the bind is that it can fail.
+SELF_PORT="$(echo "$BASE" | sed -E 's#.*:([0-9]+)/api.*#\1#')"
+check "taken is 409"     "$(curl -sS -o /dev/null -w '%{http_code}' -X PUT \
+                             -H 'Content-Type: application/json' \
+                             -d "{\"port\":$SELF_PORT}" "$BASE/connector" | grep -x 409)"
+check "still honest"     "$(j "$BASE/ping" | jq -r '.connector.state | select(. == "off")')"
+# Leave it as it was found.
+if [ "$CONN_BEFORE" = "listening" ]; then
+  j -X PUT "$BASE/connector" -d '{"port":23119}' > /dev/null || true
+fi
+
 echo "▸ graph"
 # A tag unique to this run. Sharing one across runs meant the suite's own
 # accumulated history eventually crossed the "this tag is too common to mean

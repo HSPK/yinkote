@@ -179,10 +179,19 @@ async fn a_requested_connector_is_not_reported_as_a_working_one() {
     assert_eq!(body["connector"]["state"], "unavailable", "asked for, never bound");
     assert_eq!(body["connector"]["port"], 23119);
 
-    app.connector_bound.store(true, std::sync::atomic::Ordering::Relaxed);
+    // Actually bind, rather than setting a flag that says we did: the status
+    // is built from the listener, so a test that fakes the listener would be
+    // asserting on its own stub.
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    yk_server::connector_listener::start(&app, &app.connector, free).await.expect("bind");
+
     let body = c.get("/ping").await;
     assert_eq!(body["connector"]["state"], "listening");
-    assert_eq!(body["connector"]["port"], 23119);
+    assert_eq!(body["connector"]["port"], free, "the bound port, not the requested one");
+
+    yk_server::connector_listener::stop(&app.connector);
+    let body = c.get("/ping").await;
+    assert_eq!(body["connector"]["state"], "unavailable", "stopping must be visible");
 }
 
 #[tokio::test]

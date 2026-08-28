@@ -86,6 +86,8 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   paletteOpen: boolean
 
   bootstrap: () => Promise<void>
+  /** Re-read the server's own report of itself: access, connector, versions. */
+  refreshServer: () => Promise<void>
   refresh: () => Promise<void>
   loadMore: () => Promise<void>
   listQuery: (offset?: number) => ListQuery
@@ -206,6 +208,13 @@ export const useStore = create<State>((set, get, store) => ({
   panel: 'detail',
   paletteOpen: false,
   needsKey: false,
+
+  async refreshServer() {
+    // One source of truth. The caller often already holds the new status, but
+    // trusting a reply over the server's own account is how two views of the
+    // same fact start to disagree.
+    set({ server: await api.ping() })
+  },
 
   async bootstrap() {
     try {

@@ -65,14 +65,14 @@ pub struct AppState {
     /// are exact counts of the whole library, recomputed inside the same
     /// first-paint burst that the item list is already counting in.
     pub stats: Arc<yk_store::counts::Versioned<serde_json::Value>>,
-    /// Whether the browser-connector port was actually bound.
+    /// The browser-connector listener, as it actually is.
     ///
-    /// Separate from `config.connector_port`, which only records that it was
+    /// Separate from `config.connector_port`, which only records what was
     /// *asked for*. The bind is allowed to fail — a running Zotero already owns
     /// that port — and the server carries on, so the request and the outcome
     /// are genuinely different facts. Reporting the request would tell somebody
     /// browser saving is on at the exact moment it is not.
-    pub connector_bound: Arc<std::sync::atomic::AtomicBool>,
+    pub connector: crate::connector_listener::Shared,
 }
 
 /// Who can reach this library.
@@ -145,11 +145,12 @@ impl AppState {
 
     /// What browser saving is doing, as opposed to what was asked of it.
     pub fn connector_status(&self) -> ConnectorStatus {
+        // The bound port is the truth. `config.connector_port` is the wish.
+        if let Some(port) = self.connector.lock().port() {
+            return ConnectorStatus::Listening { port };
+        }
         match self.config().connector_port {
             None => ConnectorStatus::Off,
-            Some(port) if self.connector_bound.load(std::sync::atomic::Ordering::Relaxed) => {
-                ConnectorStatus::Listening { port }
-            }
             Some(port) => ConnectorStatus::Unavailable { port },
         }
     }
@@ -160,6 +161,11 @@ impl AppState {
     /// for as long as the model takes to answer.
     pub fn agent(&self) -> Option<Arc<yk_agent::Agent>> {
         self.agent.read().clone()
+    }
+
+    /// Record which connector port is in force, so `/ping` stays truthful.
+    pub fn set_connector_port(&self, port: Option<u16>) {
+        self.config.write().connector_port = port;
     }
 
     /// A snapshot of the configuration.
