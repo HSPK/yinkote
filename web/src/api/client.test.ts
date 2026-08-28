@@ -123,3 +123,40 @@ describe('citations', () => {
     })
   })
 })
+
+it('has no method nothing calls', async () => {
+  // A client exists to be called, so an uncalled method is either dead or a
+  // feature that was never wired up. Both were true here: `search` and
+  // `libraries` had no caller, and `search`'s return type had drifted out of
+  // step with the endpoint — which is what happens to code nothing exercises.
+  //
+  // This also fixes a bad audit. A previous round checked "does the workbench
+  // reference this route" by searching all of `src`, which includes the client
+  // itself — so every endpoint looked reached, by its own wrapper. The
+  // question has to be asked one layer up.
+  const { readdirSync, readFileSync } = await import('node:fs')
+  const { join } = await import('node:path')
+
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const path = join(dir, e.name)
+      if (e.isDirectory()) return walk(path)
+      return /\.tsx?$/.test(e.name) ? [path] : []
+    })
+
+  const clientPath = join('src', 'api', 'client.ts')
+  const names = [
+    ...new Set(
+      [...readFileSync(clientPath, 'utf8').matchAll(/^\s{2,}([a-zA-Z][a-zA-Z0-9_]*):\s*(?:\(|async\s*\()/gm)].map(
+        (m) => m[1] ?? '',
+      ),
+    ),
+  ]
+  const callers = walk('src')
+    .filter((p) => p !== clientPath)
+    .map((p) => readFileSync(p, 'utf8'))
+    .join('\n')
+
+  const uncalled = names.filter((n) => !new RegExp(`\\.${n}\\s*\\(`).test(callers))
+  expect(uncalled, `client methods with no caller: ${uncalled.join(', ')}`).toEqual([])
+})

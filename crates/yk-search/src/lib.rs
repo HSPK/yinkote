@@ -401,6 +401,18 @@ impl SearchIndex for SearchEngine {
         } else {
             Vec::new()
         };
+
+        // ...but that scan deliberately stops at `needed`, so counting it would
+        // report the size of the page window as the size of the library:
+        // `tag:survey` answered 4 at offset 0 and 504 at offset 500, for a tag
+        // on 28,802 items. A filter has an exact total and it is already
+        // cached, so ask for it rather than infer one from a window.
+        let filter_total = if query_text.trim().is_empty() && !filter_only.is_empty() {
+            Some(self.store.items.count(&filter).await?)
+        } else {
+            None
+        };
+
         let allowed: Option<HashSet<i64>> =
             allowed_ids.map(|ids| ids.into_iter().collect());
 
@@ -418,7 +430,6 @@ impl SearchIndex for SearchEngine {
 
         let (keyword_len, fuzzy_len) = (keyword_hits.len(), fuzzy_hits.len());
         let semantic_len = semantic_hits.len();
-        let filter_len = filter_only.len();
 
         let lists = vec![
             RankedList { source: MatchSource::Keyword, weight: W_KEYWORD, ids: keep(keyword_hits) },
@@ -435,14 +446,16 @@ impl SearchIndex for SearchEngine {
         // How many the query produced, before paging. The caller needs this to
         // know there is anything after the page it asked for; `hits.len()` says
         // "nothing more" on every full page.
-        let total = fused.len() as i64;
+        //
+        // For a pure filter the exact number is known, so it is used and the
+        // answer is not a floor. For a word query it is what the retrievers
+        // between them produced.
+        let total = filter_total.unwrap_or(fused.len() as i64);
         // A retriever that returned exactly what it was allowed to return had
         // more to give. That is the difference between "three hundred matches"
         // and "the first three hundred of twenty thousand".
-        let capped = [keyword_len, semantic_len, fuzzy_len].iter().any(|n| *n >= CANDIDATES)
-            // A pure filter is read only as far as the page needs, so a full
-            // one means there was more behind it.
-            || (filter_len > 0 && filter_len >= needed);
+        let capped = filter_total.is_none()
+            && [keyword_len, semantic_len, fuzzy_len].iter().any(|n| *n >= CANDIDATES);
 
         let start = request.offset as usize;
         let page: Vec<fusion::Fused> =
@@ -800,6 +813,37 @@ mod tests {
                 .await;
         assert!(!t.is_empty());
         assert_eq!(t[0], "Denoising Diffusion Probabilistic Models", "got {t:?}");
+    }
+
+    #[tokio::test]
+    async fn a_filters_total_does_not_move_with_the_offset() {
+        // `total` and "how many did this page read" are different questions,
+        // and a pure filter is read only as far as the page needs. Sharing one
+        // field made `tag:survey` report 4 matches at offset 0 and 504 at
+        // offset 500, for a tag on 28,802 items.
+        let (e, s, lib) = engine();
+        for i in 0..25 {
+            let mut draft = ItemDraft::new("journalArticle")
+                .with_field("title", format!("Shelved paper {i}"));
+            draft.tags = vec![ItemTag::manual("shelf")];
+            s.items.create(lib, draft).await.unwrap();
+        }
+
+        let page = |offset: u32, limit: u32| {
+            let mut r = req(lib, "tag:shelf", SearchMode::Hybrid);
+            r.offset = offset;
+            r.limit = limit;
+            r
+        };
+
+        let first = e.search(&page(0, 5)).await.unwrap();
+        assert_eq!(first.total, 25, "the tag is on 25 items, not on one page of them");
+        assert_eq!(first.hits.len(), 5);
+        // The number that used to grow with the offset.
+        assert_eq!(e.search(&page(10, 5)).await.unwrap().total, 25);
+        assert_eq!(e.search(&page(20, 5)).await.unwrap().total, 25);
+        // And it is exact, so nothing should be calling it a floor.
+        assert!(!first.capped, "an exact count is not an approximation");
     }
 
     #[tokio::test]

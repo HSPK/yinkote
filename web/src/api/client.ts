@@ -31,7 +31,6 @@ import type {
   ResolveResponse,
   ServerInfo,
   Schema,
-  SearchHit,
   SmartCollection,
   SourceInfo,
   Stats,
@@ -111,8 +110,6 @@ export const api = {
   ping: () => request<ServerInfo>('/ping'),
   schema: () => request<Schema>('/schema'),
   stats: () => request<Stats>('/stats'),
-  libraries: () => request<{ id: number; name: string; version: number }[]>('/libraries'),
-
   items: {
     list: (lib: number, query: ListQuery = {}) =>
       request<Page<Item>>(`/libraries/${lib}/items${buildQuery(query)}`),
@@ -462,11 +459,6 @@ export const api = {
         ...json({ name, color }),
       }),
   },
-
-  search: (lib: number, query: ListQuery) =>
-    request<{ hits: SearchHit[]; mode: string; tookMs: number }>(
-      `/libraries/${lib}/search${buildQuery(query)}`,
-    ),
 
   /** Identifier detection and metadata lookup. */
   scrape: {
