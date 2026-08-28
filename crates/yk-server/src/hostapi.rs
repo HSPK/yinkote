@@ -88,7 +88,10 @@ impl HostApi for HostBridge {
                     offset: 0,
                     highlight: false,
                 };
-                Ok(json!(s.search.search(&request).await?))
+                // The hits only. A plugin was promised an array here, and
+                // widening it to an object would break every one already
+                // written against it.
+                Ok(json!(s.search.search(&request).await?.hits))
             }
 
             "host.items.get" => {

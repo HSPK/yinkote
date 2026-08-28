@@ -186,6 +186,22 @@ pub struct SearchHit {
     pub sources: Vec<MatchSource>,
 }
 
+/// A page of results, and how many there were to page through.
+///
+/// The count is separate from the page because it cannot be derived from it,
+/// and deriving it anyway is exactly the bug this type exists to prevent: a
+/// listing that reported `hits.len()` as its total told the client there was
+/// nothing after the first page, so scrolling a search stopped at one screen.
+///
+/// It is a count of *candidates*, not of matches in the library. A ranked
+/// search scores a bounded pool and stops; saying "at least this many" is
+/// honest, and it is what paging needs.
+#[derive(Debug, Clone, Default)]
+pub struct SearchPage {
+    pub hits: Vec<SearchHit>,
+    pub total: i64,
+}
+
 /// A document as seen by the search index — flat, denormalised, cheap to score.
 #[derive(Clone, Debug)]
 pub struct SearchDoc {

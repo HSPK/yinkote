@@ -1552,3 +1552,57 @@ async fn a_rename_selection_ignores_keys_that_are_not_attachments() {
         .await;
     assert_eq!(plan["total"], 0, "{plan}");
 }
+
+#[tokio::test]
+async fn a_search_says_how_many_it_found_not_how_many_it_returned() {
+    // The client's infinite scroll stops when `items.length >= total`. While
+    // this reported the page length, a search could never show more than one
+    // screen of results however many it matched — visible as a list that
+    // simply refuses to grow.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let drafts: Vec<Value> = (0..40)
+        .map(|i| json!({ "itemType": "journalArticle", "title": format!("Attention study {i:02}") }))
+        .collect();
+    c.post(&format!("/libraries/{lib}/items"), json!(drafts)).await;
+
+    let first = c.get(&format!("/libraries/{lib}/items?q=attention&limit=10")).await;
+    assert_eq!(first["items"].as_array().unwrap().len(), 10, "one page");
+    assert!(
+        first["total"].as_i64().unwrap() >= 40,
+        "the total is what was found, not what fits on a page: {}",
+        first["total"]
+    );
+
+    // And the page after it is a different page, not a repeat.
+    let second = c.get(&format!("/libraries/{lib}/items?q=attention&limit=10&offset=10")).await;
+    let keys = |page: &Value| -> Vec<String> {
+        page["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["key"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let (a, b) = (keys(&first), keys(&second));
+    assert_eq!(b.len(), 10);
+    assert!(a.iter().all(|k| !b.contains(k)), "the second page repeated the first");
+    assert_eq!(second["total"].as_i64().unwrap(), first["total"].as_i64().unwrap());
+}
+
+#[tokio::test]
+async fn the_search_endpoint_reports_the_same_total() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let drafts: Vec<Value> = (0..25)
+        .map(|i| json!({ "itemType": "journalArticle", "title": format!("Diffusion {i:02}") }))
+        .collect();
+    c.post(&format!("/libraries/{lib}/items"), json!(drafts)).await;
+
+    let page = c.get(&format!("/libraries/{lib}/search?q=diffusion&limit=5")).await;
+    assert_eq!(page["hits"].as_array().unwrap().len(), 5);
+    // `hits` is one page of `total`, and saying so is the whole point of the
+    // shape — the two endpoints must not disagree about what was found.
+    assert!(page["total"].as_i64().unwrap() >= 25, "{page}");
+}

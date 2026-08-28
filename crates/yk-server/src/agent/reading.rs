@@ -133,6 +133,7 @@ impl Tool for SearchLibrary {
             })
             .await?;
 
+        let hits = hits.hits;
         let keys: Vec<_> = hits.iter().map(|h| h.key.clone()).collect();
         let items = self.store.items.get_many(library_id, &keys).await?;
         Ok(json!({

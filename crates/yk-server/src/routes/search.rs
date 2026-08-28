@@ -20,6 +20,8 @@ pub fn router() -> Router<App> {
 #[derive(Serialize)]
 struct SearchResponse {
     hits: Vec<SearchHit>,
+    /// How many candidates the query produced. `hits` is one page of them.
+    total: i64,
     /// Echoed so the UI can show which strategy actually ran.
     mode: yk_core::query::SearchMode,
     #[serde(rename = "tookMs")]
@@ -45,7 +47,12 @@ async fn search(
             highlight: true,
         })
         .await?;
-    Ok(Json(SearchResponse { hits, mode, took_ms: started.elapsed().as_millis() as u64 }))
+    Ok(Json(SearchResponse {
+        total: hits.total,
+        hits: hits.hits,
+        mode,
+        took_ms: started.elapsed().as_millis() as u64,
+    }))
 }
 
 async fn stats(State(app): State<App>) -> ApiResult<Json<SearchStats>> {

@@ -51,6 +51,13 @@ pub struct AppState {
     pub sessions: crate::integration::Sessions,
     /// Long jobs that outlive the request that started them.
     pub tasks: crate::tasks::Tasks,
+    /// The sidebar's saved searches, with their counts, against the library
+    /// version they were counted at.
+    ///
+    /// Here rather than in the store because a count comes from running the
+    /// saved query through the *search engine* — 21ms each, and the sidebar
+    /// asks for all of them on every navigation.
+    pub smart_counts: Arc<yk_store::counts::Versioned<Vec<yk_core::model::SmartCollection>>>,
 }
 
 impl AppState {

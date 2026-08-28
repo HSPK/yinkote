@@ -137,6 +137,8 @@ async fn list(
         })
         .await?;
 
+    let found = hits.total;
+    let hits = hits.hits;
     let keys: Vec<Key> = hits.iter().map(|h| h.key.clone()).collect();
     let items = app.store().items.get_many(lib, &keys).await?;
     let by_key: HashMap<String, Item> =
@@ -153,7 +155,11 @@ async fn list(
         })
         .collect();
 
-    let total = views.len() as i64 + query.offset as i64;
+    // What the search matched, not what this page holds. Reporting the page
+    // length told the client `items.length >= total` after the first screen,
+    // and its infinite scroll stopped there: a search could never show more
+    // than one page of results.
+    let total = found;
     Ok((
         version_header(version),
         Json(Page::new(views, total, query.offset, query.limit)),

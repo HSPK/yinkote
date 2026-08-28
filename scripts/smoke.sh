@@ -547,6 +547,15 @@ check "session closed"    "$(j -X POST "$BASE/integration/session/$SID/close" | 
 check "closed stays shut" "$(j -X POST "$BASE/integration/session/$SID/refresh" -d "$SNAP" \
                               | jq -r '.error.kind // .error // "rejected"' | head -c 20)"
 
+echo "▸ search paging"
+# The client's infinite scroll stops at `items.length >= total`. While the total
+# was the page length, a search could never show more than one screen.
+PAGED=$(j "$BASE/libraries/$LIB/items?q=a&limit=2")
+check "total exceeds page" "$(printf '%s' "$PAGED" \
+                               | jq -r 'select((.total // 0) > (.items | length)) | "more to come"')"
+check "search total"       "$(j "$BASE/libraries/$LIB/search?q=a&limit=2" \
+                               | jq -r 'select((.total // 0) > (.hits | length)) | "more to come"')"
+
 echo "▸ thumbnails"
 # The server keeps no rasteriser: a 404 is the instruction to draw the page in
 # the browser and PUT it back, not a failure.

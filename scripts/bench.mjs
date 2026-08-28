@@ -85,6 +85,23 @@ function tagsFor(i) {
   return tags
 }
 
+/** Saved searches, so the sidebar's most expensive request has something to do.
+ *
+ *  A mix on purpose: a pure filter counts through the index, while a text query
+ *  has to run a whole search to answer "how many". Without these the line
+ *  measured an empty list and reported 0.6ms for a 105.8ms request.
+ */
+async function seedSmart(lib) {
+  const existing = await get(`/libraries/${lib}/smart-collections`)
+  if (existing.length >= 5) {
+    console.log(`▸ library already has ${existing.length} saved searches, skipping`)
+    return
+  }
+  for (const query of ['transformer', 'tag:survey', 'diffusion model', 'type:journalArticle', 'attention']) {
+    await post(`/libraries/${lib}/smart-collections`, { name: `Saved: ${query}`, query })
+  }
+}
+
 async function post(path, body) {
   const res = await fetch(BASE + path, {
     method: 'POST',
@@ -151,6 +168,9 @@ const BUDGET = {
   stats: 15,
   // 27ms before the list was remembered against the library version.
   collections: 10,
+  // 105.8ms for five saved searches, counted one after another; 0.6ms once the
+  // list is remembered against the library version.
+  'smart collections (counts)': 15,
 }
 
 const overBudget = []
@@ -300,6 +320,7 @@ async function main() {
 
   await seed(lib)
   const shelves = await seedShelves(lib)
+  await seedSmart(lib)
 
   // Give the planner the statistics a real library has. A database that has
   // been in use accumulates `sqlite_stat1`/`stat4` through `PRAGMA optimize`,
@@ -376,6 +397,10 @@ async function main() {
     )
     console.log(`  ${' '.repeat(34)} first ${collectionTiming.first.toFixed(1)}ms  ← COLD`)
   }
+  // The sidebar asks for these with their counts on every navigation, and each
+  // count is a full search. Unmeasured until a corpus with saved searches in it
+  // showed 105.8ms for five of them.
+  await measure('smart collections (counts)', `/libraries/${lib}/smart-collections?counts=true`)
 
   console.log('\n▸ search')
   await measure('keyword (1 term)', `/libraries/${lib}/search?q=transformer&mode=keyword`)

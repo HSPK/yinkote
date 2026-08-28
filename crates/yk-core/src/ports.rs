@@ -233,7 +233,7 @@ pub trait SettingsRepository: Send + Sync {
 /// worker, not index mutation.
 #[async_trait]
 pub trait SearchIndex: Send + Sync {
-    async fn search(&self, request: &SearchRequest) -> Result<Vec<SearchHit>>;
+    async fn search(&self, request: &SearchRequest) -> Result<crate::query::SearchPage>;
     async fn stats(&self) -> Result<SearchStats>;
     /// The items whose meaning is closest to one already in the library, with
     /// their cosine similarity, best first.

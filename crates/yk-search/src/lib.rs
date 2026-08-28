@@ -325,7 +325,7 @@ fn fuzzy_score(query: &str, target: &str) -> f32 {
 
 #[async_trait]
 impl SearchIndex for SearchEngine {
-    async fn search(&self, request: &SearchRequest) -> Result<Vec<SearchHit>> {
+    async fn search(&self, request: &SearchRequest) -> Result<SearchPage> {
         let parsed = parse::ParsedQuery::parse(&request.text);
         let mut filter = request.filter.clone();
         parsed.apply_to(&mut filter);
@@ -428,11 +428,16 @@ impl SearchIndex for SearchEngine {
         ];
         let fused = fusion::fuse(&lists);
 
+        // How many the query produced, before paging. The caller needs this to
+        // know there is anything after the page it asked for; `hits.len()` says
+        // "nothing more" on every full page.
+        let total = fused.len() as i64;
+
         let start = request.offset as usize;
         let page: Vec<fusion::Fused> =
             fused.into_iter().skip(start).take(request.limit as usize).collect();
         if page.is_empty() {
-            return Ok(Vec::new());
+            return Ok(SearchPage { hits: Vec::new(), total });
         }
 
         let ids: Vec<i64> = page.iter().map(|f| f.id).collect();
@@ -446,7 +451,7 @@ impl SearchIndex for SearchEngine {
             Vec::new()
         };
 
-        Ok(page
+        let hits = page
             .into_iter()
             .filter_map(|f| {
                 let d = displays.get(&f.id)?;
@@ -457,7 +462,8 @@ impl SearchIndex for SearchEngine {
                     sources: f.sources,
                 })
             })
-            .collect())
+            .collect();
+        Ok(SearchPage { hits, total })
     }
 
     async fn similar(&self, library_id: i64, key: &Key, k: usize) -> Result<Vec<(Key, f32)>> {
@@ -677,7 +683,7 @@ mod tests {
     }
 
     async fn titles(e: &SearchEngine, s: &Store, lib: i64, r: SearchRequest) -> Vec<String> {
-        let hits = e.search(&r).await.unwrap();
+        let hits = e.search(&r).await.unwrap().hits;
         let mut out = Vec::new();
         for h in hits {
             out.push(s.items.get(lib, &h.key).await.unwrap().title().to_string());
@@ -705,11 +711,11 @@ mod tests {
         };
 
         let first: Vec<_> =
-            e.search(&page(0, 10)).await.unwrap().into_iter().map(|h| h.key).collect();
+            e.search(&page(0, 10)).await.unwrap().hits.into_iter().map(|h| h.key).collect();
         let second: Vec<_> =
-            e.search(&page(10, 10)).await.unwrap().into_iter().map(|h| h.key).collect();
+            e.search(&page(10, 10)).await.unwrap().hits.into_iter().map(|h| h.key).collect();
         let third: Vec<_> =
-            e.search(&page(20, 10)).await.unwrap().into_iter().map(|h| h.key).collect();
+            e.search(&page(20, 10)).await.unwrap().hits.into_iter().map(|h| h.key).collect();
 
         assert_eq!(first.len(), 10);
         assert_eq!(second.len(), 10);
@@ -810,7 +816,7 @@ mod tests {
         let (e, s, lib) = engine();
         seed(&s, lib).await;
         e.embed_pending(100).await.unwrap();
-        let hits = e.search(&req(lib, "diffusion models", SearchMode::Hybrid)).await.unwrap();
+        let hits = e.search(&req(lib, "diffusion models", SearchMode::Hybrid)).await.unwrap().hits;
         assert!(!hits.is_empty());
         assert!(hits.iter().any(|h| h.sources.len() >= 2), "fusion should agree somewhere");
     }
@@ -819,7 +825,7 @@ mod tests {
     async fn snippets_mark_the_match() {
         let (e, s, lib) = engine();
         seed(&s, lib).await;
-        let hits = e.search(&req(lib, "transformer", SearchMode::Keyword)).await.unwrap();
+        let hits = e.search(&req(lib, "transformer", SearchMode::Keyword)).await.unwrap().hits;
         let snip = hits[0].snippet.as_deref().unwrap_or_default();
         assert!(snip.contains("<mark>"), "got {snip:?}");
     }
@@ -837,9 +843,9 @@ mod tests {
     async fn trashed_items_disappear_from_search() {
         let (e, s, lib) = engine();
         seed(&s, lib).await;
-        let hit = e.search(&req(lib, "attention", SearchMode::Keyword)).await.unwrap();
+        let hit = e.search(&req(lib, "attention", SearchMode::Keyword)).await.unwrap().hits;
         s.items.set_trashed(lib, &[hit[0].key.clone()], true).await.unwrap();
-        let after = e.search(&req(lib, "attention", SearchMode::Keyword)).await.unwrap();
+        let after = e.search(&req(lib, "attention", SearchMode::Keyword)).await.unwrap().hits;
         assert!(after.is_empty());
     }
 
@@ -854,16 +860,16 @@ mod tests {
             })
             .await
             .unwrap();
-        assert!(e.search(&req(lib, "attention", SearchMode::Keyword)).await.unwrap().is_empty());
+        assert!(e.search(&req(lib, "attention", SearchMode::Keyword)).await.unwrap().hits.is_empty());
         assert_eq!(e.reindex(lib).await.unwrap(), 4);
-        assert!(!e.search(&req(lib, "attention", SearchMode::Keyword)).await.unwrap().is_empty());
+        assert!(!e.search(&req(lib, "attention", SearchMode::Keyword)).await.unwrap().hits.is_empty());
     }
 
     #[tokio::test]
     async fn empty_query_with_no_filter_returns_nothing() {
         let (e, s, lib) = engine();
         seed(&s, lib).await;
-        assert!(e.search(&req(lib, "", SearchMode::Hybrid)).await.unwrap().is_empty());
+        assert!(e.search(&req(lib, "", SearchMode::Hybrid)).await.unwrap().hits.is_empty());
     }
 
     #[tokio::test]
@@ -875,14 +881,14 @@ mod tests {
             .create(lib, yk_core::model::CollectionDraft { name: "Focus".into(), ..Default::default() })
             .await
             .unwrap();
-        let all = e.search(&req(lib, "models", SearchMode::Keyword)).await.unwrap();
+        let all = e.search(&req(lib, "models", SearchMode::Keyword)).await.unwrap().hits;
         assert!(!all.is_empty());
 
         let mut scoped = req(lib, "models", SearchMode::Keyword);
         scoped.filter.collection = Some(coll.key.clone());
-        assert!(e.search(&scoped).await.unwrap().is_empty(), "empty collection has no hits");
+        assert!(e.search(&scoped).await.unwrap().hits.is_empty(), "empty collection has no hits");
 
         s.items.add_to_collection(lib, &coll.key, &[all[0].key.clone()]).await.unwrap();
-        assert_eq!(e.search(&scoped).await.unwrap().len(), 1);
+        assert_eq!(e.search(&scoped).await.unwrap().hits.len(), 1);
     }
 }

@@ -93,6 +93,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         runs: Default::default(),
         sessions: Default::default(),
         tasks: Default::default(),
+        smart_counts: Default::default(),
     }))
 }
 

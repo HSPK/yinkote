@@ -71,7 +71,7 @@ async fn count_of(app: &App, lib: i64, smart: &SmartCollection) -> ApiResult<i64
             highlight: false,
         })
         .await?;
-    Ok(hits.len() as i64)
+    Ok(hits.total)
 }
 
 async fn list(
@@ -81,9 +81,33 @@ async fn list(
 ) -> ApiResult<Json<Vec<SmartCollection>>> {
     let mut collections = app.store().smart.list(lib).await?;
     if p.counts {
-        for smart in &mut collections {
-            // A broken query must not break the sidebar; report it as empty.
-            smart.item_count = Some(count_of(&app, lib, smart).await.unwrap_or(0));
+        // Remembered against the library version: a saved search's count can
+        // only change when the library does, and the sidebar asks for every
+        // one of them on every navigation.
+        let version = app.store().libraries.version(lib).await.unwrap_or(-1);
+        let cache_key = format!("smart:{lib}");
+        if let Some(cached) = app.smart_counts.get(&cache_key, version) {
+            return Ok(Json(cached));
+        }
+
+        // Counted together rather than one after another. Each is a full search
+        // — 21ms — so awaiting them in turn made the sidebar wait for the sum
+        // of every saved search the user has ever kept.
+        //
+        // A broken query must not break the sidebar; it reports as empty.
+        let running: Vec<_> = collections
+            .iter()
+            .cloned()
+            .map(|smart| {
+                let app = app.clone();
+                tokio::spawn(async move { count_of(&app, lib, &smart).await.unwrap_or(0) })
+            })
+            .collect();
+        for (smart, handle) in collections.iter_mut().zip(running) {
+            smart.item_count = Some(handle.await.unwrap_or(0));
+        }
+        if version >= 0 {
+            app.smart_counts.put(cache_key, version, collections.clone());
         }
     }
     Ok(Json(collections))
@@ -131,7 +155,7 @@ async fn items(
             highlight: true,
             })
         .await?;
-    let keys: Vec<yk_core::Key> = hits.iter().map(|h| h.key.clone()).collect();
+    let keys: Vec<yk_core::Key> = hits.hits.iter().map(|h| h.key.clone()).collect();
     let items = app.store().items.get_many(lib, &keys).await?;
     Ok(Json(json!({
         "items": items, "total": items.len(),
