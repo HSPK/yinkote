@@ -5,6 +5,7 @@ import {
   compact,
   creatorName,
   creatorSummary,
+  displayTitle,
   elapsed,
   shortDate,
   snippetParts,
@@ -164,5 +165,33 @@ describe('elapsed', () => {
   it('says nothing alarming about a clock that is not there', () => {
     expect(elapsed(NaN)).toBe('0s')
     expect(elapsed(-5)).toBe('0s')
+  })
+})
+
+describe('what to call an item in a list', () => {
+  const item = (patch: Record<string, unknown>) => patch as unknown as Item
+
+  it('uses the title when there is one', () => {
+    expect(displayTitle(item({ title: 'Attention Is All You Need' }), '—')).toBe(
+      'Attention Is All You Need',
+    )
+  })
+
+  it('falls back to a highlight’s own words', () => {
+    // A highlight has no title; its text is the whole point of it. Searching
+    // for a phrase you marked used to return a row saying "Untitled".
+    expect(
+      displayTitle(item({ annotationText: '  the leading edge eroded first  ' }), 'Untitled'),
+    ).toBe('the leading edge eroded first')
+  })
+
+  it('prefers a real title over the highlight text', () => {
+    expect(displayTitle(item({ title: 'Real', annotationText: 'marked' }), '—')).toBe('Real')
+  })
+
+  it('still says untitled when there is genuinely nothing', () => {
+    expect(displayTitle(item({}), 'Untitled')).toBe('Untitled')
+    // Whitespace is nothing. A title of spaces rendered as an invisible row.
+    expect(displayTitle(item({ title: '   ' }), 'Untitled')).toBe('Untitled')
   })
 })

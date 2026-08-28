@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api/client'
 import type { CitationList, Conversation, Item } from '../api/types'
-import { creatorName } from '../lib/format'
+import { creatorName, displayTitle } from '../lib/format'
 import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
 import { useSchemaLabel, useT } from '../i18n'
@@ -154,7 +154,7 @@ export function DetailPanel() {
       </div>
 
       <div className="detail">
-        <div className="detail-title">{String(item.title ?? t('detail.untitled'))}</div>
+        <div className="detail-title">{displayTitle(item, t('detail.untitled'))}</div>
 
         <dl className="field-grid">
           <dt>{t('detail.type')}</dt>

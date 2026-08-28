@@ -291,6 +291,20 @@ export const useStore = create<State>((set, get, store) => ({
       tag: s.activeTags.length ? s.activeTags : undefined,
       itemType: s.typeFilter.length ? s.typeFilter : undefined,
       trash: s.view === 'trash' ? 'only' : 'exclude',
+      // Browsing shows papers; searching shows whatever matched.
+      //
+      // The table is flat — it has no way to nest a highlight under its paper
+      // — so listing children alongside their parents put a blank-titled
+      // annotation and a "probe.pdf" attachment between two papers. A library
+      // of 100 papers with files and highlights browsed as 300-odd rows, most
+      // of them noise.
+      //
+      // But a search must still reach them: the phrase a reader highlighted is
+      // on the annotation, not on the paper, so filtering to top level answers
+      // "no results" for text the user knows they marked. Measured: 302 hits
+      // became 300, and the two that went were the ones actually containing
+      // the phrase.
+      topLevel: s.query ? undefined : true,
       sort: s.sort,
       direction: s.direction,
       limit: PAGE,

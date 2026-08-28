@@ -138,6 +138,17 @@ check "chinese"          "$(j "$BASE/libraries/$LIB/search?q=%E6%89%A9%E6%95%A3%
 check "tag operator"     "$(j "$BASE/libraries/$LIB/search?q=tag:nlp" | jq -r '.hits|length')"
 check "snippet mark"     "$(j "$BASE/libraries/$LIB/search?q=transformer" | jq -r '.hits[0].snippet' | grep -c '<mark>')"
 check "items?q= hydrate" "$(j "$BASE/libraries/$LIB/items?q=attention" | jq -r '.items[0].match.sources|length')"
+# Browsing shows papers; searching shows whatever matched. The table is flat,
+# so listing children beside their parents put blank-titled highlights and
+# "probe.pdf" between two papers — but a search must still reach them, because
+# the phrase a reader highlighted is on the annotation and not on the paper.
+check "browse is top level" "$(j "$BASE/libraries/$LIB/items?limit=60&topLevel=true" \
+                                | jq -r '[.items[]|select(.parentKey)]|length|if .==0 then "papers only" else "children leaked" end')"
+# The negative: without it, children are included. A check that only asserted
+# the filter works would pass on a server that always excluded children, which
+# is what would break highlight search.
+check "search reaches kids" "$(j "$BASE/libraries/$LIB/items?limit=60" \
+                                | jq -r '[.items[] | select(.parentKey)] | length | select(. > 0)')"
 # A word query cannot honour a column sort: it scores a bounded pool and
 # returns it best-first. That was true and unsaid, so the table drew an arrow
 # on a column it was not sorted by and took clicks that changed nothing.

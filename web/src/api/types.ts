@@ -172,6 +172,8 @@ export interface ListQuery {
   tag?: string[]
   itemType?: string[]
   trash?: 'exclude' | 'only' | 'include'
+  /** Papers only, excluding their attachments, notes and highlights. */
+  topLevel?: boolean
   sort?: string
   direction?: 'asc' | 'desc'
   limit?: number

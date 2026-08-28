@@ -155,3 +155,54 @@ it('has no method nothing calls', async () => {
   const uncalled = names.filter((n) => !new RegExp(`\\.${n}\\s*\\(`).test(callers))
   expect(uncalled, `client methods with no caller: ${uncalled.join(', ')}`).toEqual([])
 })
+
+describe('a query field that is never serialised does nothing at all', () => {
+  it('sends topLevel, so browsing can exclude children', () => {
+    // The flat table has no way to nest a highlight under its paper, so
+    // browsing asks for papers only. That request is a string built by hand:
+    // a field added to `ListQuery` and forgotten here type-checks, reads
+    // correctly at the call site, and is silently dropped on the wire.
+    expect(buildQuery({ topLevel: true })).toContain('topLevel=true')
+  })
+
+  it('omits it entirely when searching, so highlights stay findable', () => {
+    // The phrase a reader highlighted lives on the annotation, not on the
+    // paper. Filtering to top level answers "no results" for text the user
+    // knows they marked.
+    expect(buildQuery({ q: 'erosion' })).not.toContain('topLevel')
+  })
+
+  it('keeps every field the caller set', () => {
+    // A table rather than one case: the point is that the list of fields here
+    // and the list on `ListQuery` must not drift, and the next field added is
+    // the one that will be forgotten.
+    const q = buildQuery({
+      q: 'x',
+      mode: 'hybrid',
+      collection: 'ABC',
+      tag: ['a', 'b'],
+      itemType: ['journalArticle'],
+      trash: 'only',
+      topLevel: true,
+      sort: 'title',
+      direction: 'asc',
+      limit: 10,
+      offset: 20,
+    })
+    for (const key of [
+      'q',
+      'mode',
+      'collection',
+      'tag',
+      'itemType',
+      'trash',
+      'topLevel',
+      'sort',
+      'direction',
+      'limit',
+      'offset',
+    ]) {
+      expect(q, `${key} never reaches the server`).toContain(`${key}=`)
+    }
+  })
+})

@@ -13,7 +13,7 @@ import {
   type ColumnDef,
 } from '../lib/columns'
 import { beginDrag, endDrag } from '../lib/dnd'
-import { creatorSummary, modKey, shortDate, snippetParts, year } from '../lib/format'
+import { creatorSummary, displayTitle, modKey, shortDate, snippetParts, year } from '../lib/format'
 import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
 import { contextMenu, Icon, type MenuItem } from '../ui'
@@ -100,7 +100,7 @@ function TitleCell({ item, untitled }: CellContext) {
           {SOURCE_GLYPH[s]}
         </span>
       ))}
-      {String(item.title ?? untitled)}
+      {displayTitle(item, untitled)}
       {snippet && (
         <span className="snippet">
           {snippetParts(snippet).map((p, i) =>
@@ -124,7 +124,7 @@ const CELLS: Record<
     title?: (item: Item) => string
   }
 > = {
-  title: { render: TitleCell, title: (i) => String(i.title ?? '') },
+  title: { render: TitleCell, title: (i) => displayTitle(i, '') },
   author: { className: 'dim', render: ({ item }) => creatorSummary(item) },
   year: { className: 'num', render: ({ item }) => year(item) },
   type: { className: 'dim', render: ({ typeLabel }) => typeLabel },

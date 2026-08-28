@@ -147,6 +147,7 @@ export function buildQuery(query: ListQuery): string {
   add('mode', query.mode)
   add('collection', query.collection)
   add('trash', query.trash)
+  add('topLevel', query.topLevel)
   add('sort', query.sort)
   add('direction', query.direction)
   add('limit', query.limit)

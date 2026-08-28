@@ -14,6 +14,25 @@ export function creatorSummary(item: Item): string {
   return `${names[0]} et al.`
 }
 
+/**
+ * What to call an item in a list.
+ *
+ * Annotations carry no title — the text is the point of a highlight — so they
+ * rendered as "Untitled" wherever one appeared, which a search does whenever
+ * it matches something the reader marked. Their own words are the only useful
+ * label they have.
+ *
+ * Takes the fallback rather than translating here, so this stays free of the
+ * i18n context and can be used from anywhere.
+ */
+export function displayTitle(item: Item, untitled: string): string {
+  const title = item.title
+  if (typeof title === 'string' && title.trim()) return title
+  const marked = (item as { annotationText?: unknown }).annotationText
+  if (typeof marked === 'string' && marked.trim()) return marked.trim()
+  return untitled
+}
+
 export function year(item: Item): string {
   const m = /\d{4}/.exec(String(item.date ?? ''))
   return m ? m[0] : ''
