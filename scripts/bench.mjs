@@ -40,6 +40,15 @@ const rnd = () => {
 }
 const pick = (arr) => arr[Math.floor(rnd() * arr.length)]
 
+// Probe items written on every run.
+//
+// The index decides the title and the DOI, so a fixed one makes each run's
+// probes exact duplicates of the previous run's. That quietly grows the
+// duplicate count for ever — 43 groups became 49 in a single afternoon — and
+// drags the duplicate scan up with it, which is a measurement drifting because
+// of the measuring, not because of the code. Unique per run instead.
+const PROBE_BASE = 900_000_000 + (Date.now() % 100_000_000)
+
 function makeItem(i) {
   const cjk = i % 5 === 0
   const title = cjk
@@ -174,6 +183,12 @@ const BUDGET = {
   // 191.8ms per open before the scan was remembered against the library
   // version. Both its plans were already the best SQLite had.
   'duplicate groups': 30,
+  // The same scan with an ordinary write before each read — which is what an
+  // in-use library actually does, and the twenty-clean-reads measurement above
+  // never showed it. ~190ms, and it is meant to be: serving this list stale
+  // was tried and shows somebody a library without the duplicates they just
+  // created. The budget guards against worse, not against this.
+  'duplicates after a write': 300,
 }
 
 const overBudget = []
@@ -197,10 +212,13 @@ function report(label, s, count) {
   return s
 }
 
-async function measure(label, path, runs = 40) {
+async function measure(label, path, runs = 40, before = null) {
   const samples = []
   let count = 0
   for (let i = 0; i < runs; i++) {
+    // Outside the timer: this is here to put the server in a particular state,
+    // not to be measured.
+    if (before) await before(i)
     const t = performance.now()
     const body = await get(path.replace('%i', String(i)))
     samples.push(performance.now() - t)
@@ -409,6 +427,14 @@ async function main() {
   // sample it drags the median with it, reporting neither the cold cost nor
   // the warm one.
   await measure('duplicate groups', `/libraries/${lib}/duplicates`, 20)
+  // The measurement above is the flattering one, and for a long time it was the
+  // only one: twenty reads in a row, with nothing writing in between. A real
+  // library is being added to, and *every* write retires this scan — so the
+  // number a user actually meets is this one, and it is an order of magnitude
+  // bigger than the one printed beside it. See docs/16 3.163.
+  await measure('duplicates after a write', `/libraries/${lib}/duplicates`, 6, (i) =>
+    post(`/libraries/${lib}/items`, [makeItem(PROBE_BASE + 500 + i)]),
+  )
 
   console.log('\n▸ search')
   await measure('keyword (1 term)', `/libraries/${lib}/search?q=transformer&mode=keyword`)
@@ -490,7 +516,7 @@ async function main() {
   const writes = []
   for (let i = 0; i < 20; i++) {
     const t = performance.now()
-    await post(`/libraries/${lib}/items`, [makeItem(900_000 + i)])
+    await post(`/libraries/${lib}/items`, [makeItem(PROBE_BASE + i)])
     writes.push(performance.now() - t)
   }
   const w = stats(writes)

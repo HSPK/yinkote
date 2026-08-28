@@ -131,14 +131,7 @@ impl SqliteCollectionRepository {
 impl SqliteCollectionRepository {
     async fn library_version(&self, library_id: i64) -> i64 {
         self.db
-            .call(move |c| {
-                Ok(c.query_row(
-                    "SELECT version FROM libraries WHERE id = ?1",
-                    params![library_id],
-                    |r| r.get::<_, i64>(0),
-                )
-                .unwrap_or(-1))
-            })
+            .call(move |c| Ok(crate::counts::version_of(c, library_id)))
             .await
             .unwrap_or(-1)
     }

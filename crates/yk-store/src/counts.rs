@@ -71,6 +71,18 @@ const SLOW_ENOUGH_TO_DEFER: Duration = Duration::from_millis(20);
 /// The original use, and the common one.
 pub type CountCache = Versioned<i64>;
 
+/// The library version a cached answer is keyed to.
+///
+/// Every write increments it, which is the whole invalidation scheme. `-1` for
+/// a library that cannot be read: no state, so nothing may be remembered
+/// against it.
+pub(crate) fn version_of(c: &rusqlite::Connection, library_id: i64) -> i64 {
+    c.query_row("SELECT version FROM libraries WHERE id = ?1", rusqlite::params![library_id], |r| {
+        r.get::<_, i64>(0)
+    })
+    .unwrap_or(-1)
+}
+
 impl<T> Default for Versioned<T> {
     fn default() -> Self {
         Self {
@@ -222,5 +234,40 @@ mod tests {
         // Whatever survived, nothing came back wrong.
         assert!(matches!(cache.get(&kept, 1), None | Some(42)));
         assert_eq!(cache.entries.lock().len(), 1, "cleared rather than grown");
+    }
+
+    #[test]
+    fn a_cheap_answer_is_recomputed_rather_than_served_behind() {
+        // The threshold is the whole policy: a library small enough to answer
+        // instantly should never become eventually-consistent in exchange for
+        // nothing.
+        let cache = CountCache::default();
+        cache.put_timed("k".into(), 1, 100, Duration::from_millis(1));
+        assert!(matches!(cache.look_up("k", 1), Answer::Fresh(100)));
+        assert!(
+            matches!(cache.look_up("k", 2), Answer::Missing),
+            "cheap to redo, so the caller is told to redo it"
+        );
+    }
+
+    #[test]
+    fn an_expensive_answer_is_served_while_it_is_redone() {
+        let cache = CountCache::default();
+        cache.put_timed("k".into(), 1, 100, Duration::from_millis(200));
+        match cache.look_up("k", 2) {
+            Answer::Stale(v) => assert_eq!(v, 100),
+            _ => panic!("an answer this expensive is worth being a moment behind"),
+        }
+    }
+
+    #[test]
+    fn only_one_refresh_of_a_key_runs_at_a_time() {
+        // Without this a burst against one stale entry starts a recomputation
+        // per request — of the identical thing, all at once.
+        let cache = CountCache::default();
+        assert!(cache.claim("k"), "the first caller takes it");
+        assert!(!cache.claim("k"), "the rest find it taken");
+        cache.release("k");
+        assert!(cache.claim("k"), "and it is available again afterwards");
     }
 }

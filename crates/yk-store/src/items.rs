@@ -109,9 +109,7 @@ pub(crate) fn cached_count(
     library_id: i64,
     p: &Predicate,
 ) -> Result<i64> {
-    let version: i64 = c
-        .query_row("SELECT version FROM libraries WHERE id = ?1", params![library_id], |r| r.get(0))
-        .unwrap_or(-1);
+    let version: i64 = crate::counts::version_of(c, library_id);
     let key = crate::counts::CountCache::key(library_id, p);
     if let Some(total) = cache.get(&key, version) {
         return Ok(total);
@@ -614,15 +612,111 @@ pub struct SqliteItemRepository {
     ///
     /// Both plans are already the best SQLite has — naming an index for the
     /// title scan measured *worse* — so the only saving left is not repeating
-    /// it. Merging a pair does invalidate this, but the page removes the merged
-    /// group itself rather than reloading, so what this actually buys is
-    /// leaving the tab and coming back.
+    /// it. Every write to the library retires it, which is more often than the
+    /// old comment here assumed: 8ms warm, 214ms after a single unrelated
+    /// create.
+    ///
+    /// **Serving it stale was tried and rejected.** It is the obvious reading
+    /// of `counts.rs`'s policy and it is wrong for this answer: the question
+    /// "what is duplicated?" is asked almost entirely *just after adding
+    /// things*, so the one moment the list is allowed to lag is the one moment
+    /// somebody is looking. Smoke caught it immediately — two records created
+    /// and the pair missing from the very next read. See docs/16 3.164.
     duplicates: std::sync::Arc<crate::counts::Versioned<Vec<Vec<Item>>>>,
 }
 
 impl SqliteItemRepository {
     pub fn new(db: Db, counts: std::sync::Arc<crate::counts::CountCache>) -> Self {
         Self { db, counts, duplicates: Default::default() }
+    }
+
+    /// The version every cached answer for this library is keyed to.
+    async fn library_version(&self, library_id: i64) -> i64 {
+        self.db
+            .call(move |c| Ok(crate::counts::version_of(c, library_id)))
+            .await
+            .unwrap_or(-1)
+    }
+
+    /// Run both duplicate scans and remember the result against the version it
+    /// was computed at.
+    async fn rescan_duplicates(
+        &self,
+        library_id: i64,
+        limit: u32,
+        key: String,
+        version: i64,
+    ) -> Result<Vec<Vec<Item>>> {
+        let cache = self.duplicates.clone();
+        self.db
+            .call(move |c| {
+                // Two ways of being the same paper, and an item is in a group
+                // if it matches either. They overlap — three records where two
+                // share a DOI and two share a title are one group of three, not
+                // two groups of two — so the id sets are merged rather than
+                // concatenated.
+                let mut sets: Vec<Vec<i64>> = Vec::new();
+                for sql in [DUPLICATE_SCAN_SQL, DUPLICATE_TITLE_SCAN_SQL] {
+                    let mut stmt = c.prepare_cached(sql).map_err(sql_err)?;
+                    let rows = stmt
+                        .query_map(params![library_id, limit], |r| r.get::<_, String>(0))
+                        .map_err(sql_err)?;
+                    for row in rows {
+                        let ids: Vec<i64> = row
+                            .map_err(sql_err)?
+                            .split(',')
+                            .filter_map(|id| id.parse().ok())
+                            .collect();
+                        if ids.len() > 1 {
+                            sets.push(ids);
+                        }
+                    }
+                }
+                let sets = coalesce(sets);
+                let remember = |groups: &Vec<Vec<Item>>| {
+                    // A version of -1 means the library was not readable; there
+                    // is no state to key an answer to.
+                    if version >= 0 {
+                        cache.put(key.clone(), version, groups.clone());
+                    }
+                };
+                if sets.is_empty() {
+                    // "None" costs both full scans to establish and is the
+                    // answer a tidy library gets every time it is asked.
+                    let none = Vec::new();
+                    remember(&none);
+                    return Ok(none);
+                }
+
+                // Every member of every group in one pass. Tags, collections
+                // and attachments are what a person compares when deciding
+                // which copy to keep, so the rows are hydrated.
+                let ids: Vec<i64> = sets.iter().flatten().copied().collect();
+                let mut by_id: HashMap<i64, Item> = HashMap::new();
+                for run in crate::filter::chunks(&ids) {
+                    let ph = placeholders(run.len());
+                    let sql = format!("SELECT {COLS} {FROM} WHERE i.id IN ({ph})");
+                    let mut rows: Vec<(i64, Item)> = c
+                        .prepare(&sql)
+                        .map_err(sql_err)?
+                        .query_map(params_from_iter(run.iter()), map_row)
+                        .map_err(sql_err)?
+                        .collect::<rusqlite::Result<_>>()
+                        .map_err(sql_err)?;
+                    hydrate(c, &mut rows)?;
+                    by_id.extend(rows);
+                }
+
+                let groups: Vec<Vec<Item>> = sets
+                    .into_iter()
+                    .take(limit as usize)
+                    .map(|set| set.iter().filter_map(|id| by_id.remove(id)).collect::<Vec<_>>())
+                    .filter(|group: &Vec<Item>| group.len() > 1)
+                    .collect();
+                remember(&groups);
+                Ok(groups)
+            })
+            .await
     }
 
     /// Rebuild every derived search structure for a library from scratch.
@@ -1121,85 +1215,18 @@ impl ItemRepository for SqliteItemRepository {
     }
 
     async fn duplicate_groups(&self, library_id: i64, limit: u32) -> Result<Vec<Vec<Item>>> {
-        let cache = self.duplicates.clone();
-        self.db
-            .call(move |c| {
-                let version: i64 = c
-                    .query_row(
-                        "SELECT version FROM libraries WHERE id = ?1",
-                        params![library_id],
-                        |r| r.get(0),
-                    )
-                    .unwrap_or(-1);
-                // The limit is part of the question: asking for ten groups and
-                // asking for two hundred are different answers.
-                let cache_key = format!("dupes:{library_id}:{limit}");
-                if let Some(cached) = cache.get(&cache_key, version) {
-                    return Ok(cached);
-                }
-                // Two ways of being the same paper, and an item is in a group
-                // if it matches either. They overlap — three records where two
-                // share a DOI and two share a title are one group of three, not
-                // two groups of two — so the id sets are merged rather than
-                // concatenated.
-                let mut sets: Vec<Vec<i64>> = Vec::new();
-                for sql in [DUPLICATE_SCAN_SQL, DUPLICATE_TITLE_SCAN_SQL] {
-                    let mut stmt = c.prepare_cached(sql).map_err(sql_err)?;
-                    let rows = stmt
-                        .query_map(params![library_id, limit], |r| r.get::<_, String>(0))
-                        .map_err(sql_err)?;
-                    for row in rows {
-                        let ids: Vec<i64> = row
-                            .map_err(sql_err)?
-                            .split(',')
-                            .filter_map(|id| id.parse().ok())
-                            .collect();
-                        if ids.len() > 1 {
-                            sets.push(ids);
-                        }
-                    }
-                }
-                let sets = coalesce(sets);
-                if sets.is_empty() {
-                    // "None" costs both full scans to establish and is the
-                    // answer a tidy library gets every time it is asked.
-                    if version >= 0 {
-                        cache.put(cache_key, version, Vec::new());
-                    }
-                    return Ok(Vec::new());
-                }
+        // The limit is part of the question: asking for ten groups and asking
+        // for two hundred are different answers.
+        let key = format!("dupes:{library_id}:{limit}");
+        let version = self.library_version(library_id).await;
 
-                // Every member of every group in one pass. Tags, collections
-                // and attachments are what a person compares when deciding
-                // which copy to keep, so the rows are hydrated.
-                let ids: Vec<i64> = sets.iter().flatten().copied().collect();
-                let mut by_id: HashMap<i64, Item> = HashMap::new();
-                for run in crate::filter::chunks(&ids) {
-                    let ph = placeholders(run.len());
-                    let sql = format!("SELECT {COLS} {FROM} WHERE i.id IN ({ph})");
-                    let mut rows: Vec<(i64, Item)> = c
-                        .prepare(&sql)
-                        .map_err(sql_err)?
-                        .query_map(params_from_iter(run.iter()), map_row)
-                        .map_err(sql_err)?
-                        .collect::<rusqlite::Result<_>>()
-                        .map_err(sql_err)?;
-                    hydrate(c, &mut rows)?;
-                    by_id.extend(rows);
-                }
-
-                let groups: Vec<Vec<Item>> = sets
-                    .into_iter()
-                    .take(limit as usize)
-                    .map(|set| set.iter().filter_map(|id| by_id.remove(id)).collect::<Vec<_>>())
-                    .filter(|group: &Vec<Item>| group.len() > 1)
-                    .collect();
-                if version >= 0 {
-                    cache.put(cache_key, version, groups.clone());
-                }
-                Ok(groups)
-            })
-            .await
+        // Exact, deliberately: see the field's documentation. The win is on
+        // repeats — opening the tab, comparing two records, coming back — and
+        // repeats are what reading this page is.
+        match self.duplicates.get(&key, version) {
+            Some(groups) => Ok(groups),
+            None => self.rescan_duplicates(library_id, limit, key, version).await,
+        }
     }
 
     async fn merge(&self, library_id: i64, master: &Key, others: &[Key]) -> Result<Item> {

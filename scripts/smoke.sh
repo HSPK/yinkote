@@ -21,6 +21,7 @@ fi
 echo "▸ testing ${BASE} (database: ${SERVING})"
 PASS=0
 FAIL=0
+SKIP=0
 # Names of the checks that failed, so the summary says *which* — scrolled-off
 # output cost a real investigation once.
 FAILED=()
@@ -36,7 +37,7 @@ check() { # check <name> <value>
   fi
 }
 
-skip() { printf '  \033[33mskip\033[0m %-44s %s\n' "$1" "$2"; }
+skip() { printf '  \033[33mskip\033[0m %-44s %s\n' "$1" "$2"; SKIP=$((SKIP + 1)); }
 
 j() { curl -sS -H 'Content-Type: application/json' "$@"; }
 
@@ -848,6 +849,14 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
   if grep -qiE '429|rate limit' <<< "$SUMM"; then
     THROTTLED=1
     skip "model round trip" "the model is rate-limited right now"
+    # Named one by one rather than letting the block vanish. A silently
+    # shorter run still prints "all passed", and the only thing that betrays
+    # it is the total — which is exactly what nobody compares. Every check
+    # below has to account for itself, present or not.
+    for named in "summarise" "summary is a child" "summary replaced" \
+                 "agent answers" "agent shows work"; do
+      skip "$named" "needs the model, which is rate-limited right now"
+    done
   else
     THROTTLED=0
   fi
@@ -938,7 +947,14 @@ check "embedded vectors" "$(j "$BASE/search/stats" | jq -r .embedded)"
 
 echo
 if [[ $FAIL -eq 0 ]]; then
-  printf '\033[32m%d checks passed\033[0m\n' "$PASS"
+  # The skipped count is part of the result, not a footnote. A throttled model
+  # used to make a whole block disappear in silence, and "196 checks passed"
+  # reads exactly like "201 checks passed" unless somebody remembers the number.
+  if [[ $SKIP -gt 0 ]]; then
+    printf '\033[32m%d checks passed\033[0m, \033[33m%d skipped\033[0m\n' "$PASS" "$SKIP"
+  else
+    printf '\033[32m%d checks passed\033[0m\n' "$PASS"
+  fi
 else
   printf '\033[31m%d passed, %d failed\033[0m\n' "$PASS" "$FAIL"
   for name in "${FAILED[@]}"; do
