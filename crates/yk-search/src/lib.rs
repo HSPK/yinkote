@@ -28,7 +28,7 @@ use yk_ai::EmbeddingProvider;
 use yk_core::ports::SearchIndex;
 use yk_core::query::*;
 use yk_core::{text, Error, Key, Result};
-use yk_store::filter::Predicate;
+use yk_store::filter::{self, Predicate, TagForm};
 use yk_store::{sql_err, write_tx, Db, Store};
 
 pub use yk_ai::{LocalEmbedder, OpenAiEmbedder};
@@ -37,6 +37,11 @@ use vector::VectorStore;
 
 /// How many candidates each retriever contributes before fusion.
 const CANDIDATES: usize = 300;
+
+/// How wide the structural set has to be when it is a *restriction* rather
+/// than the answer: the ranked legs draw from the whole library, so a hit can
+/// sit anywhere in it.
+const CANDIDATE_SET: usize = 20_000;
 /// Minimum edit-distance similarity for a fuzzy hit to count.
 const FUZZY_FLOOR: f32 = 0.45;
 /// Rows written per background transaction. Small on purpose — see
@@ -123,7 +128,19 @@ impl SearchEngine {
     ///
     /// Returns them ordered so a pure filter query (`tag:survey` with no text)
     /// can reuse the same scan instead of running it twice.
-    fn allowed(conn: &Connection, filter: &ItemFilter) -> Result<Option<Vec<i64>>> {
+    /// The ids a structural filter allows, or `None` when nothing narrows it.
+    ///
+    /// `want` is how many are actually going to be used. When the query has no
+    /// words the ids *are* the answer, in order, and only a page of them is
+    /// wanted; when there are words they are a set the ranked legs get filtered
+    /// against, and it has to be wide enough to contain the hits. Fetching
+    /// twenty thousand either way meant `tag:survey` read 20,000 rows to return
+    /// fifty.
+    fn allowed(
+        conn: &Connection,
+        filter: &ItemFilter,
+        want: Option<usize>,
+    ) -> Result<Option<Vec<i64>>> {
         let structural = filter.collection.is_some()
             || !filter.tags.is_empty()
             || !filter.item_types.is_empty()
@@ -134,20 +151,37 @@ impl SearchEngine {
         if !structural {
             return Ok(None);
         }
-        Ok(Some(Self::matching_ids(conn, filter)?))
+        Ok(Some(Self::matching_ids(conn, filter, want.unwrap_or(CANDIDATE_SET))?))
     }
 
-    fn matching_ids(conn: &Connection, filter: &ItemFilter) -> Result<Vec<i64>> {
+    fn matching_ids(conn: &Connection, filter: &ItemFilter, limit: usize) -> Result<Vec<i64>> {
         let collections = match &filter.collection {
             Some(key) => Some(resolve_collection_ids(conn, filter, key)?),
             None => None,
         };
-        let p = Predicate::build(filter, collections.as_deref());
+
+        // The same choice `items::list` makes, from the same rule — but there
+        // the exact total is already in hand, and here it is not, so the tag is
+        // counted only as far as the crossover. See `filter::should_walk_probed`.
+        let mut p = Predicate::build(filter, collections.as_deref());
+        let mut hint = String::new();
+        if p.tags_only
+            && filter::should_walk_probed(
+                conn,
+                filter,
+                limit as i64,
+                filter::estimated_items(conn),
+            )
+        {
+            p = Predicate::build_with(filter, collections.as_deref(), TagForm::Probe);
+            hint = format!("INDEXED BY {}", filter::sort_index(SortField::DateModified));
+        }
+
         let sql = format!(
-            "SELECT i.id FROM items i WHERE {} ORDER BY i.date_modified DESC LIMIT 20000",
+            "SELECT i.id FROM items i {hint} WHERE {} ORDER BY i.date_modified DESC LIMIT {limit}",
             p.sql
         );
-        let mut stmt = conn.prepare(&sql).map_err(sql_err)?;
+        let mut stmt = conn.prepare_cached(&sql).map_err(sql_err)?;
         let out = stmt
             .query_map(params_from_iter(p.params.iter()), |r| r.get(0))
             .map_err(sql_err)?
@@ -328,11 +362,20 @@ impl SearchIndex for SearchEngine {
 
         let filter_for_db = filter.clone();
         let text_for_db = query_text.clone();
+        // What a pure filter query will actually return, plus a little slack so
+        // the caller can tell "that is the last page" from "there is more".
+        let needed = (request.offset as usize)
+            .saturating_add(request.limit as usize)
+            .saturating_add(1)
+            .min(CANDIDATE_SET);
         let (allowed_ids, keyword_hits, fuzzy_hits) = self
             .db
             .call(move |c| {
-                let allowed = SearchEngine::allowed(c, &filter_for_db)?;
                 let text_empty = text_for_db.trim().is_empty();
+                // With no words to rank, the filter's own order is the answer,
+                // so only a page of it is ever read.
+                let want = text_empty.then_some(needed);
+                let allowed = SearchEngine::allowed(c, &filter_for_db, want)?;
 
                 let keyword = if !text_empty && mode.uses(SearchMode::Keyword) {
                     lexical::keyword(c, library_id, &text_for_db, CANDIDATES)?
@@ -648,6 +691,70 @@ mod tests {
             out.push(s.items.get(lib, &h.key).await.unwrap().title().to_string());
         }
         out
+    }
+
+    /// The structural set is now bounded by what the page needs, so paging a
+    /// pure filter query is exactly what that bound could have broken.
+    #[tokio::test]
+    async fn a_tag_only_query_pages_all_the_way_through() {
+        let (e, s, lib) = engine();
+        for i in 0..25 {
+            let mut draft = yk_core::model::ItemDraft::new("journalArticle")
+                .with_field("title", format!("Tagged {i:02}"));
+            draft.tags = vec![yk_core::model::ItemTag::manual("shelf")];
+            s.items.create(lib, draft).await.unwrap();
+        }
+
+        let page = |offset: u32, limit: u32| {
+            let mut r = req(lib, "tag:shelf", SearchMode::Hybrid);
+            r.offset = offset;
+            r.limit = limit;
+            r
+        };
+
+        let first: Vec<_> =
+            e.search(&page(0, 10)).await.unwrap().into_iter().map(|h| h.key).collect();
+        let second: Vec<_> =
+            e.search(&page(10, 10)).await.unwrap().into_iter().map(|h| h.key).collect();
+        let third: Vec<_> =
+            e.search(&page(20, 10)).await.unwrap().into_iter().map(|h| h.key).collect();
+
+        assert_eq!(first.len(), 10);
+        assert_eq!(second.len(), 10);
+        assert_eq!(third.len(), 5, "the last page is short, not empty");
+
+        // Every item, once. A bound that was off by one would show up here as a
+        // gap between pages or a repeat across them.
+        let mut all: Vec<_> = first.into_iter().chain(second).chain(third).collect();
+        let before = all.len();
+        all.sort();
+        all.dedup();
+        assert_eq!(all.len(), before, "pages overlapped");
+        assert_eq!(all.len(), 25, "pages skipped something");
+    }
+
+    #[tokio::test]
+    async fn a_tag_query_with_words_still_ranks_across_the_library() {
+        // With words, the structural ids are a restriction rather than the
+        // answer, and a hit can sit anywhere in the library — so that set must
+        // not shrink to a page.
+        let (e, s, lib) = engine();
+        seed(&s, lib).await;
+        for i in 0..30 {
+            let mut draft = yk_core::model::ItemDraft::new("journalArticle")
+                .with_field("title", format!("Filler {i:02}"));
+            draft.tags = vec![yk_core::model::ItemTag::manual("ml")];
+            s.items.create(lib, draft).await.unwrap();
+        }
+        let mut needle = yk_core::model::ItemDraft::new("journalArticle")
+            .with_field("title", "Retrieval augmented generation");
+        needle.tags = vec![yk_core::model::ItemTag::manual("ml")];
+        s.items.create(lib, needle).await.unwrap();
+
+        let mut r = req(lib, "tag:ml retrieval", SearchMode::Keyword);
+        r.limit = 5;
+        let t = titles(&e, &s, lib, r).await;
+        assert!(t.iter().any(|x| x == "Retrieval augmented generation"), "got {t:?}");
     }
 
     #[tokio::test]

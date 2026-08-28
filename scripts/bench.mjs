@@ -130,6 +130,10 @@ const BUDGET = {
   // 313.7ms before a selection was fetched by key instead of filtered out of
   // the whole library, 1.5ms after. This is the path the UI uses.
   'rename preview (selection)': 15,
+  // 32.5ms while a pure filter query read 20,000 ids to return 50, and while
+  // it materialised the tag set instead of walking the sort order. 2.5ms once
+  // it read what it needed and chose its plan.
+  'tag operator': 10,
   'list one collection': 25,
   'list collection + children': 25,
   facets: 15,

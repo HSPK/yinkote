@@ -4,6 +4,7 @@
 //! listing, counting and faceting without duplication.
 
 use rusqlite::types::Value as SqlValue;
+use rusqlite::Connection;
 use yk_core::query::{Direction, ItemFilter, SortField, TrashScope};
 
 #[derive(Default)]
@@ -178,11 +179,69 @@ impl Predicate {
 /// `rows` is an estimate — `sqlite_stat1` is exactly the right precision for a
 /// decision whose two sides differ by orders of magnitude either way.
 pub fn should_walk(total: i64, window: i64, rows: i64) -> bool {
-    if total <= 0 || window <= 0 || rows <= 0 {
+    match crossover(rows, window) {
+        Some(at) => total > at,
+        None => false,
+    }
+}
+
+/// The number of matches at which the two plans cost the same.
+///
+/// `None` when the inputs cannot support a decision — an unanalysed library or
+/// a degenerate page — and the caller keeps the plan that cannot degrade.
+pub fn crossover(rows: i64, window: i64) -> Option<i64> {
+    if window <= 0 || rows <= 0 {
+        return None;
+    }
+    Some(((rows as f64) * (window as f64)).sqrt() as i64)
+}
+
+/// Roughly how many rows `items` holds, from the statistics `ANALYZE` left.
+///
+/// An estimate is the right precision here: it decides between two plans whose
+/// costs differ by orders of magnitude either side of the crossover, so being
+/// out by a few percent cannot change the answer. It is also free — one row
+/// from a tiny table, measured at 0.005ms — where counting the table is 5.8ms,
+/// more than the query it would be choosing for.
+///
+/// Zero when there are no statistics yet, which makes [`should_walk`] keep
+/// today's plan: on a library nobody has analysed, the safe choice is the one
+/// that cannot degrade.
+pub fn estimated_items(c: &Connection) -> i64 {
+    c.query_row(
+        "SELECT CAST(stat AS INTEGER) FROM sqlite_stat1 WHERE tbl = 'items' LIMIT 1",
+        [],
+        |r| r.get::<_, i64>(0),
+    )
+    .unwrap_or(0)
+}
+
+/// [`should_walk`] for a caller that has no total to hand.
+///
+/// The rule only asks whether the match count is *past* the crossover, so this
+/// counts only that far and stops — `O(sqrt(rows x window))` by construction,
+/// which is cheaper than either plan it is choosing between. Measured at
+/// 0.136ms worst case on a 131k library against 44.5ms for the plan it avoids.
+///
+/// Only for a single positive tag. Two ANDed tags make the result no larger
+/// than either set, so probing one would be an upper bound rather than an
+/// answer, and an upper bound can only choose the walk wrongly.
+pub fn should_walk_probed(conn: &Connection, filter: &ItemFilter, window: i64, rows: i64) -> bool {
+    let [tag] = &filter.tags[..] else { return false };
+    if tag.starts_with('-') {
         return false;
     }
-    let crossover = ((rows as f64) * (window as f64)).sqrt();
-    (total as f64) > crossover
+    let Some(at) = crossover(rows, window) else { return false };
+
+    let counted: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM (SELECT 1 FROM item_tags it WHERE it.tag_id = \
+             (SELECT id FROM tags WHERE library_id = ?1 AND name = ?2) LIMIT ?3)",
+            rusqlite::params![filter.library_id, tag, at + 1],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    counted > at
 }
 
 /// The most values one statement may bind.

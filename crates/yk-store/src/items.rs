@@ -12,7 +12,7 @@ use yk_core::schema::schema;
 use yk_core::{text, Error, Key, Result};
 
 use crate::db::{sql_err, write_tx, Db};
-use crate::filter::{order_by, placeholders, Predicate, TagForm};
+use crate::filter::{estimated_items, order_by, placeholders, Predicate, TagForm};
 use crate::index;
 
 const COLS: &str = "i.id, i.key, i.library_id, i.item_type, p.key, i.fields, i.creators, \
@@ -94,26 +94,6 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<(i64, Item)> {
 /// away — 95.7ms at offset 50000 against 2.1ms. The outer `ORDER BY` re-sorts a
 /// hundred rows, which is free, and is needed because `IN` does not preserve
 /// order.
-/// Roughly how many rows `items` holds, from the statistics `ANALYZE` left.
-///
-/// An estimate is the right precision here: it decides between two plans whose
-/// costs differ by orders of magnitude either side of the crossover, so being
-/// out by a few percent cannot change the answer. It is also free — a single
-/// row from a tiny table, measured at 0.005ms — where counting the table is
-/// 5.8ms, which would cost more than the plan it is choosing.
-///
-/// Zero when there are no statistics yet. `should_walk` then keeps today's
-/// plan: on a library nobody has ever analysed, the safe choice is the one
-/// that cannot degrade.
-fn estimated_items(c: &rusqlite::Connection) -> i64 {
-    c.query_row(
-        "SELECT CAST(stat AS INTEGER) FROM sqlite_stat1 WHERE tbl = 'items' LIMIT 1",
-        [],
-        |r| r.get::<_, i64>(0),
-    )
-    .unwrap_or(0)
-}
-
 fn page_sql(p: &Predicate, sort: SortField, direction: Direction) -> String {
     let order = order_by(sort, direction);
     // Name the index for a plain browse. See `filter::sort_index`: one unrelated
@@ -1887,5 +1867,84 @@ mod tag_form_equivalence {
             };
             assert_eq!(read(TagForm::Materialise), read(TagForm::Probe), "sort {sort:?}");
         }
+    }
+}
+
+/// The bounded cardinality probe, which decides a plan without counting.
+#[cfg(test)]
+mod probe_tests {
+    use yk_core::model::{ItemDraft, ItemTag};
+    use yk_core::query::ItemFilter;
+
+    async fn library(common: usize, rare: usize) -> crate::Store {
+        let store = crate::Store::in_memory().unwrap();
+        let lib = store.default_library;
+        for i in 0..common {
+            let mut d = ItemDraft::new("journalArticle").with_field("title", format!("C{i}"));
+            d.tags = vec![ItemTag::manual("common")];
+            store.items.create(lib, d).await.unwrap();
+        }
+        for i in 0..rare {
+            let mut d = ItemDraft::new("journalArticle").with_field("title", format!("R{i}"));
+            d.tags = vec![ItemTag::manual("rare")];
+            store.items.create(lib, d).await.unwrap();
+        }
+        store
+    }
+
+    fn probed(store: &crate::Store, tag: &str, window: i64, rows: i64) -> bool {
+        let filter = ItemFilter {
+            library_id: store.default_library,
+            tags: vec![tag.to_string()],
+            ..Default::default()
+        };
+        let conn = store.db().conn().unwrap();
+        crate::filter::should_walk_probed(&conn, &filter, window, rows)
+    }
+
+    #[tokio::test]
+    async fn it_answers_the_same_question_as_the_exact_rule() {
+        let store = library(60, 3).await;
+        // Crossover for these numbers is sqrt(400 * 4) = 40.
+        let (window, rows) = (4, 400);
+        assert_eq!(crate::filter::crossover(rows, window), Some(40));
+
+        assert!(probed(&store, "common", window, rows), "60 is past the crossover");
+        assert!(!probed(&store, "rare", window, rows), "3 is not");
+        // And the exact rule agrees, which is the point: the probe is a cheaper
+        // way to ask, not a different question.
+        assert!(crate::filter::should_walk(60, window, rows));
+        assert!(!crate::filter::should_walk(3, window, rows));
+    }
+
+    #[tokio::test]
+    async fn a_tag_nobody_uses_is_not_walked() {
+        let store = library(60, 3).await;
+        assert!(!probed(&store, "no-such-tag", 4, 400));
+    }
+
+    #[tokio::test]
+    async fn only_a_single_positive_tag_is_probed() {
+        // Two ANDed tags make the result no larger than either set, so probing
+        // one would be an upper bound — and an upper bound can only choose the
+        // walk wrongly.
+        let store = library(60, 3).await;
+        let conn = store.db().conn().unwrap();
+        let lib = store.default_library;
+        let with = |tags: Vec<String>| {
+            let filter = ItemFilter { library_id: lib, tags, ..Default::default() };
+            crate::filter::should_walk_probed(&conn, &filter, 4, 400)
+        };
+        assert!(with(vec!["common".into()]));
+        assert!(!with(vec!["common".into(), "rare".into()]), "two tags");
+        assert!(!with(vec!["-common".into()]), "negated");
+        assert!(!with(vec![]), "none");
+    }
+
+    #[tokio::test]
+    async fn without_statistics_it_declines() {
+        let store = library(60, 3).await;
+        assert!(!probed(&store, "common", 4, 0), "no row estimate, no decision");
+        assert!(!probed(&store, "common", 0, 400), "no page, no decision");
     }
 }
