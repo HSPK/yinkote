@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::Serialize;
-use yk_core::model::{Item, ItemDraft};
+use yk_core::model::{CollectionDraft, Item, ItemDraft};
 use yk_core::query::{ItemFilter, ItemQuery};
 use yk_core::{Error, Key, Result};
 
@@ -25,10 +25,16 @@ pub struct Restored {
     /// Already here under the same key, and left alone.
     pub skipped: u64,
     pub files: u64,
+    /// Shelves rebuilt, with their keys and their nesting.
+    pub collections: u64,
     /// Records the archive held that could not be written. Counted rather than
     /// fatal: an import that stops half way through is worse than one that
     /// finishes and says what it could not do.
     pub failed: u64,
+    /// Why, for the first few. A count on its own tells somebody their backup
+    /// is incomplete and nothing about what to do next.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reasons: Vec<String>,
 }
 
 /// Read an archive into the library.
@@ -129,7 +135,19 @@ async fn merge(
     let source_lib = source.default_library;
     let target = app.store().default_library;
 
-    let mut out = Restored::default();
+    // Shelves before the papers on them.
+    //
+    // Without this, restoring into a *fresh* library dropped every collection
+    // and then failed every item that belonged to one — the draft named a
+    // collection that did not exist. Nothing said so: the count of failures
+    // was reported with the reasons thrown away.
+    //
+    // The bug hid because the obvious test restores into the library the
+    // archive came from, where the shelves are still there. The case that
+    // matters is the other one: a new machine, an empty library, and a backup.
+    let collections = restore_collections(app, &source, source_lib, target).await?;
+    let mut out = Restored { collections, ..Default::default() };
+
     let mut offset = 0u32;
     // Parents before children: a child whose parent has not arrived cannot be
     // filed under it, and the archive lists items in id order, which is the
@@ -191,9 +209,26 @@ async fn merge(
             for result in app.store().items.create_many(target, drafts).await? {
                 match result {
                     Ok(_) => out.items += 1,
-                    Err(_) => out.failed += 1,
+                    // Counted *and* said. A bare "failed: 1" on a restore is
+                    // the least useful thing a backup can tell somebody.
+                    Err(e) => {
+                        tracing::warn!(error = %e, "an item could not be restored");
+                        if out.reasons.len() < 10 {
+                            out.reasons.push(e.to_string());
+                        }
+                        out.failed += 1
+                    }
                 }
             }
+        }
+        // Trash is part of what was backed up. An item the user threw away
+        // coming back alive is the restore quietly undoing a decision they
+        // made — and on a real library it arrives as hundreds of papers they
+        // had already dealt with.
+        let binned: Vec<Key> =
+            page.items.iter().filter(|i| i.deleted).map(|i| i.key.clone()).collect();
+        if !binned.is_empty() {
+            app.store().items.set_trashed(target, &binned, true).await?;
         }
         if page.items.len() < 500 {
             break;
@@ -226,6 +261,101 @@ async fn merge(
     }
 
     Ok((out, false))
+}
+
+/// Rebuild the archive's shelves in the target library, parents first.
+///
+/// Keys travel, as they do for items: a collection's key is what every item's
+/// membership names, so a renumbered shelf is an empty one.
+///
+/// Ordering is the whole difficulty. A child cannot be created before its
+/// parent exists, and the archive lists collections in no particular order, so
+/// this places whatever it can on each pass and stops when a pass places
+/// nothing. Anything left is a cycle or an orphan — neither should exist, and
+/// both are filed at the top level rather than dropped, because a shelf in the
+/// wrong place is recoverable and a missing one is not.
+async fn restore_collections(
+    app: &App,
+    source: &yk_store::Store,
+    source_lib: i64,
+    target: i64,
+) -> Result<u64> {
+    let archived = source.collections.list(source_lib).await?;
+    let existing: std::collections::HashSet<String> = app
+        .store()
+        .collections
+        .list(target)
+        .await?
+        .into_iter()
+        .map(|c| c.key.to_string())
+        .collect();
+
+    let mut placed: std::collections::HashSet<String> = existing.clone();
+    let mut pending: Vec<&yk_core::model::Collection> =
+        archived.iter().filter(|c| !existing.contains(&c.key.to_string())).collect();
+    let mut restored = 0u64;
+
+    while !pending.is_empty() {
+        let mut stuck = true;
+        let mut next = Vec::with_capacity(pending.len());
+        for collection in pending {
+            let ready = match &collection.parent_key {
+                None => true,
+                Some(parent) => placed.contains(&parent.to_string()),
+            };
+            if !ready {
+                next.push(collection);
+                continue;
+            }
+            let draft = CollectionDraft {
+                name: collection.name.clone(),
+                parent_key: collection.parent_key.clone(),
+                sort_index: Some(collection.sort_index),
+                color: collection.color.clone(),
+                icon: collection.icon.clone(),
+                key: Some(collection.key.clone()),
+            };
+            match app.store().collections.create(target, draft).await {
+                Ok(_) => {
+                    placed.insert(collection.key.to_string());
+                    restored += 1;
+                    stuck = false;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, key = %collection.key, "a shelf could not be restored");
+                }
+            }
+        }
+        if stuck {
+            // Nothing moved, so the rest are waiting on a parent that will
+            // never arrive. Give them one at the top level.
+            for collection in next {
+                let draft = CollectionDraft {
+                    name: collection.name.clone(),
+                    parent_key: None,
+                    sort_index: Some(collection.sort_index),
+                    color: collection.color.clone(),
+                    icon: collection.icon.clone(),
+                    key: Some(collection.key.clone()),
+                };
+                if app.store().collections.create(target, draft).await.is_ok() {
+                    restored += 1;
+                }
+            }
+            break;
+        }
+        pending = next;
+    }
+
+    // A tag's colour is not on the tag rows the items carry; it is set apart
+    // and was simply never copied.
+    for tag in source.tags.list(source_lib, None, u32::MAX).await? {
+        if let Some(colour) = tag.color.as_deref() {
+            app.store().tags.set_color(target, &tag.name, Some(colour)).await.ok();
+        }
+    }
+
+    Ok(restored)
 }
 
 /// Turn an archived item back into something creatable, keeping its identity.

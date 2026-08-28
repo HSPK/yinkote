@@ -1814,3 +1814,88 @@ async fn a_mistyped_endpoint_is_a_json_404_and_not_the_web_app() {
         "{body}"
     );
 }
+
+#[tokio::test]
+async fn an_archive_restores_into_an_empty_library() {
+    // The case a backup exists for: a new machine, nothing here yet. Importing
+    // into the library the archive came from — which is the easy test to write
+    // — proves much less, because the shelves are still there to be found.
+    //
+    // Restoring into an empty one used to drop every collection, and then fail
+    // every item that belonged to one, because the draft named a collection
+    // that did not exist. The count of failures was reported with the reasons
+    // discarded, so it said "failed: 1" and nothing else.
+    let (source, _) = Client::new().await;
+
+    let shelf = source
+        .post("/libraries/1/collections", json!({ "name": "Parent Shelf" }))
+        .await["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let nested = source
+        .post(
+            "/libraries/1/collections",
+            json!({ "name": "Child Shelf", "parentKey": shelf }),
+        )
+        .await["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    source.post("/libraries/1/tags/color", json!({ "name": "hot", "color": "#ff8800" })).await;
+
+    let filed = source
+        .post(
+            "/libraries/1/items",
+            json!({
+                "itemType": "journalArticle",
+                "title": "On A Shelf",
+                "tags": [{ "tag": "hot" }],
+                "collections": [nested],
+            }),
+        )
+        .await["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let binned = source
+        .post("/libraries/1/items", json!({ "itemType": "journalArticle", "title": "Discarded" }))
+        .await["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    source.send("DELETE", "/libraries/1/items", Some(json!({ "keys": [binned] }))).await;
+
+    let archive = source.await_task("/maintenance/export-all", json!({})).await;
+    let name = archive["name"].as_str().expect("the export names its file");
+    // Composed the way any client composes it: the export reports a name, and
+    // the data directory is where exports live.
+    let path = source.dir.join("exports").join(name).display().to_string();
+
+    // A different server with its own empty database.
+    let (restored, _) = Client::new().await;
+    let result = restored.await_task("/maintenance/import-archive", json!({ "path": path })).await;
+    assert_eq!(result["failed"], 0, "nothing should fail: {result}");
+    assert_eq!(result["collections"], 2, "both shelves, nested: {result}");
+
+    let shelves = restored.get("/libraries/1/collections").await;
+    let child = shelves
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["key"] == nested.as_str())
+        .expect("the child shelf kept its key");
+    assert_eq!(child["parentKey"], shelf.as_str(), "and its place under the parent");
+
+    let item = restored.get(&format!("/libraries/1/items/{filed}")).await;
+    assert_eq!(item["collections"][0], nested.as_str(), "still on its shelf");
+
+    // Trash is part of what was backed up. Coming back alive is the restore
+    // undoing a decision the user made — hundreds of papers, on a real library.
+    let bin = restored.get(&format!("/libraries/1/items/{binned}")).await;
+    assert_eq!(bin["deleted"], true, "a discarded item stays discarded: {bin}");
+
+    let tags = restored.get("/libraries/1/tags").await;
+    let hot = tags.as_array().unwrap().iter().find(|t| t["name"] == "hot");
+    assert_eq!(hot.map(|t| &t["color"]), Some(&json!("#ff8800")), "tag colours travel too");
+}
