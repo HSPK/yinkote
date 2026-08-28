@@ -45,7 +45,8 @@ cargo run -p yk-server -- --data-dir ./.dev-data       # 后端
 cargo test --workspace                                 # 156 个后端测试
 cargo clippy --workspace --all-targets -- -D warnings
 (cd web && npm test)                                   # 56 个前端测试
-bash scripts/smoke.sh http://127.0.0.1:23130           # 30 项 API 冒烟
+bash scripts/smoke.sh http://127.0.0.1:23130           # 对着运行中的库跑冒烟
+bash scripts/fresh.sh                                  # 对着一个全新的空库跑同一套
 node scripts/bench.mjs http://127.0.0.1:23130 100000   # 10 万条目基准
 ```
 
