@@ -307,7 +307,14 @@ check "citations recorded" "$(j "$BASE/libraries/$LIB/items/$CITER/citations" \
                              | jq -r '.resolved | select(. == 2)')"
 # The assistant must be able to read a bibliography, not only count it: a
 # code comment referred to this tool for a round before it existed.
-check "reference tool"    "$(j "$BASE/agent" | jq -r '.tools | map(select(. == "list_references")) | length | select(. == 1)')"
+# Only meaningful when a model is configured: with none, the agent exposes no
+# tools at all and this would report a missing feature instead of an absent
+# assistant. It was not in the skipped block and so failed on a fresh library.
+if [[ "$(j "$BASE/agent" | jq -r '(.tools // []) | length')" != "0" ]]; then
+  check "reference tool"  "$(j "$BASE/agent" | jq -r '.tools | map(select(. == "list_references")) | length | select(. == 1)')"
+else
+  skip "reference tool" "no model configured, so the agent lists no tools"
+fi
 check "graph coupling"    "$(j "$BASE/libraries/$LIB/graph/$CITER" \
                              | jq -r '[.edges[] | select(.relation == "coupling")] | length | select(. > 0)')"
 check "graph cocitation"  "$(j "$BASE/libraries/$LIB/graph/$CA" \
@@ -471,6 +478,10 @@ check "task is listed"    "$(j "$BASE/tasks" | jq -r --arg t "$EXPTASK" '[.tasks
 # not a door.
 MARKER=$(j -X POST "$BASE/libraries/$LIB/items" \
            -d '{"itemType":"journalArticle","title":"Archive Marker"}' | jq -r '.created[0].key')
+# What the library holds before the round trip, so "everything else was left
+# alone" can be checked against a number rather than against a magic 100 that
+# only holds on a library earlier runs have filled up.
+BEFORE_IMPORT=$(j "$BASE/libraries/$LIB/items?limit=1&trash=include" | jq -r '.total')
 EXP2TASK=$(j -X POST "$BASE/maintenance/export-all" | jq -r .task.id)
 await_task "$EXP2TASK" > /dev/null
 EXP2NAME=$(j "$BASE/tasks/$EXP2TASK" | jq -r .result.name)
@@ -482,8 +493,11 @@ check "import finished"   "$(await_task "$IMPTASK" | grep -x done)"
 IMP2=$(j "$BASE/tasks/$IMPTASK" | jq -r .result)
 check "archive restores"  "$(echo "$IMP2" | jq -r '.items | select(. >= 1) | "restored"')"
 check "marker is back"    "$(j "$BASE/libraries/$LIB/items/$MARKER" | jq -r '.title | select(. == "Archive Marker")')"
-# Merging, not replacing: everything that was still here is left alone.
-check "import merges"     "$(echo "$IMP2" | jq -r '.skipped | select(. > 100) | "kept the rest"')"
+# Merging, not replacing: everything that was still here is left alone. The
+# archive holds what the library held; one item was destroyed before the
+# import, so every other one must be skipped rather than rewritten.
+check "import merges"     "$(echo "$IMP2" | jq -r --argjson n "$((BEFORE_IMPORT - 1))" \
+                             '.skipped | select(. >= $n) | "kept the rest"')"
 check "import is clean"   "$(echo "$IMP2" | jq -r '.failed | select(. == 0) | "no failures"')"
 
 # Rebuilding the index is half a minute of work; the point of making it a task
