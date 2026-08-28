@@ -76,7 +76,11 @@ impl Store {
     pub fn open(path: Option<&Path>) -> Result<Self> {
         let db = Db::open(path)?;
         let default_library = SqliteLibraryRepository::ensure_default(&db, DEFAULT_LIBRARY_NAME)?;
-        let items_impl = SqliteItemRepository::new(db.clone());
+        // One cache, shared. Counting live items is asked by the listing, by
+        // `/stats` and by the graph's common-tag ceiling; three copies meant
+        // three recounts of the same number in the same unchanged library.
+        let counts: Arc<crate::counts::CountCache> = Default::default();
+        let items_impl = SqliteItemRepository::new(db.clone(), counts.clone());
         let libraries: Arc<dyn LibraryRepository> =
             Arc::new(SqliteLibraryRepository::new(db.clone()));
         // Tag aggregates are read on every navigation and are pure derivations
@@ -92,7 +96,7 @@ impl Store {
             tags,
             smart: Arc::new(SqliteSmartCollectionRepository::new(db.clone())),
             conversations: Arc::new(SqliteConversationRepository::new(db.clone())),
-            graph: Arc::new(SqliteGraphRepository::new(db.clone())),
+            graph: Arc::new(SqliteGraphRepository::new(db.clone(), counts.clone())),
             relations: Arc::new(SqliteRelationRepository::new(db.clone())),
             downloads: Arc::new(SqliteDownloadQueue::new(db.clone())),
             settings: Arc::new(SqliteSettingsRepository::new(db.clone())),

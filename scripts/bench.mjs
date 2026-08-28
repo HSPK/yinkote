@@ -139,6 +139,9 @@ const BUDGET = {
   // it materialised the tag set instead of walking the sort order. 2.5ms once
   // it read what it needed and chose its plan.
   'list filtered by rare tag': 8,
+  // Was 47.7ms while the common-tag ceiling recounted the library on every
+  // view and the five queries ran in turn.
+  'graph neighbourhood': 45,
   'tag operator': 10,
   'list one collection': 25,
   'list collection + children': 25,

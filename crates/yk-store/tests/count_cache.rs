@@ -135,3 +135,42 @@ async fn count_and_list_never_disagree() {
     assert_eq!(total(&s, all(lib)).await, s.items.count(&all(lib)).await.unwrap());
     assert_eq!(s.items.count(&all(lib)).await.unwrap(), 6);
 }
+
+#[tokio::test]
+async fn the_graph_sees_the_same_library_size_as_everything_else() {
+    // The graph excludes tags that are too common to mean anything, and the
+    // threshold is a share of how many live items there are — read through the
+    // same cache as every other count. A stale total would leave the graph
+    // judging "too common" by yesterday's library.
+    //
+    // So: a tag on every item is a useful link in a small library and noise in
+    // a large one, and the switch is the observable proof that the ceiling saw
+    // the library grow.
+    let (s, lib) = store().await;
+    let mut first = None;
+    for i in 0..40 {
+        let mut draft = article(&format!("Paper {i}"));
+        draft.tags = vec![ItemTag::manual("shared")];
+        let created = s.items.create(lib, draft).await.unwrap();
+        first.get_or_insert(created.key);
+    }
+    let first = first.unwrap();
+    assert_eq!(s.items.count(&all(lib)).await.unwrap(), 40);
+    assert!(
+        !s.graph.neighbours(lib, &first, 8).await.unwrap().is_empty(),
+        "under the floor, a shared tag still links things"
+    );
+
+    for i in 0..400 {
+        let mut draft = article(&format!("Later {i}"));
+        draft.tags = vec![ItemTag::manual("shared")];
+        s.items.create(lib, draft).await.unwrap();
+    }
+    assert_eq!(s.items.count(&all(lib)).await.unwrap(), 440);
+
+    assert!(
+        s.graph.neighbours(lib, &first, 8).await.unwrap().is_empty(),
+        "a tag on the whole library is not a reason to draw an edge — and the \
+         ceiling could only know that by reading the new total"
+    );
+}

@@ -52,11 +52,23 @@ async fn neighbourhood(
     let focus = key(&k)?;
     let limit = params.limit.clamp(1, MAX_LIMIT);
 
-    let item = app.store().items.get(lib, &focus).await?;
-    let structural = app.store().graph.neighbours(lib, &focus, limit).await?;
-    let similar = app.search().similar(lib, &focus, limit as usize).await?;
-    let cites = app.store().relations.cites(lib, &focus).await.unwrap_or_default();
-    let cited_by = app.store().relations.cited_by(lib, &focus).await.unwrap_or_default();
+    // Five independent questions about one key. Awaited in turn the answer took
+    // as long as all of them; together it takes as long as the slowest. Nothing
+    // here reads anything else here — they all start from `focus`.
+    let (item, structural, similar, cites, cited_by) = tokio::join!(
+        app.store().items.get(lib, &focus),
+        app.store().graph.neighbours(lib, &focus, limit),
+        app.search().similar(lib, &focus, limit as usize),
+        app.store().relations.cites(lib, &focus),
+        app.store().relations.cited_by(lib, &focus),
+    );
+    let item = item?;
+    let structural = structural?;
+    let similar = similar?;
+    // Citation edges are decoration on this view: a library with no reference
+    // data still has a graph worth drawing.
+    let cites = cites.unwrap_or_default();
+    let cited_by = cited_by.unwrap_or_default();
 
     // One node per item, however many reasons connect it. Drawing an item three
     // times because it shares a tag, an author and a shelf would say "three

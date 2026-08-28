@@ -103,7 +103,7 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<(i64, Item)> {
 ///
 /// A version of -1 (a library that has gone missing between the query and now)
 /// is not cached: there is no state to key it to.
-fn cached_count(
+pub(crate) fn cached_count(
     c: &rusqlite::Connection,
     cache: &crate::counts::CountCache,
     library_id: i64,
@@ -613,8 +613,8 @@ pub struct SqliteItemRepository {
 }
 
 impl SqliteItemRepository {
-    pub fn new(db: Db) -> Self {
-        Self { db, counts: Default::default() }
+    pub fn new(db: Db, counts: std::sync::Arc<crate::counts::CountCache>) -> Self {
+        Self { db, counts }
     }
 
     /// Rebuild every derived search structure for a library from scratch.

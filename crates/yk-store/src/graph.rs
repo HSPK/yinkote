@@ -87,11 +87,15 @@ pub trait GraphRepository: Send + Sync {
 #[derive(Clone)]
 pub struct SqliteGraphRepository {
     db: Db,
+    /// Shared with the item repository: the common-tag ceiling asks the same
+    /// "how many live items" the listing and `/stats` ask, and it is 5.8ms on
+    /// a 131k library — paid on every graph view before this.
+    counts: std::sync::Arc<crate::counts::CountCache>,
 }
 
 impl SqliteGraphRepository {
-    pub fn new(db: Db) -> Self {
-        Self { db }
+    pub fn new(db: Db, counts: std::sync::Arc<crate::counts::CountCache>) -> Self {
+        Self { db, counts }
     }
 }
 
@@ -105,6 +109,7 @@ impl GraphRepository for SqliteGraphRepository {
     ) -> Result<Vec<Neighbour>> {
         let db = self.db.clone();
         let key = key.clone();
+        let counts = self.counts.clone();
         tokio::task::spawn_blocking(move || {
             let conn = db.conn()?;
             let id: i64 = conn
@@ -115,7 +120,7 @@ impl GraphRepository for SqliteGraphRepository {
                 )
                 .map_err(|_| Error::not_found(format!("item {key}")))?;
 
-            let ceiling = common_tag_ceiling(&conn, library_id)?;
+            let ceiling = common_tag_ceiling(&conn, &counts, library_id)?;
             let mut out = Vec::new();
             out.extend(by_tag(&conn, library_id, id, ceiling, limit)?);
             out.extend(by_author(&conn, library_id, id, limit)?);
@@ -136,14 +141,21 @@ impl GraphRepository for SqliteGraphRepository {
 /// 3.7 ms on a hundred thousand items — and all it buys is excluding
 /// attachments and notes from a number that is then multiplied by a twentieth.
 /// Precision nobody can perceive is not worth forty times the cost.
-fn common_tag_ceiling(conn: &rusqlite::Connection, library_id: i64) -> Result<i64> {
-    let items: i64 = conn
-        .query_row(
-            "SELECT count(*) FROM items WHERE library_id=?1 AND deleted=0",
-            params![library_id],
-            |r| r.get(0),
-        )
-        .map_err(sql_err)?;
+fn common_tag_ceiling(
+    conn: &rusqlite::Connection,
+    counts: &crate::counts::CountCache,
+    library_id: i64,
+) -> Result<i64> {
+    // The same question the listing and `/stats` ask, through the same cache:
+    // a number derived from the library's size cannot change without the
+    // library's version changing.
+    let filter = yk_core::query::ItemFilter { library_id, ..Default::default() };
+    let items = crate::items::cached_count(
+        conn,
+        counts,
+        library_id,
+        &crate::filter::Predicate::build(&filter, None),
+    )?;
     Ok((((items as f64) * COMMON_TAG_SHARE) as i64).max(COMMON_TAG_FLOOR))
 }
 
