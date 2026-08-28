@@ -106,8 +106,22 @@ export function PluginsPage() {
                   <dt>{t('plugins.id')}</dt>
                   <dd>{p.id}</dd>
                   <dt>{t('plugins.calls')}</dt>
+                  {/* A plugin that fails most of what it is asked still reports
+                      "ready" — correctly, since the process is up and answering
+                      — so the only sign is this figure, and "6 / 4" was drawn
+                      exactly like "6 / 0". Verified against a plugin that dies
+                      inside every hook: writes still succeed and the other
+                      plugins still contribute, which is right, and is also why
+                      nothing else on the page would ever look wrong. */}
                   <dd>
-                    {p.calls} / {p.failures}
+                    {p.calls} /{' '}
+                    {p.failures > 0 ? (
+                      <span className="warn" title={t('plugins.failingHint')}>
+                        {p.failures}
+                      </span>
+                    ) : (
+                      p.failures
+                    )}
                   </dd>
                   <dt>{t('plugins.latency')}</dt>
                   {/* A missing number must not cost the whole panel: an

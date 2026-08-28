@@ -240,4 +240,28 @@ describe('the plugin surface', () => {
     expect(called[0]).toEqual({ id: 'crossref', method: 'initialize' })
     expect(container.querySelector('#plugin-console')?.textContent).toContain('pong')
   })
+
+  it('marks a plugin that is losing calls, which "ready" cannot show', async () => {
+    // Verified against a plugin that exits inside every item.beforeCreate:
+    // writes still succeed in milliseconds and the other plugins still
+    // contribute — which is the right behaviour, and is exactly why nothing
+    // else on the page looks wrong. The state stays "ready" because the
+    // process is up and answering, so this figure is the only sign there is.
+    installed = [{ ...plugin({ calls: 6, failures: 4 }) }]
+    useStore.setState({ plugins: installed })
+    await render()
+
+    const marked = cards()[0]?.querySelector('.kv .warn')
+    expect(marked, 'a failing plugin is drawn exactly like a healthy one').toBeTruthy()
+    expect(marked?.textContent).toBe('4')
+  })
+
+  it('leaves a healthy plugin unmarked', async () => {
+    // The counterpart: marking every plugin would make the mark meaningless.
+    installed = [{ ...plugin({ calls: 6, failures: 0 }) }]
+    useStore.setState({ plugins: installed })
+    await render()
+
+    expect(cards()[0]?.querySelector('.kv .warn')).toBeNull()
+  })
 })

@@ -2838,3 +2838,8 @@ option {
 
 /* A model that is not configured: stated beside the send button, not shouted. */
 .chat-nomodel { font-size: 11px; color: var(--warn); align-self: center; padding-right: 8px; }
+
+/* A plugin failing most of its calls still reports "ready", because the
+   process is up and answering. This figure is the only sign, so it must not
+   be drawn like the figure beside it. */
+.kv .warn { color: var(--warn); font-weight: 600; }

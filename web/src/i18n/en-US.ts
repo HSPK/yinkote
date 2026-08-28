@@ -189,6 +189,7 @@ export const enUS: Record<MessageKey, string> = {
     'Each plugin directory needs a plugin.json; see plugins/README.md in the repository.',
   'plugins.id': 'Identifier',
   'plugins.calls': 'Calls / failures',
+  'plugins.failingHint': 'Calls that returned an error or timed out. The plugin is running, but this many of its answers were lost — its contributions are missing from those items.',
   'plugins.latency': 'Average latency',
   'plugins.source': 'Source',
   'plugins.enable': 'Enable',

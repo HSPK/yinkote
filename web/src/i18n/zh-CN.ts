@@ -188,6 +188,7 @@ export const zhCN = {
   'plugins.manifestHint': '每个插件目录需包含 plugin.json，详见仓库内 plugins/README.md。',
   'plugins.id': '标识',
   'plugins.calls': '调用 / 失败',
+  'plugins.failingHint': '返回错误或超时的调用次数。插件仍在运行，但这些回答丢失了——相应条目上缺少它的贡献。',
   'plugins.latency': '平均耗时',
   'plugins.source': '来源',
   'plugins.enable': '启用',
