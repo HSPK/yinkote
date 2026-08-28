@@ -48,6 +48,8 @@ const pick = (arr) => arr[Math.floor(rnd() * arr.length)]
 // drags the duplicate scan up with it, which is a measurement drifting because
 // of the measuring, not because of the code. Unique per run instead.
 const PROBE_BASE = 900_000_000 + (Date.now() % 100_000_000)
+/** Marks every item this run creates, so `tidy` can find them all. */
+const PROBE_TAG = 'bench-probe'
 
 function makeItem(i) {
   const cjk = i % 5 === 0
@@ -67,7 +69,12 @@ function makeItem(i) {
       { creatorType: 'author', firstName: 'A', lastName: pick(SURNAMES) },
       { creatorType: 'author', firstName: 'B', lastName: pick(SURNAMES) },
     ],
-    tags: tagsFor(i),
+    // Tagged so the run can take its own rubbish away again. Fixtures on a
+    // persistent database accumulate, and this benchmark measured its own
+    // accumulation for months: 49 groups of ~26 identical copies, left by
+    // earlier runs, made `duplicate groups` scan and ship a shape no real
+    // library has. A probe that cannot be found again cannot be removed.
+    tags: [...tagsFor(i), { tag: PROBE_TAG }],
   }
 }
 
@@ -125,6 +132,41 @@ async function get(path) {
   const res = await fetch(BASE + path)
   if (!res.ok) throw new Error(`${path} -> ${res.status}`)
   return res.json()
+}
+
+async function del(path, body) {
+  const res = await fetch(BASE + path, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`${path} -> ${res.status} ${await res.text()}`)
+  return res.json()
+}
+
+/**
+ * Take away everything this run — and every earlier one — left behind.
+ *
+ * A benchmark on a persistent library is a benchmark that changes its own
+ * corpus. This one had left 1,128 probe items across 49 groups of ~26
+ * identical copies, and `duplicate groups` had been dutifully scanning and
+ * shipping them for months: 640KB of response, a shape no real library has,
+ * and a budget failure that said nothing about the code.
+ *
+ * Uses the tag rather than the title pattern: tag filters are exact and
+ * uncapped, while `?q=` stops at a 300-candidate pool and so cannot enumerate.
+ */
+async function tidy(lib) {
+  let removed = 0
+  for (let pass = 0; pass < 40; pass += 1) {
+    const found = await get(`/libraries/${lib}/items?tag=${PROBE_TAG}&limit=200`)
+    const keys = (found.items ?? []).map((i) => i.key)
+    if (!keys.length) break
+    await del(`/libraries/${lib}/items`, { keys })
+    removed += keys.length
+  }
+  if (removed) await del(`/libraries/${lib}/trash`)
+  return removed
 }
 
 function stats(samples) {
@@ -537,9 +579,14 @@ async function main() {
       `p95 ${w.p95.toFixed(1).padStart(6)}ms  p99 ${w.p99.toFixed(1).padStart(6)}ms`,
   )
 
+  // After the measurements, never between them: removing items is itself a
+  // write, and a write retires the caches the numbers above are about.
+  const removed = await tidy(lib)
+  console.log(`\n▸ tidy: removed ${removed} probe items`)
+
   const stat1 = await get('/stats')
   console.log(
-    `\n▸ final: ${stat1.items} items, ${stat1.search.embedded} vectors, ` +
+    `▸ final: ${stat1.items} items, ${stat1.search.embedded} vectors, ` +
       `library version ${stat1.version}`,
   )
 

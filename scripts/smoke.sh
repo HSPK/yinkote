@@ -1149,6 +1149,30 @@ for title in "Graph neighbour" "Citation smoke" "Archive Marker" "Cover page" \
   done
 done
 
+# Everything else that has piled up, found by the shape of the problem rather
+# than by name.
+#
+# The list above is a list of names, and a list of names rots: the next fixture
+# somebody adds is not on it, accumulates one copy per run, and nothing says so.
+# That is not hypothetical — this library had grown 3,168 leftovers in 44 groups
+# before anybody noticed, and what noticed was the *benchmark*, reporting a
+# duplicates scan over a corpus no real library resembles.
+#
+# The duplicates endpoint already answers "what is piled up here", exactly and
+# without the 300-candidate cap that makes `?q=` unable to enumerate. So the
+# sweep asks it, rather than guessing titles. Safe because this is a scratch
+# library and every fixture is recreated by the next run.
+for _ in $(seq 1 30); do
+  KEYS=$(j "$BASE/libraries/$LIB/duplicates" \
+           | jq -r '[.groups[] | select(length > 3) | .[].key] | .[0:200] | @tsv' 2>/dev/null)
+  [[ -z "$KEYS" ]] && break
+  N=$(j -X POST "$BASE/libraries/$LIB/items/delete" \
+        -d "$(printf '%s' "$KEYS" | tr '\t' '\n' | jq -R . | jq -sc '{keys: .}')" \
+        | jq -r '.deleted // 0')
+  GONE=$((GONE + N))
+  [[ "$N" == "0" ]] && break
+done
+
 # The per-run graph tags have no items once their papers are gone, but the
 # names linger in the tag list.
 LEFTOVER=0
@@ -1157,6 +1181,26 @@ for tag in $(j "$BASE/libraries/$LIB/tags?q=graph-smoke&limit=500" | jq -r '.[].
   LEFTOVER=$((LEFTOVER + 1))
 done
 printf '  removed %s fixture items and %s spent tags\n' "$GONE" "$LEFTOVER"
+
+# And then check the tidying actually worked.
+#
+# The list above is a list of names, and a list of names rots: the next fixture
+# somebody adds is not on it, accumulates one copy per run, and nothing says so.
+# That is not hypothetical — it is what happened. This library had grown 3,168
+# leftovers in 44 groups, and the *benchmark* was what noticed, by reporting a
+# duplicates scan over a corpus no real library resembles.
+#
+# So the invariant is stated directly: after tidying, nothing should be piled
+# up. A fixture that accumulates now fails here, by name, in the run that
+# introduced it.
+PILE="$(j "$BASE/libraries/$LIB/duplicates" \
+          | jq -r '[.groups[] | select(length > 3)] | length')"
+check "left tidy"        "$([[ "$PILE" == "0" ]] && echo tidy)"
+if [[ "$PILE" != "0" ]]; then
+  echo "    still piled up (add these to the tidy list above):"
+  j "$BASE/libraries/$LIB/duplicates" \
+    | jq -r '.groups[] | select(length > 3) | "      \(length)x  \(.[0].title)"' | head -12
+fi
 
 echo
 if [[ $FAIL -eq 0 ]]; then
