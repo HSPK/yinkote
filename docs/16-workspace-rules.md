@@ -2199,3 +2199,53 @@ new Proxy({}, { get: () => () => new Promise(() => {}) })
   正是虚拟化要防的那件事。所以量到第一页尺寸之前不渲染任何页。
 - 离屏的页**必须保留自己的盒子**。否则滚动条会说谎，而且下方内容会在
   读者眼皮底下往上跳。
+
+### 3.151 让"加一个源"变成填两行数据，而不是写一个类
+
+`yk-scrape` 的 `Resolver` trait 本来就是对的（开放扩展），但每个实现都重复
+同一段网络样板：建 client、`get`、`json`、两句一模一样的错误串——**十几行相同的
+代码围着两行真正不同的东西**（URL 怎么拼、payload 怎么映射）。
+
+于是那两行就是源本身：`JsonSource` 是一个结构体字面量 + 一个纯映射函数。
+新增一个源没有新的网络代码要审，也没有新的机会把错误处理写歪。
+XML（arXiv）和 HTML（网页）仍然各自实现——**它们是真的不一样，不是像不一样。**
+
+这一轮加了 **DataCite / OpenAlex / Semantic Scholar** 三个源，注册表从 5 个到 8 个：
+
+| 标识符 | 源（按偏好顺序） |
+|---|---|
+| DOI | Crossref → DataCite → OpenAlex → Semantic Scholar |
+| arXiv | arXiv → OpenAlex → Semantic Scholar |
+| PMID | PubMed → OpenAlex → Semantic Scholar |
+| ISBN | Open Library |
+| URL | 网页（meta 标签 + JSON-LD） |
+
+**DataCite 不是锦上添花**：Crossref 只覆盖期刊 DOI 的那一半，Zenodo、Dryad、
+figshare、绝大多数机构库和学位论文都在 DataCite。实测
+`10.5061/dryad.8515` 在 Crossref 上是 404，DataCite 正确返回 dataset。
+
+顺带把注册表测试从"数量等于 5"改成"这些 id 都在"——
+**断言数量等于几，是在断言注册表不许长大，而它的全部意义就是长大。**
+
+### 3.152 一次粘贴里的多个标识符互相之间毫无关系
+
+`resolve_text` 原本逐个 `await`。粘十个 DOI 就是十次首尾相接的往返，
+而它们彼此无关——**等待的是"没有"**。
+
+改成 `join_all`。四个标识符（其中一个还先吃了 Crossref 的 404 再回退到 DataCite）
+实测 **488ms**；此前单独解析一个 Zenodo DOI 就要 1206ms。
+
+三条测试，都是照 §3.107 写的——**只断言答案对，串行实现同样通过**：
+- `identifiers_are_resolved_together`：用原子量记录在飞峰值，断言峰值 > 1；
+- `results_keep_the_order_they_were_written_in`：**并发决定何时做，不决定回什么**，
+  会随网络时序变化的结果每次都不一样；
+- `only_what_can_be_returned_is_fetched`：`limit` 在开工前就施加，
+  否则"全查完再扔掉大半"比它取代的串行版本更糟。
+
+### 3.153 两个构造函数胜过五处同样的 match
+
+`Creator` 的两种情况——源替我们拆好了姓名，或者只给一个字符串——在五个映射里
+各自 match 了一遍。补成 `Creator::author(given, family)` 和 `Creator::single(name)`。
+
+`single` 那条有内容上的理由，不只是整洁：机构名（"World Health Organization"）
+和不按空格分姓名的人名，**整存是唯一永远不出错的答案**。

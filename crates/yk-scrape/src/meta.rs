@@ -71,6 +71,13 @@ pub fn parse(html: &str) -> PageMeta {
         }
         i = start + len + 1;
     }
+
+    // schema.org, under `ld:` keys. The field lists in `to_draft` name those
+    // last, so a page's JSON-LD fills gaps and never overrides a publisher's
+    // own `citation_*` tags. See `jsonld` for why it is worth reading at all.
+    for (key, value) in crate::jsonld::fields(html) {
+        meta.tags.entry(key).or_default().push(value);
+    }
     meta
 }
 
@@ -220,7 +227,7 @@ fn item_type(meta: &PageMeta) -> &'static str {
 /// nothing worth saving beyond a bare URL.
 pub fn to_draft(meta: &PageMeta, url: &str) -> Option<ItemDraft> {
     let title = meta
-        .any(&["citation_title", "dc.title", "og:title", "twitter:title"])
+        .any(&["citation_title", "dc.title", "og:title", "twitter:title", "ld:title"])
         .map(str::to_string)
         .or_else(|| meta.title.clone())?;
     if title.trim().is_empty() {
@@ -236,18 +243,18 @@ pub fn to_draft(meta: &PageMeta, url: &str) -> Option<ItemDraft> {
             draft.fields.insert(field.to_string(), v.into());
         }
     };
-    set("abstractNote", &["citation_abstract", "dc.description", "og:description", "description"]);
-    set("date", &["citation_publication_date", "citation_date", "dc.date", "article:published_time"]);
-    set("publicationTitle", &["citation_journal_title", "og:site_name"]);
+    set("abstractNote", &["citation_abstract", "dc.description", "og:description", "description", "ld:abstract"]);
+    set("date", &["citation_publication_date", "citation_date", "dc.date", "article:published_time", "ld:date"]);
+    set("publicationTitle", &["citation_journal_title", "og:site_name", "ld:publication"]);
     set("bookTitle", &["citation_book_title"]);
     set("proceedingsTitle", &["citation_conference_title"]);
     set("volume", &["citation_volume"]);
     set("issue", &["citation_issue"]);
-    set("publisher", &["citation_publisher", "dc.publisher"]);
-    set("language", &["citation_language", "dc.language", "og:locale"]);
-    set("DOI", &["citation_doi", "dc.identifier.doi"]);
-    set("ISSN", &["citation_issn"]);
-    set("ISBN", &["citation_isbn"]);
+    set("publisher", &["citation_publisher", "dc.publisher", "ld:publisher"]);
+    set("language", &["citation_language", "dc.language", "og:locale", "ld:language"]);
+    set("DOI", &["citation_doi", "dc.identifier.doi", "ld:doi"]);
+    set("ISSN", &["citation_issn", "ld:issn"]);
+    set("ISBN", &["citation_isbn", "ld:isbn"]);
     set("university", &["citation_dissertation_institution"]);
     set("institution", &["citation_technical_report_institution"]);
     set("websiteTitle", &["og:site_name"]);
@@ -261,7 +268,7 @@ pub fn to_draft(meta: &PageMeta, url: &str) -> Option<ItemDraft> {
     }
 
     draft.creators = meta
-        .any_all(&["citation_author", "dc.creator", "author", "article:author"])
+        .any_all(&["citation_author", "dc.creator", "author", "article:author", "ld:author"])
         .iter()
         .flat_map(|raw| raw.split(';'))
         .map(str::trim)
@@ -393,5 +400,73 @@ mod tests {
     #[test]
     fn empty_document_is_empty() {
         assert!(parse("").is_empty());
+    }
+}
+
+#[cfg(test)]
+mod jsonld_precedence_tests {
+    use super::*;
+
+    const LD_ONLY: &str = r#"<html><head>
+      <title>Some site</title>
+      <script type="application/ld+json">
+      {"@type":"ScholarlyArticle",
+       "headline":"Structure from schema.org",
+       "description":"An abstract.",
+       "datePublished":"2023-09-01",
+       "author":[{"@type":"Person","name":"Zhang, Wei"}],
+       "publisher":{"name":"A Press"},
+       "identifier":"10.5555/abcd"}
+      </script></head></html>"#;
+
+    #[test]
+    fn a_page_with_no_citation_tags_is_still_worth_saving() {
+        // The whole point: `citation_*` is a publishing convention that academic
+        // publishers follow and almost nobody else does. Without this, a
+        // preprint on a lab's own site saved as a title and a URL.
+        let draft = to_draft(&parse(LD_ONLY), "https://lab.example/paper").unwrap();
+        assert_eq!(draft.fields.get("title").unwrap(), "Structure from schema.org");
+        assert_eq!(draft.fields.get("abstractNote").unwrap(), "An abstract.");
+        assert_eq!(draft.fields.get("date").unwrap(), "2023-09-01");
+        assert_eq!(draft.fields.get("DOI").unwrap(), "10.5555/abcd");
+        assert_eq!(draft.fields.get("publisher").unwrap(), "A Press");
+        assert_eq!(draft.creators.len(), 1);
+        assert_eq!(draft.creators[0].last_name.as_deref(), Some("Zhang"));
+    }
+
+    #[test]
+    fn the_publishers_own_tags_win() {
+        // Both are present on plenty of publisher pages, and they disagree:
+        // JSON-LD is frequently the site's summary of the page while the
+        // Highwire tags are the record of the article. The record wins.
+        let both = r#"<html><head>
+          <meta name="citation_title" content="The article's real title">
+          <meta name="citation_author" content="Lovelace, Ada">
+          <script type="application/ld+json">
+          {"@type":"Article","headline":"Read this on Our Site!","author":"Our Staff"}
+          </script></head></html>"#;
+        let draft = to_draft(&parse(both), "https://publisher.example/x").unwrap();
+        assert_eq!(draft.fields.get("title").unwrap(), "The article's real title");
+        assert_eq!(draft.creators[0].last_name.as_deref(), Some("Lovelace"));
+    }
+
+    #[test]
+    fn json_ld_fills_only_the_gaps_a_publisher_left() {
+        let partial = r#"<html><head>
+          <meta name="citation_title" content="Half a record">
+          <script type="application/ld+json">
+          {"@type":"ScholarlyArticle","name":"Half a record","datePublished":"2020-01-02"}
+          </script></head></html>"#;
+        let draft = to_draft(&parse(partial), "https://x/y").unwrap();
+        assert_eq!(draft.fields.get("title").unwrap(), "Half a record");
+        assert_eq!(draft.fields.get("date").unwrap(), "2020-01-02", "the tag was absent");
+    }
+
+    #[test]
+    fn a_page_with_neither_is_still_no_worse_than_before() {
+        let bare = "<html><head><title>Just a page</title></head></html>";
+        let draft = to_draft(&parse(bare), "https://x/y").unwrap();
+        assert_eq!(draft.fields.get("title").unwrap(), "Just a page");
+        assert_eq!(draft.item_type, "webpage");
     }
 }

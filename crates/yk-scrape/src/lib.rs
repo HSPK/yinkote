@@ -9,6 +9,7 @@
 //! touches the network.
 
 pub mod identify;
+pub mod jsonld;
 pub mod mapping;
 pub mod meta;
 pub mod resolver;
@@ -44,10 +45,18 @@ impl ScrapeEngine {
     }
 
     pub fn with_defaults() -> Self {
+        // Order is preference within an identifier kind: the first to answer
+        // wins, and the ones after it are the fallbacks. Crossref knows most
+        // journal DOIs; DataCite owns the datasets, software and theses it has
+        // never heard of; OpenAlex and Semantic Scholar cover the preprints
+        // that never acquired one.
         Self::new(vec![
-            Arc::new(resolver::Crossref::default()),
+            Arc::new(resolver::crossref()),
+            Arc::new(resolver::datacite()),
             Arc::new(resolver::Arxiv::default()),
             Arc::new(resolver::PubMed::default()),
+            Arc::new(resolver::openalex()),
+            Arc::new(resolver::semantic_scholar()),
             Arc::new(resolver::OpenLibrary::default()),
             Arc::new(resolver::WebPage::default()),
         ])
@@ -88,18 +97,31 @@ impl ScrapeEngine {
     /// is thinner and less consistent than Crossref's, so we re-resolve and keep
     /// the original URL. That is exactly what a person would do by hand.
     pub async fn resolve_text(&self, text: &str, limit: usize) -> Vec<Resolution> {
-        let mut out: Vec<Resolution> = Vec::new();
-        for identifier in detect(text) {
-            if out.len() >= limit {
-                break;
-            }
-            let Some(mut hit) = self.resolve(&identifier).await else { continue };
-
+        // Identifiers are resolved together, not one after another. Pasting ten
+        // DOIs used to be ten round trips end to end; they have nothing to do
+        // with each other, so waiting for each in turn was waiting for nothing.
+        //
+        // `limit` is applied to the *detected* list first, so the work started
+        // is the work that can be returned — resolving everything and throwing
+        // most of it away would be worse than the serial version it replaces.
+        let found: Vec<Identifier> = detect(text).into_iter().take(limit).collect();
+        let resolved = futures_util::future::join_all(found.into_iter().map(|identifier| async move {
+            let mut hit = self.resolve(&identifier).await?;
             if matches!(identifier, Identifier::Url(_)) {
                 if let Some(upgraded) = self.upgrade_via_doi(&hit).await {
                     hit = upgraded;
                 }
             }
+            Some(hit)
+        }))
+        .await;
+
+        // Folded in detection order, which is the order the user wrote them.
+        // Concurrency is about when the work happens, not about what comes
+        // back — a result that shuffled with network timing would be a
+        // different answer every time.
+        let mut out: Vec<Resolution> = Vec::new();
+        for hit in resolved.into_iter().flatten() {
             // Never return the same work twice under two identifiers.
             let seen = fingerprint(&hit.draft);
             if !out.iter().any(|r| fingerprint(&r.draft) == seen) {
@@ -214,6 +236,86 @@ mod tests {
         assert_eq!(hits[0].source, "backup");
     }
 
+    /// A resolver that records how many calls are in flight at once.
+    struct Overlapping {
+        peak: Arc<std::sync::atomic::AtomicUsize>,
+        live: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl Resolver for Overlapping {
+        fn id(&self) -> &'static str {
+            "slow"
+        }
+        fn label(&self) -> &'static str {
+            "Slow"
+        }
+        fn supports(&self) -> &'static [&'static str] {
+            &["doi"]
+        }
+        async fn resolve(&self, id: &Identifier) -> yk_core::Result<Option<ItemDraft>> {
+            use std::sync::atomic::Ordering;
+            let now = self.live.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(now, Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            self.live.fetch_sub(1, Ordering::SeqCst);
+            Ok(Some(draft(id.value())))
+        }
+    }
+
+    #[tokio::test]
+    async fn identifiers_are_resolved_together() {
+        // Asserting the answers alone would pass just as well one at a time,
+        // so the overlap itself is what is asserted: ten DOIs used to be ten
+        // round trips end to end, and they have nothing to do with each other.
+        use std::sync::atomic::Ordering;
+        let peak = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let engine = ScrapeEngine::new(vec![Arc::new(Overlapping {
+            peak: peak.clone(),
+            live: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        })]);
+
+        let text = "10.1000/a 10.1000/b 10.1000/c 10.1000/d";
+        let started = std::time::Instant::now();
+        let hits = engine.resolve_text(text, 10).await;
+        let took = started.elapsed();
+
+        assert_eq!(hits.len(), 4);
+        assert!(peak.load(Ordering::SeqCst) > 1, "the calls did not overlap at all");
+        // Four 30ms calls in series would be 120ms. Generous, because a
+        // threshold that fails on a busy machine gets switched off.
+        assert!(took.as_millis() < 100, "took {took:?}, which looks serial");
+    }
+
+    #[tokio::test]
+    async fn results_keep_the_order_they_were_written_in() {
+        // Concurrency decides when the work happens, not what comes back. An
+        // answer that shuffled with network timing would differ every run.
+        let engine = ScrapeEngine::new(vec![Arc::new(Overlapping {
+            peak: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            live: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+        })]);
+        let hits = engine.resolve_text("10.1000/c 10.1000/a 10.1000/b", 10).await;
+        let ids: Vec<&str> = hits.iter().map(|h| h.identifier.as_str()).collect();
+        assert_eq!(ids, ["10.1000/c", "10.1000/a", "10.1000/b"]);
+    }
+
+    #[tokio::test]
+    async fn only_what_can_be_returned_is_fetched() {
+        // The limit is applied before the work starts. Resolving everything
+        // and discarding most of it would be worse than the serial version.
+        use std::sync::atomic::Ordering;
+        let live = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let peak = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let engine = ScrapeEngine::new(vec![Arc::new(Overlapping {
+            peak: peak.clone(),
+            live: live.clone(),
+        })]);
+        let hits = engine.resolve_text("10.1000/a 10.1000/b 10.1000/c 10.1000/d", 2).await;
+        assert_eq!(hits.len(), 2);
+        assert!(peak.load(Ordering::SeqCst) <= 2, "started more work than it could return");
+    }
+
     #[tokio::test]
     async fn unresolvable_text_yields_nothing_rather_than_an_error() {
         let engine = ScrapeEngine::new(vec![Arc::new(Failing)]);
@@ -260,8 +362,11 @@ mod tests {
     async fn sources_describe_the_registry() {
         let engine = ScrapeEngine::with_defaults();
         let ids: Vec<&str> = engine.sources().iter().map(|s| s.id).collect();
-        assert!(ids.contains(&"crossref"));
-        assert!(ids.contains(&"webpage"));
-        assert_eq!(engine.sources().len(), 5);
+        // Named, not counted. A count asserts the registry has not grown,
+        // which is the opposite of what is wanted from a registry whose whole
+        // purpose is to grow.
+        for expected in ["crossref", "datacite", "arxiv", "pubmed", "openalex", "webpage"] {
+            assert!(ids.contains(&expected), "{expected} is missing from the registry");
+        }
     }
 }

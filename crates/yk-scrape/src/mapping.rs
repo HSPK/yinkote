@@ -113,17 +113,10 @@ pub fn crossref(work: &Value) -> Option<ItemDraft> {
 
 fn crossref_creator(author: &Value) -> Creator {
     match (text(author, "family"), text(author, "given")) {
-        (Some(family), given) => Creator {
-            creator_type: "author".into(),
-            first_name: given,
-            last_name: Some(family),
-            name: None,
-        },
-        (None, _) => Creator {
-            creator_type: "author".into(),
-            name: text(author, "name").or_else(|| text(author, "given")),
-            ..Default::default()
-        },
+        (Some(family), given) => Creator::author(given.as_deref().unwrap_or(""), &family),
+        (None, _) => {
+            Creator::single(&text(author, "name").or_else(|| text(author, "given")).unwrap_or_default())
+        }
     }
 }
 
@@ -469,5 +462,399 @@ mod tests {
     fn strips_markup_but_keeps_words() {
         assert_eq!(plain_text("<p>a <i>b</i> c</p>"), "a b c");
         assert_eq!(plain_text("no markup"), "no markup");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DataCite
+// ---------------------------------------------------------------------------
+
+/// DataCite's resource types, which describe *what a thing is* rather than
+/// where it was published — datasets and software have no journal.
+const DATACITE_TYPES: &[(&str, &str)] = &[
+    ("dataset", "dataset"),
+    ("software", "computerProgram"),
+    ("text", "document"),
+    ("preprint", "preprint"),
+    ("journalarticle", "journalArticle"),
+    ("conferencepaper", "conferencePaper"),
+    ("book", "book"),
+    ("bookchapter", "bookSection"),
+    ("dissertation", "thesis"),
+    ("report", "report"),
+];
+
+/// Map one DataCite `data.attributes` object.
+///
+/// DataCite is the half of the DOI world Crossref does not cover: Zenodo,
+/// Dryad, figshare, most institutional repositories, and a great many theses.
+/// A DOI that Crossref answers 404 for is very often one of these.
+pub fn datacite(attrs: &Value) -> Option<ItemDraft> {
+    let title = attrs
+        .get("titles")
+        .and_then(Value::as_array)
+        .and_then(|a| a.first())
+        .and_then(|t| text(t, "title"))?;
+
+    let kind = attrs
+        .pointer("/types/resourceTypeGeneral")
+        .and_then(Value::as_str)
+        .map(|s| s.to_lowercase())
+        .unwrap_or_default();
+    let item_type = DATACITE_TYPES
+        .iter()
+        .find(|(from, _)| *from == kind)
+        .map(|(_, to)| *to)
+        .unwrap_or("document");
+
+    let mut draft = ItemDraft::new(item_type).with_field("title", title);
+    set(&mut draft, "DOI", text(attrs, "doi"));
+    set(&mut draft, "url", text(attrs, "url"));
+    set(&mut draft, "publisher", text(attrs, "publisher"));
+    set(&mut draft, "language", text(attrs, "language"));
+    set(
+        &mut draft,
+        "date",
+        attrs.get("publicationYear").and_then(Value::as_i64).map(|y| y.to_string()),
+    );
+    set(
+        &mut draft,
+        "abstractNote",
+        attrs
+            .get("descriptions")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+            .and_then(|d| text(d, "description"))
+            .map(|s| plain_text(&s)),
+    );
+    set(&mut draft, "versionNumber", text(attrs, "version"));
+
+    draft.creators = attrs
+        .get("creators")
+        .and_then(Value::as_array)
+        .map(|list| list.iter().filter_map(datacite_creator).collect())
+        .unwrap_or_default();
+    Some(draft)
+}
+
+fn datacite_creator(raw: &Value) -> Option<Creator> {
+    // Given and family when the depositor split them, and the single `name`
+    // field when they did not — which is most of the time.
+    if let (Some(given), Some(family)) = (text(raw, "givenName"), text(raw, "familyName")) {
+        return Some(Creator::author(&given, &family));
+    }
+    let name = text(raw, "name")?;
+    Some(match name.split_once(", ") {
+        Some((family, given)) => Creator::author(given.trim(), family.trim()),
+        None => Creator::single(&name),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// OpenAlex
+// ---------------------------------------------------------------------------
+
+const OPENALEX_TYPES: &[(&str, &str)] = &[
+    ("article", "journalArticle"),
+    ("preprint", "preprint"),
+    ("book", "book"),
+    ("book-chapter", "bookSection"),
+    ("dissertation", "thesis"),
+    ("report", "report"),
+    ("dataset", "dataset"),
+    ("standard", "standard"),
+];
+
+/// Map one OpenAlex work.
+///
+/// OpenAlex answers for a DOI, an arXiv id or a PMID alike, which makes it the
+/// broadest single fallback available — and it is the only free source that
+/// reliably knows a preprint's journal version.
+pub fn openalex(work: &Value) -> Option<ItemDraft> {
+    let title = text(work, "title").or_else(|| text(work, "display_name"))?;
+
+    let kind = work.get("type").and_then(Value::as_str).unwrap_or("");
+    let item_type = OPENALEX_TYPES
+        .iter()
+        .find(|(from, _)| *from == kind)
+        .map(|(_, to)| *to)
+        .unwrap_or("journalArticle");
+
+    let mut draft = ItemDraft::new(item_type).with_field("title", title);
+    set(&mut draft, "date", text(work, "publication_date"));
+    set(&mut draft, "url", text(work, "doi"));
+    // OpenAlex writes a DOI as a URL; every other source in this crate stores
+    // the bare identifier, and a mixture would break duplicate detection.
+    set(
+        &mut draft,
+        "DOI",
+        text(work, "doi").map(|d| d.trim_start_matches("https://doi.org/").to_string()),
+    );
+    set(&mut draft, "publicationTitle", work.pointer("/primary_location/source/display_name")
+        .and_then(Value::as_str)
+        .map(str::to_string));
+    set(&mut draft, "volume", work.pointer("/biblio/volume").and_then(Value::as_str).map(str::to_string));
+    set(&mut draft, "issue", work.pointer("/biblio/issue").and_then(Value::as_str).map(str::to_string));
+    set(&mut draft, "language", text(work, "language"));
+
+    if let (Some(first), Some(last)) = (
+        work.pointer("/biblio/first_page").and_then(Value::as_str),
+        work.pointer("/biblio/last_page").and_then(Value::as_str),
+    ) {
+        set(&mut draft, "pages", Some(format!("{first}-{last}")));
+    }
+
+    draft.creators = work
+        .get("authorships")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|a| a.pointer("/author/display_name").and_then(Value::as_str))
+                .map(split_display_name)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(draft)
+}
+
+/// Split "Yann LeCun" into given and family.
+///
+/// OpenAlex and Semantic Scholar both hand back one display name. Taking the
+/// last whitespace-separated word as the family name is right for the
+/// overwhelming majority and wrong for a minority no heuristic gets right —
+/// so a single-word name is stored as a single name rather than guessed at.
+fn split_display_name(name: &str) -> Creator {
+    let name = name.trim();
+    match name.rsplit_once(' ') {
+        Some((given, family)) if !given.is_empty() && !family.is_empty() => {
+            Creator::author(given.trim(), family.trim())
+        }
+        _ => Creator::single(name),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Semantic Scholar
+// ---------------------------------------------------------------------------
+
+/// Map one Semantic Scholar paper.
+///
+/// Its reach is strongest exactly where Crossref's is weakest: computer science
+/// conference papers and preprints that never acquired a DOI.
+pub fn semantic_scholar(paper: &Value) -> Option<ItemDraft> {
+    let title = text(paper, "title")?;
+
+    let types = paper.get("publicationTypes").and_then(Value::as_array);
+    let has = |name: &str| {
+        types.is_some_and(|t| t.iter().filter_map(Value::as_str).any(|v| v == name))
+    };
+    let item_type = if has("Conference") {
+        "conferencePaper"
+    } else if has("Book") {
+        "book"
+    } else if has("Dataset") {
+        "dataset"
+    } else if paper.pointer("/externalIds/ArXiv").is_some() && paper.pointer("/externalIds/DOI").is_none() {
+        "preprint"
+    } else {
+        "journalArticle"
+    };
+
+    let mut draft = ItemDraft::new(item_type).with_field("title", title);
+    set(&mut draft, "abstractNote", text(paper, "abstract").map(|s| plain_text(&s)));
+    set(
+        &mut draft,
+        "date",
+        text(paper, "publicationDate")
+            .or_else(|| paper.get("year").and_then(Value::as_i64).map(|y| y.to_string())),
+    );
+    set(
+        &mut draft,
+        "publicationTitle",
+        paper.pointer("/journal/name").and_then(Value::as_str).map(str::to_string)
+            .or_else(|| text(paper, "venue")),
+    );
+    set(&mut draft, "volume", paper.pointer("/journal/volume").and_then(Value::as_str).map(str::to_string));
+    set(&mut draft, "pages", paper.pointer("/journal/pages").and_then(Value::as_str).map(str::to_string));
+    set(&mut draft, "DOI", paper.pointer("/externalIds/DOI").and_then(Value::as_str).map(str::to_string));
+    set(
+        &mut draft,
+        "url",
+        paper.pointer("/openAccessPdf/url").and_then(Value::as_str).map(str::to_string),
+    );
+
+    draft.creators = paper
+        .get("authors")
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|a| a.get("name").and_then(Value::as_str))
+                .map(split_display_name)
+                .collect()
+        })
+        .unwrap_or_default();
+    Some(draft)
+}
+
+#[cfg(test)]
+mod new_source_tests {
+    use super::*;
+
+    /// A Zenodo deposit, which is the commonest kind of DOI Crossref has never
+    /// heard of. Trimmed from a real `api.datacite.org` response.
+    const DATACITE: &str = r#"{
+      "data": { "attributes": {
+        "doi": "10.5281/zenodo.7038591",
+        "url": "https://zenodo.org/record/7038591",
+        "titles": [{ "title": "A corpus of annotated protocols" }],
+        "publisher": "Zenodo",
+        "publicationYear": 2022,
+        "language": "en",
+        "version": "2.1.0",
+        "types": { "resourceTypeGeneral": "Dataset", "resourceType": "Dataset" },
+        "descriptions": [{ "description": "<p>Ten thousand <b>annotated</b> records.</p>",
+                           "descriptionType": "Abstract" }],
+        "creators": [
+          { "name": "Sharma, Priya", "givenName": "Priya", "familyName": "Sharma" },
+          { "name": "World Health Organization" }
+        ]
+      }}
+    }"#;
+
+    #[test]
+    fn datacite_maps_a_dataset() {
+        let body: Value = serde_json::from_str(DATACITE).unwrap();
+        let draft = datacite(body.pointer("/data/attributes").unwrap()).unwrap();
+        assert_eq!(draft.item_type, "dataset", "a dataset is not a journal article");
+        assert_eq!(draft.fields.get("title").unwrap(), "A corpus of annotated protocols");
+        assert_eq!(draft.fields.get("DOI").unwrap(), "10.5281/zenodo.7038591");
+        assert_eq!(draft.fields.get("date").unwrap(), "2022");
+        assert_eq!(draft.fields.get("publisher").unwrap(), "Zenodo");
+        assert_eq!(draft.fields.get("versionNumber").unwrap(), "2.1.0");
+        // Descriptions arrive as HTML far more often than not.
+        assert_eq!(
+            draft.fields.get("abstractNote").unwrap(),
+            "Ten thousand annotated records."
+        );
+    }
+
+    #[test]
+    fn datacite_keeps_an_organisation_whole() {
+        let body: Value = serde_json::from_str(DATACITE).unwrap();
+        let draft = datacite(body.pointer("/data/attributes").unwrap()).unwrap();
+        assert_eq!(draft.creators.len(), 2);
+        assert_eq!(draft.creators[0].last_name.as_deref(), Some("Sharma"));
+        assert_eq!(draft.creators[0].first_name.as_deref(), Some("Priya"));
+        // Splitting this would file the paper under "Organization".
+        assert_eq!(draft.creators[1].name.as_deref(), Some("World Health Organization"));
+        assert!(draft.creators[1].last_name.is_none());
+    }
+
+    #[test]
+    fn datacite_falls_back_to_a_document_for_a_type_it_does_not_know() {
+        let raw = r#"{"titles":[{"title":"Something"}],"types":{"resourceTypeGeneral":"Audiovisual"}}"#;
+        let draft = datacite(&serde_json::from_str::<Value>(raw).unwrap()).unwrap();
+        assert_eq!(draft.item_type, "document", "unknown is not the same as absent");
+    }
+
+    #[test]
+    fn datacite_without_a_title_is_nothing() {
+        let raw = r#"{"doi":"10.1/x","types":{"resourceTypeGeneral":"Dataset"}}"#;
+        assert!(datacite(&serde_json::from_str::<Value>(raw).unwrap()).is_none());
+    }
+
+    /// Trimmed from a real `api.openalex.org/works` response.
+    const OPENALEX: &str = r#"{
+      "id": "https://openalex.org/W2741809807",
+      "doi": "https://doi.org/10.1038/nature14539",
+      "title": "Deep learning",
+      "publication_date": "2015-05-27",
+      "language": "en",
+      "type": "article",
+      "primary_location": { "source": { "display_name": "Nature" } },
+      "biblio": { "volume": "521", "issue": "7553", "first_page": "436", "last_page": "444" },
+      "authorships": [
+        { "author": { "display_name": "Yann LeCun" } },
+        { "author": { "display_name": "Yoshua Bengio" } },
+        { "author": { "display_name": "Geoffrey Hinton" } }
+      ]
+    }"#;
+
+    #[test]
+    fn openalex_maps_an_article() {
+        let draft = openalex(&serde_json::from_str::<Value>(OPENALEX).unwrap()).unwrap();
+        assert_eq!(draft.item_type, "journalArticle");
+        assert_eq!(draft.fields.get("title").unwrap(), "Deep learning");
+        assert_eq!(draft.fields.get("publicationTitle").unwrap(), "Nature");
+        assert_eq!(draft.fields.get("volume").unwrap(), "521");
+        assert_eq!(draft.fields.get("pages").unwrap(), "436-444");
+        assert_eq!(draft.fields.get("date").unwrap(), "2015-05-27");
+    }
+
+    #[test]
+    fn openalex_stores_a_bare_doi_like_every_other_source() {
+        // It hands the DOI back as a URL. A mixture of the two shapes across
+        // sources would break duplicate detection, which compares them.
+        let draft = openalex(&serde_json::from_str::<Value>(OPENALEX).unwrap()).unwrap();
+        assert_eq!(draft.fields.get("DOI").unwrap(), "10.1038/nature14539");
+    }
+
+    #[test]
+    fn openalex_splits_a_display_name_at_the_last_space() {
+        let draft = openalex(&serde_json::from_str::<Value>(OPENALEX).unwrap()).unwrap();
+        assert_eq!(draft.creators[0].first_name.as_deref(), Some("Yann"));
+        assert_eq!(draft.creators[0].last_name.as_deref(), Some("LeCun"));
+    }
+
+    #[test]
+    fn a_one_word_name_is_not_guessed_at() {
+        // No heuristic gets these right, and half a name is worse than a whole
+        // one in the wrong field.
+        let raw = r#"{"title":"x","type":"article","authorships":[{"author":{"display_name":"Anonymous"}}]}"#;
+        let draft = openalex(&serde_json::from_str::<Value>(raw).unwrap()).unwrap();
+        assert_eq!(draft.creators[0].name.as_deref(), Some("Anonymous"));
+        assert!(draft.creators[0].last_name.is_none());
+    }
+
+    /// Trimmed from a real Semantic Scholar graph response.
+    const S2: &str = r#"{
+      "title": "Attention Is All You Need",
+      "abstract": "The dominant sequence transduction models...",
+      "year": 2017,
+      "publicationDate": "2017-06-12",
+      "venue": "Neural Information Processing Systems",
+      "publicationTypes": ["Conference"],
+      "externalIds": { "ArXiv": "1706.03762", "DOI": "10.5555/3295222.3295349" },
+      "journal": { "name": "NeurIPS", "volume": "30", "pages": "5998-6008" },
+      "openAccessPdf": { "url": "https://arxiv.org/pdf/1706.03762" },
+      "authors": [{ "name": "Ashish Vaswani" }, { "name": "Noam Shazeer" }]
+    }"#;
+
+    #[test]
+    fn semantic_scholar_maps_a_conference_paper() {
+        let draft = semantic_scholar(&serde_json::from_str::<Value>(S2).unwrap()).unwrap();
+        assert_eq!(draft.item_type, "conferencePaper", "its publicationTypes said so");
+        assert_eq!(draft.fields.get("title").unwrap(), "Attention Is All You Need");
+        assert_eq!(draft.fields.get("publicationTitle").unwrap(), "NeurIPS");
+        assert_eq!(draft.fields.get("pages").unwrap(), "5998-6008");
+        assert_eq!(draft.fields.get("DOI").unwrap(), "10.5555/3295222.3295349");
+        // The open-access PDF is the point of asking this source at all.
+        assert_eq!(draft.fields.get("url").unwrap(), "https://arxiv.org/pdf/1706.03762");
+    }
+
+    #[test]
+    fn semantic_scholar_calls_a_doi_less_arxiv_paper_a_preprint() {
+        let raw = r#"{"title":"On something","externalIds":{"ArXiv":"2101.00001"},"year":2021}"#;
+        let draft = semantic_scholar(&serde_json::from_str::<Value>(raw).unwrap()).unwrap();
+        assert_eq!(draft.item_type, "preprint");
+        assert_eq!(draft.fields.get("date").unwrap(), "2021", "a bare year is still a date");
+    }
+
+    #[test]
+    fn semantic_scholar_prefers_the_journal_name_to_the_venue_string() {
+        // `venue` is free text and often an abbreviation; `journal.name` is the
+        // record.
+        let draft = semantic_scholar(&serde_json::from_str::<Value>(S2).unwrap()).unwrap();
+        assert_ne!(draft.fields.get("publicationTitle").unwrap(), "Neural Information Processing Systems");
     }
 }

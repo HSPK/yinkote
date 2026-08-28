@@ -13,6 +13,7 @@ async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 reqwest.workspace = true
+futures-util = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

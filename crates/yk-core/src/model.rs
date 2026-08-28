@@ -25,6 +25,34 @@ fn default_creator_type() -> String {
 }
 
 impl Creator {
+    /// A person whose name the source split for us.
+    ///
+    /// Two constructors rather than a builder because there are exactly two
+    /// cases and every source is one of them: either it told us which part is
+    /// the family name, or it handed over one string. Deciding that at each
+    /// call site produced the same match five times over.
+    pub fn author(given: &str, family: &str) -> Self {
+        Self {
+            creator_type: "author".into(),
+            first_name: Some(given.trim().to_string()).filter(|s| !s.is_empty()),
+            last_name: Some(family.trim().to_string()).filter(|s| !s.is_empty()),
+            name: None,
+        }
+    }
+
+    /// A name that arrived as one string, and is kept as one.
+    ///
+    /// Organisations ("World Health Organization"), and people whose names do
+    /// not split the way a heuristic would guess. Storing it whole is the only
+    /// answer that is never wrong.
+    pub fn single(name: &str) -> Self {
+        Self {
+            creator_type: "author".into(),
+            name: Some(name.trim().to_string()).filter(|s| !s.is_empty()),
+            ..Default::default()
+        }
+    }
+
     pub fn display(&self) -> String {
         if let Some(n) = &self.name {
             return n.clone();

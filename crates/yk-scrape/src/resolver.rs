@@ -70,37 +70,132 @@ async fn get(http: &reqwest::Client, url: &str) -> Result<Option<reqwest::Respon
 }
 
 // ---------------------------------------------------------------------------
+// One shape covers most sources
+// ---------------------------------------------------------------------------
 
-pub struct Crossref {
+/// A source that answers with one JSON document.
+///
+/// Almost every bibliographic API is this: build a URL from the identifier, GET
+/// it, hand the body to a pure function. Written out per source that was a
+/// dozen identical lines each — a client, a `get`, a `json`, the same two error
+/// strings — around the two lines that actually differ.
+///
+/// So the two lines are the source. Adding one is a `JsonSource` literal and a
+/// mapping function with fixture tests; there is no new network code to review
+/// and no new way for a source to get the error handling subtly wrong.
+///
+/// XML and HTML sources stay bespoke, because they genuinely are.
+pub struct JsonSource {
+    id: &'static str,
+    label: &'static str,
+    supports: &'static [&'static str],
+    /// `None` when this source cannot address that particular identifier.
+    url: fn(&Identifier) -> Option<String>,
+    /// Pure, tested offline against a recorded payload.
+    map: fn(&serde_json::Value) -> Option<ItemDraft>,
     http: reqwest::Client,
 }
 
-impl Default for Crossref {
-    fn default() -> Self {
-        Self { http: client() }
+impl JsonSource {
+    pub fn new(
+        id: &'static str,
+        label: &'static str,
+        supports: &'static [&'static str],
+        url: fn(&Identifier) -> Option<String>,
+        map: fn(&serde_json::Value) -> Option<ItemDraft>,
+    ) -> Self {
+        Self { id, label, supports, url, map, http: client() }
     }
 }
 
 #[async_trait]
-impl Resolver for Crossref {
+impl Resolver for JsonSource {
     fn id(&self) -> &'static str {
-        "crossref"
+        self.id
     }
     fn label(&self) -> &'static str {
-        "Crossref"
+        self.label
     }
     fn supports(&self) -> &'static [&'static str] {
-        &["doi"]
+        self.supports
     }
 
     async fn resolve(&self, identifier: &Identifier) -> Result<Option<ItemDraft>> {
-        let url =
-            format!("https://api.crossref.org/works/{}", urlencoding(identifier.value()));
+        let Some(url) = (self.url)(identifier) else { return Ok(None) };
         let Some(response) = get(&self.http, &url).await? else { return Ok(None) };
-        let body: serde_json::Value =
-            response.json().await.map_err(|e| Error::Unavailable(format!("crossref: {e}")))?;
-        Ok(body.get("message").and_then(mapping::crossref))
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| Error::Unavailable(format!("{}: {e}", self.id)))?;
+        Ok((self.map)(&body))
     }
+}
+
+/// Crossref: the registration agency for most journal DOIs.
+pub fn crossref() -> JsonSource {
+    JsonSource::new(
+        "crossref",
+        "Crossref",
+        &["doi"],
+        |id| Some(format!("https://api.crossref.org/works/{}", urlencoding(id.value()))),
+        |body| body.get("message").and_then(mapping::crossref),
+    )
+}
+
+/// DataCite: the other half of the DOI world — datasets, software, theses and
+/// preprints that Crossref has never heard of.
+pub fn datacite() -> JsonSource {
+    JsonSource::new(
+        "datacite",
+        "DataCite",
+        &["doi"],
+        |id| Some(format!("https://api.datacite.org/dois/{}", urlencoding(id.value()))),
+        |body| body.pointer("/data/attributes").and_then(mapping::datacite),
+    )
+}
+
+/// OpenAlex: open catalogue of works, and the one that answers for arXiv ids
+/// and DOIs alike.
+pub fn openalex() -> JsonSource {
+    JsonSource::new(
+        "openalex",
+        "OpenAlex",
+        &["doi", "arxiv", "pmid"],
+        |id| {
+            let key = match id {
+                Identifier::Doi(v) => format!("https://doi.org/{v}"),
+                Identifier::ArXiv(v) => format!("arxiv:{v}"),
+                Identifier::Pmid(v) => format!("pmid:{v}"),
+                _ => return None,
+            };
+            Some(format!("https://api.openalex.org/works/{}", urlencoding(&key)))
+        },
+        mapping::openalex,
+    )
+}
+
+/// Semantic Scholar: strong on computer science and on preprints that never
+/// acquired a DOI.
+pub fn semantic_scholar() -> JsonSource {
+    const FIELDS: &str = "title,abstract,year,venue,externalIds,authors,publicationTypes,publicationDate,journal,openAccessPdf";
+    JsonSource::new(
+        "semanticscholar",
+        "Semantic Scholar",
+        &["doi", "arxiv", "pmid"],
+        |id| {
+            let key = match id {
+                Identifier::Doi(v) => format!("DOI:{v}"),
+                Identifier::ArXiv(v) => format!("arXiv:{v}"),
+                Identifier::Pmid(v) => format!("PMID:{v}"),
+                _ => return None,
+            };
+            Some(format!(
+                "https://api.semanticscholar.org/graph/v1/paper/{}?fields={FIELDS}",
+                urlencoding(&key)
+            ))
+        },
+        mapping::semantic_scholar,
+    )
 }
 
 /// One entry from a paper's reference list.
@@ -117,6 +212,21 @@ pub struct Reference {
     pub year: Option<i64>,
     /// The raw citation string, kept as a label when there is no title.
     pub unstructured: Option<String>,
+}
+
+/// Crossref's *other* capability: the reference list a publisher deposited.
+///
+/// Separate from the resolver because it is a different question. Resolving
+/// asks "what is this identifier"; this asks "what does that work cite", which
+/// nothing else in the registry can answer and which no other source has.
+pub struct Crossref {
+    http: reqwest::Client,
+}
+
+impl Default for Crossref {
+    fn default() -> Self {
+        Self { http: client() }
+    }
 }
 
 impl Crossref {
@@ -352,25 +462,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resolvers_declare_disjoint_and_complete_coverage() {
-        let resolvers: Vec<Box<dyn Resolver>> = vec![
-            Box::new(Crossref::default()),
-            Box::new(Arxiv::default()),
-            Box::new(OpenLibrary::default()),
-            Box::new(PubMed::default()),
-            Box::new(WebPage::default()),
-        ];
+    fn every_identifier_kind_has_somewhere_to_go() {
+        // Coverage, not exclusivity. Several sources answering for one kind is
+        // the point — Crossref does not know a Zenodo DOI and DataCite does
+        // not know a journal one — but a kind nobody claims is an identifier
+        // the program detects and then silently does nothing with.
+        let engine = crate::ScrapeEngine::with_defaults();
         for kind in ["doi", "arxiv", "isbn", "pmid", "url"] {
-            let count = resolvers.iter().filter(|r| r.supports().contains(&kind)).count();
-            assert_eq!(count, 1, "exactly one resolver should own {kind}");
+            let count =
+                engine.sources().iter().filter(|s| s.supports.contains(&kind)).count();
+            assert!(count >= 1, "nothing resolves {kind}");
         }
     }
 
     #[test]
+    fn source_ids_are_unique() {
+        // The id names which source answered, and two sources sharing one
+        // would make that report a lie.
+        let engine = crate::ScrapeEngine::with_defaults();
+        let mut ids: Vec<&str> = engine.sources().iter().map(|s| s.id).collect();
+        let before = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), before, "duplicate source id");
+    }
+
+    #[test]
     fn handles_matches_on_identifier_kind() {
-        let crossref = Crossref::default();
+        let crossref = crossref();
         assert!(crossref.handles(&Identifier::Doi("10.1/x".into())));
         assert!(!crossref.handles(&Identifier::Url("https://x".into())));
+    }
+
+    #[test]
+    fn a_source_declines_an_identifier_it_cannot_address() {
+        // OpenAlex answers for three kinds but has no URL form for an ISBN;
+        // `url` returning None is how a source says so without an error.
+        let alex = openalex();
+        assert!(!alex.handles(&Identifier::Isbn("9780306406157".into())));
     }
 
     #[test]
