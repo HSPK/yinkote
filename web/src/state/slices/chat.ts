@@ -6,6 +6,7 @@
  *  legitimately take twenty seconds to arrive.
  */
 import type { StateCreator } from 'zustand'
+import { displayTitle } from '../../lib/format'
 
 import { api } from '../../api/client'
 import type {
@@ -264,7 +265,9 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
   async askAbout(itemKey) {
     const item = get().items.find((i) => i.key === itemKey)
     if (!item) return
-    const title = String(item.title ?? itemKey)
+    // Asking about a highlight named the thread after its key. Its own words
+    // are the only label it has, and they are what the thread is about.
+    const title = displayTitle(item, itemKey)
 
     const created = await api.conversations.create(get().library, { title })
     set({ conversations: [created, ...get().conversations] })

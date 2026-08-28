@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import type { Item } from '../api/types'
@@ -193,5 +194,34 @@ describe('what to call an item in a list', () => {
     expect(displayTitle(item({}), 'Untitled')).toBe('Untitled')
     // Whitespace is nothing. A title of spaces rendered as an invisible row.
     expect(displayTitle(item({ title: '   ' }), 'Untitled')).toBe('Untitled')
+  })
+})
+
+describe('nothing names an item by hand any more', () => {
+  it('has no raw title fallbacks left in the surfaces that name items', () => {
+    // `displayTitle` exists because a highlight has no title and every place
+    // that wrote `item.title ?? …` rendered one as "Untitled" — or worse, as
+    // an empty line or a random key. Fixing the call sites one at a time is
+    // how four of them became two; this fixes the rule instead.
+    //
+    // Scoped to the files whose job is to label an item. A test that scanned
+    // everything would catch `body.title ?? title` in the API client, which is
+    // not naming an item at all.
+    const files = [
+      'src/components/ItemTable.tsx',
+      'src/components/DetailPanel.tsx',
+      'src/components/menus.ts',
+      'src/state/store.ts',
+      'src/state/slices/chat.ts',
+    ]
+    const offenders: string[] = []
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8')
+      for (const [i, line] of source.split('\n').entries()) {
+        // `item.title ?? x` / `i.title ?? x` — the shape displayTitle replaces.
+        if (/\b\w+\.title\s*\?\?/.test(line)) offenders.push(`${file}:${i + 1} ${line.trim()}`)
+      }
+    }
+    expect(offenders, 'use displayTitle(item, fallback) instead').toEqual([])
   })
 })

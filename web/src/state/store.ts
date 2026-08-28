@@ -5,6 +5,7 @@
  *  slices so it stays obvious which is which.
  */
 import { create } from 'zustand'
+import { displayTitle } from '../lib/format'
 
 import { ApiError, api, connectEvents, setApiKey } from '../api/client'
 import { follow } from '../lib/tasks'
@@ -809,7 +810,9 @@ export const useStore = create<State>((set, get, store) => ({
       .map((item) => {
         switch (kind) {
           case 'title':
-            return String(item.title ?? '')
+            // A highlight has no title of its own; copying one as a title
+            // yielded an empty line among the others.
+            return displayTitle(item, '')
           case 'doi':
             return String(item.DOI ?? '')
           case 'url':

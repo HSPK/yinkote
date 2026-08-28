@@ -5,6 +5,7 @@
  *  the wording and ordering stay consistent.
  */
 import { api } from '../api/client'
+import { displayTitle } from '../lib/format'
 import type { Collection, Item, SmartCollection, Tag } from '../api/types'
 import { hasChosenColour, TAG_COLOURS } from '../lib/tags'
 import { t } from '../i18n'
@@ -138,7 +139,7 @@ export function itemMenu(item: Item): MenuItem[] {
       label: t('reader.fetch'),
       onSelect: () =>
         withToast(() => store.fetchPdf(item.key), {
-          success: t('reader.fetched', { name: String(item.title ?? item.key) }),
+          success: t('reader.fetched', { name: displayTitle(item, item.key) }),
           failure: t('reader.fetchFailed'),
         }),
     },
