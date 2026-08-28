@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
 
-import { BrowserConnector } from './BrowserConnector'
+import { BrowserConnector, LibraryAccess } from './BrowserConnector'
 import type { ConnectorStatus } from '../api/types'
 
 let container: HTMLElement
@@ -56,4 +56,22 @@ it('waits rather than guessing before the server has answered', () => {
   // that looks exactly like a right one.
   const text = mount(undefined).textContent ?? ''
   expect(text).not.toContain('Off')
+})
+
+it('says plainly when anyone can reach the library', () => {
+  // The state that carries the risk looked exactly like the one that does
+  // not: a server past loopback with no key said nothing at startup and
+  // nothing in /ping, so a choice made once in a service file was never
+  // shown again.
+  act(() => root.render(<LibraryAccess access={{ state: 'open' }} />))
+  const text = container.textContent ?? ''
+  expect(text).toContain('Reachable by anyone')
+  expect(text).toMatch(/read, edit and delete/)
+  expect(container.querySelector('.badge')?.getAttribute('data-tone')).toBe('warn')
+})
+
+it('does not cry wolf about the default', () => {
+  act(() => root.render(<LibraryAccess access={{ state: 'private' }} />))
+  expect(container.querySelector('.badge')?.getAttribute('data-tone')).toBe('ok')
+  expect(container.textContent ?? '').toContain('This machine only')
 })

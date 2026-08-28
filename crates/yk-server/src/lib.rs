@@ -281,6 +281,15 @@ pub async fn serve(app: App) -> anyhow::Result<()> {
     let local = listener.local_addr()?;
     let shown = lock::browsable_url(&app.config().host, local.port());
     tracing::info!(%local, "yinkote listening — open {shown}");
+    // Said once here and repeated in the workbench, because the decision was
+    // made in the past — very likely in a service file nobody reads again.
+    if app.access() == state::Access::Open {
+        tracing::warn!(
+            %local,
+            "serving without an API key beyond this machine — anyone who can reach this port \
+             has the whole library"
+        );
+    }
 
     workers::spawn(app.clone());
     serve_connector(&app).await;

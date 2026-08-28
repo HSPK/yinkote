@@ -75,11 +75,30 @@ pub struct AppState {
     pub connector_bound: Arc<std::sync::atomic::AtomicBool>,
 }
 
+/// Who can reach this library.
+///
+/// The same question the connector status answers, asked of the server as a
+/// whole — and worth answering out loud, because the risky state is the one
+/// that looks like every other state. A server running past loopback with no
+/// key said nothing at startup and nothing in `/ping`, so somebody who chose
+/// it once in a service file had no way to be reminded, ever.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub enum Access {
+    /// Bound to loopback: nothing off this machine can reach it.
+    Private,
+    /// Reachable beyond this machine, and asking for a key.
+    Protected,
+    /// Reachable beyond this machine, asking for nothing. Deliberate — the
+    /// server refuses to start this way unless told to — but deliberate in the
+    /// past tense, which is exactly why it is repeated here.
+    Open,
+}
+
 /// What browser saving is doing, for the settings page to explain.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(tag = "state", rename_all = "camelCase")]
-pub enum ConnectorStatus {
-    /// Not asked for. The default, and deliberately so: the port belongs to
+pub enum ConnectorStatus {    /// Not asked for. The default, and deliberately so: the port belongs to
     /// Zotero, and taking it would break a Zotero the user is still migrating
     /// from.
     Off,
@@ -110,6 +129,18 @@ impl AppState {
     }
     pub fn tasks(&self) -> &crate::tasks::Tasks {
         &self.tasks
+    }
+
+    /// Who can reach this library.
+    pub fn access(&self) -> Access {
+        let config = self.config();
+        if crate::is_loopback(&config.host) {
+            Access::Private
+        } else if config.api_key.is_some() {
+            Access::Protected
+        } else {
+            Access::Open
+        }
     }
 
     /// What browser saving is doing, as opposed to what was asked of it.

@@ -58,6 +58,9 @@ check "ping"             "$(j "$BASE/ping" | jq -r .ok)"
 # somebody it exists if the server reports it. "Requested" and "working" are
 # different facts here — the bind is allowed to fail and the server carries on.
 check "connector status" "$(j "$BASE/ping" | jq -r '.connector.state | select(. == "off" or . == "listening" or . == "unavailable")')"
+# The state that carries the risk looks like every other state unless the
+# server says so. This one is bound to loopback, which is the safe answer.
+check "access reported"  "$(j "$BASE/ping" | jq -r '.access.state | select(. == "private")')"
 check "schema types"     "$(j "$BASE/schema" | jq -r '.itemTypes | length')"
 LIB=$(j "$BASE/libraries" | jq -r '.[0].id')
 check "library id"       "$LIB"

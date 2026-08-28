@@ -49,6 +49,9 @@ async fn ping(State(app): State<App>) -> Json<Value> {
         // Saving from the browser is a headline feature that is off by default
         // and was, until now, mentioned nowhere the user could see it.
         "connector": app.connector_status(),
+        // The risky state looks like every other state unless something says
+        // so. See `state::Access`.
+        "access": app.access(),
     }))
 }
 

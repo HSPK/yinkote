@@ -1,6 +1,30 @@
-import type { ConnectorStatus } from '../api/types'
+import type { AccessState, ConnectorStatus } from '../api/types'
 import { useT } from '../i18n'
 import { Badge } from '../ui'
+
+/** Reachable with no key is the one worth saying out loud, every time. */
+const ACCESS_TONE = { private: 'ok', protected: 'ok', open: 'warn' } as const
+
+/**
+ * Who can reach this library.
+ *
+ * A server past loopback with no key is a deliberate choice — it refuses to
+ * start otherwise — but the choice was made once, very likely in a service
+ * file, and then never shown again. The state that carries the risk looked
+ * exactly like the state that does not.
+ */
+export function LibraryAccess({ access }: { access?: AccessState }) {
+  const t = useT()
+  if (!access) return <span className="muted">{t('settings.loading')}</span>
+  return (
+    <div>
+      <div className="chip-row tight">
+        <Badge tone={ACCESS_TONE[access.state]}>{t(`access.state.${access.state}`)}</Badge>
+      </div>
+      <p className="muted">{t(`access.hint.${access.state}`)}</p>
+    </div>
+  )
+}
 
 /** Listening is good news; asked-for-but-refused is the one worth a warning. */
 const TONE = { listening: 'ok', unavailable: 'warn', off: undefined } as const

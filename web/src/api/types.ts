@@ -208,6 +208,11 @@ export interface SourceInfo {
   supports: string[]
 }
 
+export type AccessState =
+  | { state: 'private' }
+  | { state: 'protected' }
+  | { state: 'open' }
+
 export type ConnectorStatus =
   | { state: 'off' }
   | { state: 'listening'; port: number }
@@ -226,6 +231,8 @@ export interface ServerInfo {
   bind: string
   /** What browser saving is doing — asked for is not the same as working. */
   connector: ConnectorStatus
+  /** Who can reach this library. */
+  access: AccessState
 }
 
 export interface SmartCollection {
