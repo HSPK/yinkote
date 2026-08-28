@@ -54,6 +54,11 @@ fn warm_first_load(app: App) {
             tracing::debug!(%error, "could not warm the facet cache");
         }
 
+        // The sidebar's collection list, which carries a live-item count per
+        // shelf and costs 27ms cold on a large library — the slowest of the
+        // requests the first paint waits on until it is remembered.
+        let _ = app.store().collections.list(app.services.default_library).await;
+
         // The same two counts the statistics endpoint makes. The numbers are
         // thrown away; the point is the pages they touch.
         let trashed = yk_core::query::ItemFilter {

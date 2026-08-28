@@ -1,4 +1,4 @@
-//! An exact cache for the row counts a listing reports.
+//! An exact cache for answers derived from a library's contents.
 //!
 //! Counting is what a listing actually spends its time on. Picking the page
 //! itself reads a hundred rows from an index; counting the matches visits every
@@ -33,12 +33,26 @@ use crate::filter::Predicate;
 /// requests simply pay what they used to pay.
 const CAPACITY: usize = 256;
 
-#[derive(Default)]
-pub struct CountCache {
-    entries: Mutex<HashMap<String, (i64, i64)>>,
+/// A value remembered against the library version it was computed from.
+///
+/// Generic in the value because the shape of the answer is not the interesting
+/// part — the invalidation is. Row counts are `i64`; the sidebar's collection
+/// list is a `Vec<Collection>` whose per-collection totals cost the same 27ms
+/// however they are spelled.
+pub struct Versioned<T> {
+    entries: Mutex<HashMap<String, (i64, T)>>,
 }
 
-impl CountCache {
+/// The original use, and the common one.
+pub type CountCache = Versioned<i64>;
+
+impl<T> Default for Versioned<T> {
+    fn default() -> Self {
+        Self { entries: Mutex::new(HashMap::new()) }
+    }
+}
+
+impl<T: Clone> Versioned<T> {
     /// A key identifying exactly this question.
     ///
     /// The predicate's SQL and its bound values together *are* the question, so
@@ -59,15 +73,15 @@ impl CountCache {
         key
     }
 
-    /// The count for this question as of `version`, if it was asked before.
-    pub fn get(&self, key: &str, version: i64) -> Option<i64> {
+    /// The answer to this question as of `version`, if it was asked before.
+    pub fn get(&self, key: &str, version: i64) -> Option<T> {
         match self.entries.lock().get(key) {
-            Some((at, count)) if *at == version => Some(*count),
+            Some((at, value)) if *at == version => Some(value.clone()),
             _ => None,
         }
     }
 
-    pub fn put(&self, key: String, version: i64, count: i64) {
+    pub fn put(&self, key: String, version: i64, count: T) {
         let mut entries = self.entries.lock();
         if entries.len() >= CAPACITY {
             entries.clear();

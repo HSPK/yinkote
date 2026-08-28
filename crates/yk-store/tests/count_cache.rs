@@ -200,3 +200,43 @@ async fn the_attachment_total_is_the_same_question_too() {
     // questions and must not answer each other.
     assert_eq!(s.items.count(&all(lib)).await.unwrap(), 1);
 }
+
+#[tokio::test]
+async fn the_sidebar_list_moves_with_the_library() {
+    // Each row carries how many live items the collection holds, so this list
+    // is invalidated by item writes and not only by collection writes — which
+    // is the whole reason it is keyed on the library version rather than on
+    // anything about collections.
+    let (s, lib) = store().await;
+    let shelf = s
+        .collections
+        .create(lib, yk_core::model::CollectionDraft { name: "Shelf".into(), ..Default::default() })
+        .await
+        .unwrap();
+
+    let held = || async {
+        s.collections.list(lib).await.unwrap().into_iter().find(|c| c.key == shelf.key).unwrap()
+    };
+    assert_eq!(held().await.item_count, 0);
+
+    let item = s.items.create(lib, article("One")).await.unwrap();
+    s.items.add_to_collection(lib, &shelf.key, std::slice::from_ref(&item.key)).await.unwrap();
+    assert_eq!(held().await.item_count, 1, "joining a shelf shows up in the list");
+
+    // Trashing does not remove the membership, so this only moves if the count
+    // really re-runs its `deleted = 0` check.
+    s.items.set_trashed(lib, std::slice::from_ref(&item.key), true).await.unwrap();
+    assert_eq!(held().await.item_count, 0, "a trashed item stops counting");
+
+    // And renaming a collection is a collection write, which also has to
+    // retire the list.
+    s.collections
+        .update(
+            lib,
+            &shelf.key,
+            yk_core::model::CollectionPatch { name: Some("Renamed".into()), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!(held().await.name, "Renamed");
+}

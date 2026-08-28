@@ -149,6 +149,8 @@ const BUDGET = {
   // 10.9ms when it counted the library twice and awaited six queries in turn,
   // 2.0 once every count went through the shared cache.
   stats: 15,
+  // 27ms before the list was remembered against the library version.
+  collections: 10,
 }
 
 const overBudget = []
@@ -362,6 +364,18 @@ async function main() {
   }
   // The statistics the workbench asks for on every load.
   await measure('stats', '/stats')
+  // The sidebar's own list, which had never been measured — and was 27ms, by
+  // far the slowest of the requests the first paint waits on. Every row counts
+  // the live items on that shelf.
+  const collectionTiming = await measure('collections', `/libraries/${lib}/collections`)
+  // Warmed at startup like the facets, and guarded the same way: only the first
+  // sample can tell whether the warm-up reached it. See docs/16 3.126.
+  if (collectionTiming.first > 15) {
+    overBudget.push(
+      `collections first call: ${collectionTiming.first.toFixed(1)}ms — startup warm-up missed it`,
+    )
+    console.log(`  ${' '.repeat(34)} first ${collectionTiming.first.toFixed(1)}ms  ← COLD`)
+  }
 
   console.log('\n▸ search')
   await measure('keyword (1 term)', `/libraries/${lib}/search?q=transformer&mode=keyword`)

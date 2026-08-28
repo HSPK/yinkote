@@ -111,11 +111,19 @@ impl LibraryRepository for SqliteLibraryRepository {
 #[derive(Clone)]
 pub struct SqliteCollectionRepository {
     db: Db,
+    /// The sidebar's list, remembered against the library version.
+    ///
+    /// Each row carries how many live items the collection holds, and that is
+    /// the whole cost: 60,000 memberships each looked up in `items` to see
+    /// whether they are in the trash. 27ms, on every sidebar load, and neither
+    /// a correlated subquery nor one grouped join is cheaper than the other —
+    /// the work is inherent, so the only way out is not repeating it.
+    listing: std::sync::Arc<crate::counts::Versioned<Vec<Collection>>>,
 }
 
 impl SqliteCollectionRepository {
     pub fn new(db: Db) -> Self {
-        Self { db }
+        Self { db, listing: Default::default() }
     }
 }
 
@@ -164,15 +172,33 @@ fn would_cycle(tx: &Connection, id: i64, new_parent: i64) -> Result<bool> {
 #[async_trait]
 impl CollectionRepository for SqliteCollectionRepository {
     async fn list(&self, library_id: i64) -> Result<Vec<Collection>> {
+        let listing = self.listing.clone();
         self.db
             .call(move |c| {
+                let version: i64 = c
+                    .query_row(
+                        "SELECT version FROM libraries WHERE id = ?1",
+                        params![library_id],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or(-1);
+                let key = format!("collections:{library_id}");
+                if let Some(cached) = listing.get(&key, version) {
+                    return Ok(cached);
+                }
+
                 let sql = format!("{C_SELECT} WHERE c.library_id=?1 ORDER BY c.sort_index, c.name");
-                c.prepare_cached(&sql)
+                let rows: Vec<Collection> = c
+                    .prepare_cached(&sql)
                     .map_err(sql_err)?
                     .query_map(params![library_id], map_collection)
                     .map_err(sql_err)?
                     .collect::<rusqlite::Result<_>>()
-                    .map_err(sql_err)
+                    .map_err(sql_err)?;
+                if version >= 0 {
+                    listing.put(key, version, rows.clone());
+                }
+                Ok(rows)
             })
             .await
     }
