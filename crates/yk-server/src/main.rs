@@ -59,6 +59,22 @@ async fn main() -> anyhow::Result<()> {
     }
 
     std::fs::create_dir_all(config.data_dir())?;
+
+    // One server per data directory. Two sharing one library do not fail —
+    // they quietly disagree, each with its own copy of the search index — so
+    // the check has to happen here rather than being noticed later.
+    //
+    // Bound to a name that lives as long as `main`: an advisory lock is
+    // released when the file is dropped, and `let _ = …` would drop it on this
+    // very line, leaving the directory unlocked and the check pointless.
+    let _claim = match yk_server::lock::acquire(&config.data_dir(), config.port) {
+        Ok(lock) => lock,
+        Err(denied) => {
+            eprintln!("{denied}");
+            std::process::exit(1);
+        }
+    };
+
     tracing::info!(data_dir = %config.data_dir().display(), "starting yinkote");
 
     let app = yk_server::build(config).await?;

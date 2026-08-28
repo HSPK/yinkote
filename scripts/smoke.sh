@@ -600,6 +600,19 @@ fi
 check "path is not a key" "$(curl -sS -o /dev/null -w '%{http_code}' \
                               -X POST "$BASE/libraries/$LIB/items/..%2fetc/reveal" | grep -E '4[0-9][0-9]')"
 
+echo "▸ one server per library"
+# Two servers on one data directory do not fail — they quietly disagree, each
+# with its own copy of the search index. So the second must refuse to start.
+DATA_OF=$(j "$BASE/ping" | jq -r .dataDir)
+if [[ -x ./target/release/yinkote && -n "$DATA_OF" ]]; then
+  SECOND=$(./target/release/yinkote --data-dir "$DATA_OF" --port 23999 2>&1 || true)
+  check "second is refused"  "$(printf '%s' "$SECOND" | grep -o 'already using this data directory')"
+  # A refusal nobody can act on is only an annoyance.
+  check "refusal names a way out" "$(printf '%s' "$SECOND" | grep -o -- '--data-dir')"
+else
+  skip "second is refused" "no release binary to try it with"
+fi
+
 echo "▸ single binary"
 # The premise is that somebody installs this and starts it, and that only holds
 # if "install" means one file. The workbench is compiled in; a directory named
