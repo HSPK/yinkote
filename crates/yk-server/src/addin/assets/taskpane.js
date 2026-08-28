@@ -414,6 +414,34 @@ function wire() {
   })
 }
 
+/** Ask for the key, rather than reporting that one is needed and stopping. */
+function askForKey(message) {
+  el('boot').hidden = true
+  el('app').hidden = true
+  const gate = el('keygate')
+  gate.hidden = false
+  const problem = el('keygate-error')
+  problem.hidden = !message
+  problem.textContent = message || ''
+  el('keygate-input').focus()
+}
+
+function saveKeyAndRetry() {
+  const value = el('keygate-input').value.trim()
+  if (!value) return
+  try {
+    window.localStorage.setItem(KEY_STORE, value)
+  } catch {
+    // Storage disabled in this webview: the key still works for this session,
+    // since `authHeaders` reads it again on the next call. Saying nothing here
+    // would be wrong only if the pane claimed it had been remembered.
+  }
+  el('keygate').hidden = true
+  el('boot').hidden = false
+  el('boot').textContent = 'Connecting…'
+  boot()
+}
+
 async function boot() {
   try {
     const libraries = await api('/libraries')
@@ -425,8 +453,27 @@ async function boot() {
     el('app').hidden = false
     el('q').focus()
   } catch (error) {
+    // A key is the one failure the user can do something about from here.
+    if (error && error.status === 401) {
+      const tried = (() => {
+        try {
+          return Boolean(window.localStorage.getItem(KEY_STORE))
+        } catch {
+          return false
+        }
+      })()
+      askForKey(tried ? 'That key was not accepted.' : '')
+      return
+    }
     el('boot').textContent = `Cannot reach Yinkote: ${describe(error)}`
   }
+}
+
+if (typeof document !== 'undefined' && el('keygate-save')) {
+  el('keygate-save').addEventListener('click', saveKeyAndRetry)
+  el('keygate-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveKeyAndRetry()
+  })
 }
 
 if (typeof Office !== 'undefined' && Office.onReady) {
@@ -441,5 +488,5 @@ if (typeof Office !== 'undefined' && Office.onReady) {
 
 // Exported for the pure-function tests; harmless in the browser.
 if (typeof module !== 'undefined') {
-  module.exports = { describeItem, bibliographyHtml, describe }
+  module.exports = { describeItem, bibliographyHtml, describe, boot, askForKey }
 }

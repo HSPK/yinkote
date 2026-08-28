@@ -85,3 +85,8 @@ button.ghost { background: none; border: none; color: var(--muted); padding: 2px
    every message shoves the buttons above it. */
 .status { color: var(--muted); font-size: 11px; flex: 1; min-height: 1.45em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status[data-kind="error"] { color: var(--danger); }
+
+/* The key gate reuses .boot's centring; only the failure line is new. */
+.keygate-error { color: #d05252; margin: 6px 0 0; }
+#keygate .field { display: block; margin: 10px 0; }
+#keygate input { width: 100%; box-sizing: border-box; }

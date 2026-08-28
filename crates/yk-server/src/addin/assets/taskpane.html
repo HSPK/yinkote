@@ -10,6 +10,22 @@
   <body>
     <div id="boot" class="boot">Connecting to Word…</div>
 
+    <!--
+      Shown when the server answers 401. The pane could already tell that a key
+      was wanted — it said so, and then stopped, which is the same dead end the
+      workbench had before it grew a key gate. Assets are served without a key
+      so Word can load this at all; everything past that needs one.
+    -->
+    <section id="keygate" class="boot" hidden>
+      <p>This library is protected by an API key.</p>
+      <label class="field">
+        <span>API key</span>
+        <input id="keygate-input" type="password" autocomplete="off" />
+      </label>
+      <button id="keygate-save" type="button" class="primary">Connect</button>
+      <p id="keygate-error" class="keygate-error" hidden></p>
+    </section>
+
     <main id="app" hidden>
       <header class="bar">
         <label class="field">

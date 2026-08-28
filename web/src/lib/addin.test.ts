@@ -51,7 +51,9 @@ describe('the Word task pane', () => {
     // If the file ever runs something at import time, this suite is where it
     // will fail: the sandbox has no document, no Office and no fetch.
     expect(Object.keys(pane as object).sort()).toEqual([
+      'askForKey',
       'bibliographyHtml',
+      'boot',
       'describe',
       'describeItem',
     ])
@@ -105,5 +107,83 @@ describe('the Word task pane', () => {
     expect(pane.describe({ status: 401 })).toBe('The server wants an API key.')
     expect(pane.describe(null)).toBe('Something went wrong.')
     expect(pane.describe(new Error('x'.repeat(400))).length).toBe(160)
+  })
+})
+
+/**
+ * The key gate.
+ *
+ * A protected library serves the pane's assets without a key -- it must, or
+ * Word could not load the pane at all -- and then answers 401 to everything
+ * else. The pane read a key from localStorage and nothing ever wrote one,
+ * with no field to type it into: it reported "The server wants an API key"
+ * and stopped. That is the dead end the workbench had before it grew a gate,
+ * left standing in the other client.
+ */
+describe('the task pane when the library wants a key', () => {
+  /** A DOM small enough to boot the pane against, and honest about hidden. */
+  function fakeDom(stored: string | null) {
+    const nodes: Record<string, Record<string, unknown>> = {}
+    for (const id of ['boot', 'app', 'keygate', 'keygate-input', 'keygate-error']) {
+      nodes[id] = {
+        hidden: id !== 'boot',
+        textContent: '',
+        value: '',
+        focus: () => {},
+        addEventListener: () => {},
+      }
+    }
+    for (const id of ['keygate-save']) {
+      nodes[id] = { addEventListener: () => {}, hidden: false }
+    }
+    const store: Record<string, string> = {}
+    if (stored !== null) store['yinkote.apiKey'] = stored
+    return { nodes, store }
+  }
+
+  function loadWithDom(stored: string | null, status: number) {
+    const { nodes, store } = fakeDom(stored)
+    const sandbox: Record<string, unknown> = {
+      module: { exports: {} },
+      document: { getElementById: (id: string) => nodes[id] ?? null },
+      window: { localStorage: { getItem: (k: string) => store[k] ?? null, setItem: () => {} } },
+      Office: undefined,
+      fetch: async () => ({ ok: false, status, json: async () => ({ title: 'unauthorised' }) }),
+      setTimeout,
+      clearTimeout,
+    }
+    runInContext(readFileSync(SOURCE, 'utf8'), createContext(sandbox))
+    return { pane: (sandbox.module as { exports: Pane & { boot(): Promise<void> } }).exports, nodes }
+  }
+
+  it('asks for a key instead of reporting that one is needed', async () => {
+    const { pane, nodes } = loadWithDom(null, 401)
+    await pane.boot()
+
+    expect(nodes.keygate!.hidden, 'the pane stopped at a message').toBe(false)
+    expect(nodes.boot!.hidden).toBe(true)
+    // Nothing was tried, so there is nothing to call a failure yet.
+    expect(nodes['keygate-error']!.hidden).toBe(true)
+  })
+
+  it('says so when the stored key is the one being refused', async () => {
+    // Otherwise the pane asks again with the box apparently already right,
+    // and the user has no way to tell a wrong key from a broken server.
+    const { pane, nodes } = loadWithDom('stale-key', 401)
+    await pane.boot()
+
+    expect(nodes.keygate!.hidden).toBe(false)
+    expect(nodes['keygate-error']!.hidden).toBe(false)
+    expect(String(nodes['keygate-error']!.textContent)).toContain('not accepted')
+  })
+
+  it('still reports other failures as failures', async () => {
+    // A gate shown for a server that is simply down would send the user
+    // hunting for a key they do not need.
+    const { pane, nodes } = loadWithDom(null, 500)
+    await pane.boot()
+
+    expect(nodes.keygate!.hidden).toBe(true)
+    expect(String(nodes.boot!.textContent)).toContain('Cannot reach Yinkote')
   })
 })
