@@ -101,6 +101,20 @@ check "stale patch -> 412" "$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
                              -H "If-Unmodified-Since-Version: $VER" \
                              -d '{"fields":{"volume":"31"}}')"
 check "bad key -> 422"   "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/libraries/$LIB/items/not%20a%20key")"
+# Every error in one shape. Rejections that never reach a handler — a bad path
+# segment, a malformed body, a missing content type — used to answer in plain
+# text, so a client had two formats to parse depending on how wrong it was.
+check "rejects in envelope" "$(curl -sS -X POST -H 'Content-Type: application/json' \
+                                "$BASE/libraries/$LIB/items" -d '{"itemType":"journalArticle","tags":["not an object"]}' \
+                                | jq -r '.code | select(. == "invalid_input")')"
+# And it must not name the Rust type it failed to build.
+check "no internals leak" "$(curl -sS -X POST -H 'Content-Type: application/json' \
+                              "$BASE/libraries/$LIB/items" -d '{"itemType":"journalArticle","tags":["x"]}' \
+                              | jq -r '.title | select(test("enum|CreateBody") | not) | "clean"')"
+# A mistyped endpoint is nested inside a server that serves the workbench on
+# every other path, so it used to answer 200 and a page of HTML — success, as
+# far as any client could tell.
+check "unknown endpoint 404" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/libraries/$LIB/no-such-thing" | grep -x 404)"
 
 echo "▸ search"
 sleep 1.5   # let the embedding worker drain the queue

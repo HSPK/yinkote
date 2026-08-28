@@ -278,6 +278,14 @@ pub struct ItemDraft {
     /// Optional explicit key, used by importers to preserve upstream ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<Key>,
+    /// When the item was originally added, for the callers that know.
+    ///
+    /// An importer does: restoring a backup or migrating from Zotero should
+    /// not tell the user they added their whole library today. Everything else
+    /// leaves it unset and is stamped with now, which is what "added" means
+    /// when a person adds something.
+    #[serde(rename = "dateAdded", default, skip_serializing_if = "Option::is_none")]
+    pub date_added: Option<i64>,
 }
 
 impl ItemDraft {
@@ -297,6 +305,7 @@ impl ItemDraft {
 
     pub fn into_item(self, key: Key, library_id: i64, version: i64) -> Item {
         let ts = now_ms();
+        let added = self.date_added.filter(|t| *t > 0).unwrap_or(ts);
         Item {
             key,
             library_id,
@@ -309,7 +318,7 @@ impl ItemDraft {
             version,
             deleted: false,
             attachments: Vec::new(),
-            date_added: ts,
+            date_added: added,
             date_modified: ts,
         }
     }

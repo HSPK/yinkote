@@ -232,7 +232,9 @@ async fn merge(
 ///
 /// The key travels: it is what parents, collections and citations refer to, and
 /// a library whose items were renumbered on the way in has lost every link it
-/// had.
+/// had. The same argument applies to when the item was added — restoring a
+/// backup used to stamp the whole library with the moment of the restore,
+/// which resorts every "date added" column and empties "recently added".
 fn draft_of(item: &Item) -> ItemDraft {
     ItemDraft {
         item_type: item.item_type.clone(),
@@ -242,12 +244,33 @@ fn draft_of(item: &Item) -> ItemDraft {
         collections: item.collections.clone(),
         parent_key: item.parent_key.clone(),
         key: Some(item.key.clone()),
+        date_added: Some(item.date_added),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_restored_item_keeps_the_day_it_was_added() {
+        // Restoring used to stamp the whole library with the moment of the
+        // restore. Nothing errors, nothing is missing, and every "date added"
+        // column is quietly wrong — including "recently added", which becomes
+        // the entire library.
+        let mut item = ItemDraft::new("journalArticle")
+            .with_field("title", "Filed years ago")
+            .into_item(Key::generate(), 1, 3);
+        item.date_added = 1_600_000_000_000;
+
+        let draft = draft_of(&item);
+        assert_eq!(draft.date_added, Some(1_600_000_000_000), "the archive knows this");
+        // And it survives being turned back into an item.
+        let again = draft.into_item(item.key.clone(), 1, 4);
+        assert_eq!(again.date_added, item.date_added);
+        // Modified is not preserved: it was modified, just now, by being written.
+        assert!(again.date_modified >= item.date_added);
+    }
 
     #[test]
     fn a_member_that_would_escape_the_directory_is_refused() {

@@ -207,18 +207,25 @@ pub fn read(path: &Path) -> Result<Imported> {
                 r.get::<_, i64>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
             ))
         })
         .map_err(sql_err)?;
 
     for row in rows {
-        let (id, key, item_type) = row.map_err(sql_err)?;
+        let (id, key, item_type, added) = row.map_err(sql_err)?;
         // A key Zotero considers valid but this project does not is not worth
         // losing the item over; a fresh one keeps everything else.
         let key = Key::parse(&key).unwrap_or_else(|_| Key::generate());
 
         let mut draft = ItemDraft::new(&item_type);
         draft.key = Some(key);
+        // The column was already being read and then dropped, so a migrated
+        // library arrived claiming every paper was added on the day of the
+        // migration — which resorts "date added" and empties "recently added"
+        // for the whole thing. Unparseable means unknown, and unknown falls
+        // back to the time of the import rather than to a guess.
+        draft.date_added = added.as_deref().and_then(yk_core::parse_sql_utc_ms);
         for (name, value) in fields.get(&id).into_iter().flatten() {
             if let Some(mapped) = map_field(name) {
                 draft.fields.insert(mapped.to_string(), serde_json::json!(value));

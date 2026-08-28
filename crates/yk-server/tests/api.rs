@@ -1767,3 +1767,50 @@ async fn the_statistics_keep_up_with_the_library() {
     c.post(&format!("/libraries/{lib}/items"), json!([article("Second")])).await;
     assert_eq!(c.get("/stats").await["items"], 2, "and it keeps up across writes");
 }
+
+#[tokio::test]
+async fn every_error_uses_the_same_envelope() {
+    // Handler errors went through `ApiError` and came out as
+    // `{code, status, title}`; anything rejected before reaching a handler
+    // came out as text/plain. A client had two error formats to parse
+    // depending on how wrong it was, and the API is the product surface here
+    // — plugins, the Word add-in and the browser connector all speak it.
+    let (c, _) = Client::new().await;
+
+    // An unparseable path segment: rejected by the extractor, no handler run.
+    let (status, body) = c.send("GET", "/libraries/notanumber/items", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["code"], "invalid_input", "{body}");
+    assert!(body["title"].is_string(), "{body}");
+
+    // A body of the wrong shape. Axum names the Rust type it failed to build;
+    // that is an implementation detail and must not reach a client.
+    let (status, body) = c
+        .send(
+            "POST",
+            "/libraries/1/items",
+            Some(json!({ "itemType": "journalArticle", "tags": ["a string, not a tag"] })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(body["code"], "invalid_input", "{body}");
+    let title = body["title"].as_str().unwrap_or_default();
+    assert!(!title.contains("enum"), "leaks an internal type: {title}");
+    assert!(title.contains("shape"), "says nothing actionable: {title}");
+}
+
+#[tokio::test]
+async fn a_mistyped_endpoint_is_a_json_404_and_not_the_web_app() {
+    // The API is nested inside a server whose outer fallback serves the
+    // workbench, so an unrouted API path used to answer 200 with a page of
+    // HTML. A client checking `ok` believed it had succeeded; one calling
+    // `.json()` got a parse error pointing at nothing.
+    let (c, _) = Client::new().await;
+    let (status, body) = c.send("GET", "/libraries/1/nope", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(body["code"], "not_found", "{body}");
+    assert!(
+        body["title"].as_str().is_some_and(|t| t.contains("no such endpoint")),
+        "{body}"
+    );
+}

@@ -221,6 +221,16 @@ pub fn key(raw: &str) -> Result<Key> {
     Key::parse(raw).map_err(|_| Error::invalid(format!("malformed key '{raw}'")))
 }
 
+/// Answer for a path under `/api/v1` that no route claims.
+///
+/// The API needs its own fallback because it is nested inside a server whose
+/// outer fallback is the web application. Without this a typo in an endpoint
+/// answered 200 with a page of HTML — the one failure a client cannot detect
+/// by looking at the status.
+pub async fn no_such_endpoint(uri: axum::http::Uri) -> crate::error::ApiError {
+    yk_core::Error::not_found(format!("no such endpoint: {}", uri.path())).into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

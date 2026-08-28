@@ -182,7 +182,17 @@ fn make_embedder(config: &Config) -> Arc<dyn yk_ai::EmbeddingProvider> {
 /// Assemble the HTTP router: API under `/api/v1`, workbench everywhere else.
 pub fn router(app: App) -> Router {
     let api = routes::router()
-        .layer(axum::middleware::from_fn_with_state(app.clone(), security::guard));
+        // An unrouted path under `/api/v1` must not fall through to the SPA.
+        // Without this the workbench's own fallback answered it: a mistyped
+        // endpoint returned 200 and a page of HTML, so a client checking `ok`
+        // believed it had succeeded, and one calling `.json()` got a parse
+        // error pointing at nothing.
+        .fallback(routes::no_such_endpoint)
+        .layer(axum::middleware::from_fn_with_state(app.clone(), security::guard))
+        // Outermost of the two, so it also catches anything the guard itself
+        // rejects — a client meeting the API for the first time is exactly the
+        // one most likely to get a header wrong.
+        .layer(axum::middleware::from_fn(error::envelope_rejections));
 
     // The connector sits outside the API guard and outside `/api/v1`: the
     // browser extension can hold no key and knows only Zotero's paths. It is
