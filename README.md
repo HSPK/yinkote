@@ -137,6 +137,33 @@ plugins/       示例插件（见 plugins/README.md）
 | [16-workspace-rules](docs/16-workspace-rules.md) | **工作区规则：无弹窗、tab 模型、踩坑记录** |
 | [plugins/README](plugins/README.md) | **插件开发指南与协议规范** |
 
+## 元数据来源
+
+粘贴 DOI、arXiv 链接、ISBN、PMID 或任意网址，按下面的顺序解析，
+第一个答得上来的胜出：
+
+| 标识符 | 来源 |
+|---|---|
+| DOI | Crossref → DataCite → OpenAlex → Semantic Scholar |
+| arXiv | arXiv → OpenAlex → Semantic Scholar |
+| PMID | PubMed → OpenAlex → Semantic Scholar |
+| ISBN | Open Library |
+| 网址 | 网页元数据（Highwire `citation_*`、Dublin Core、OpenGraph、JSON-LD） |
+
+映射逻辑对着录制的真实响应做单元测试；**URL 拼法只有联网才能验证**，
+所以另有一组按需运行的检查：
+
+```
+cargo test -p yk-scrape --test live_sources -- --ignored --nocapture
+```
+
+它对每个来源发一个"必定存在"的标识符：答错是失败（我们的 URL 错了），
+连不上是跳过并说明原因（别人的服务不适，不是我们的程序坏了）。
+
+> 这比不上 Zotero 的六百多个站点专用 translator。没有 `citation_*` 也没有
+> JSON-LD 的站点仍会退化成"标题 + 网址"——那条路的正解是
+> `/connector/*`：装 Zotero 官方扩展，它的 translator 直接存进这里。
+
 ## 分发
 
 **一个可执行文件，没有别的。** 工作台（`web/dist`）编译进二进制，SQLite 静态链接
