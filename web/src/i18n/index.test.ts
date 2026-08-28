@@ -95,33 +95,102 @@ describe('locale hygiene', () => {
     expect(creators).toEqual([])
   })
 
-  it('has no user-visible string hardcoded outside the catalogues', async () => {
-    // Some Chinese is syntax, not prose: the query language accepts `标签:` as
-    // an alias for `tag:` in either interface language. Such a line must say so
-    // and say why, so the exemption stays deliberate rather than habitual.
-    const EXEMPT = /i18n-exempt:\s*\S/
+  // One walker and one exemption rule for both checks below. An exemption may
+  // sit on the offending line or the one above it, because a JSX comment does
+  // not fit inside a tag.
+  const sources = async () => {
     const { readdirSync, readFileSync } = await import('node:fs')
     const { join } = await import('node:path')
-
     const walk = (dir: string): string[] =>
       readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
         const path = join(dir, e.name)
         if (e.isDirectory()) return walk(path)
         return /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [path] : []
       })
-
-    const offenders = walk('src')
+    return walk('src')
       .filter((path) => !path.includes(join('src', 'i18n')))
-      .flatMap((path) =>
-        readFileSync(path, 'utf8')
-          .split('\n')
-          .map((line, i) => ({ where: `${path}:${i + 1}`, line }))
-          .filter(({ line }) => CJK.test(line) && !EXEMPT.test(line)),
-      )
+      .map((path) => ({ path, lines: readFileSync(path, 'utf8').split('\n') }))
+  }
+
+  const EXEMPT = /i18n-exempt:\s*\S/
+  const exempt = (lines: string[], i: number) =>
+    EXEMPT.test(lines[i] ?? '') || EXEMPT.test(lines[i - 1] ?? '')
+
+  it('has no user-visible string hardcoded outside the catalogues', async () => {
+    // Some Chinese is syntax, not prose: the query language accepts `标签:` as
+    // an alias for `tag:` in either interface language. Such a line must say so
+    // and say why, so the exemption stays deliberate rather than habitual.
+    const offenders = (await sources()).flatMap(({ path, lines }) =>
+      lines
+        .map((line, i) => ({ where: `${path}:${i + 1}`, line, i }))
+        .filter(({ line, i }) => CJK.test(line) && !exempt(lines, i)),
+    )
 
     expect(
       offenders,
       `hardcoded text: ${offenders.map((o) => o.where).join(', ')}`,
     ).toEqual([])
+  })
+
+  it('has no catalogue entry that nothing asks for', async () => {
+    // A dead key is paid for twice, once per language, and there is no way to
+    // notice one by using the app. Thirty-one had accumulated.
+    //
+    // The subtlety is that plenty of keys are never written out in full:
+    // `t(`connector.state.${state}`)` builds the key at runtime. The literal
+    // half still pins a prefix, so those prefixes are collected first and any
+    // key underneath one counts as reached. Without that this check would
+    // condemn eighteen whole families of perfectly live entries.
+    const used = (await sources()).map(({ lines }) => lines.join('\n')).join('\n')
+    const prefixes = [
+      ...new Set([...used.matchAll(/[`'"]([A-Za-z][\w.]*\.)\$\{/g)].map((m) => m[1] ?? '')),
+    ]
+
+    const dead = Object.keys(enUS).filter(
+      (key) => !used.includes(key) && !prefixes.some((p) => key.startsWith(p)),
+    )
+    expect(dead, `unused catalogue entries: ${dead.join(', ')}`).toEqual([])
+  })
+
+  it('has no hardcoded English prose in markup either', async () => {
+    // The check above only ever caught Chinese, which is the *unlikely*
+    // accident: JSX is written in English, so `<Button>Save</Button>` sailed
+    // past every test we had. This is the same rule applied to the language
+    // the code is actually written in.
+    //
+    // Two places prose hides: text nodes, and the handful of attributes a user
+    // can actually read.
+    const TYPE_NOISE = /^(void|Promise|string|number|boolean|null|undefined|unknown|never|any|React|JSX)\b/
+    // The application's own name is not translated in any locale, and it
+    // recurs, so it is a rule rather than a scattering of exemptions.
+    const PRODUCT = /^yinkote$/i
+    // Examples of machine input — a URL to paste, a colour to type — read the
+    // same in every language.
+    const MACHINE = /^(https?:\/\/|#[0-9a-fA-F]{3,8}$)/
+
+    const offenders: string[] = []
+    for (const { path, lines } of await sources()) {
+      if (!path.endsWith('.tsx')) continue
+      lines.forEach((line, i) => {
+        if (exempt(lines, i)) return
+        // `<code>` is syntax by construction; query examples live there.
+        if (!line.includes('<code>')) {
+          // Text between tags. The lookbehind keeps `=>` in a type annotation
+          // from reading as the end of an element.
+          for (const m of line.matchAll(/(?<![=!<>-])>([^<>{}()|]*[A-Za-z]{2,}[^<>{}()|]*)</g)) {
+            const text = (m[1] ?? '').trim()
+            if (!text || TYPE_NOISE.test(text) || PRODUCT.test(text)) continue
+            offenders.push(`${path}:${i + 1} |${text}|`)
+          }
+        }
+        for (const m of line.matchAll(/\b(placeholder|title|aria-label|alt)="([^"]{2,})"/g)) {
+          const value = m[2] ?? ''
+          if (MACHINE.test(value)) continue
+          offenders.push(`${path}:${i + 1} ${m[1]}="${value}"`)
+        }
+      })
+    }
+
+    expect(offenders, `hardcoded English: ${offenders.join(', ')}`).toEqual([])
   })
 })

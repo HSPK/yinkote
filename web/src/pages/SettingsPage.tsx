@@ -353,6 +353,7 @@ runOptimize()
                 <dt>{t('statusPage.provider')}</dt>
                 <dd>{stats?.search.provider ?? '—'}</dd>
                 <dt>{t('settings.license')}</dt>
+                {/* i18n-exempt: an SPDX identifier is machine-readable metadata, not prose */}
                 <dd>AGPL-3.0-or-later</dd>
               </dl>
             ),

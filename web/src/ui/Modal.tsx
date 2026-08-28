@@ -30,6 +30,7 @@ export function Modal({ title, onClose, width = 'wide', scroll = true, children 
       <div className="modal" ref={panel} data-width={width} data-fill={!scroll || undefined}>
         <header className="modal-head">
           <span>{title}</span>
+          {/* i18n-exempt: the legend printed on the key itself, which keyboards do not translate */}
           <button className="modal-close" onClick={onClose} title="Esc">
             <Icon.Close size={13} />
           </button>
