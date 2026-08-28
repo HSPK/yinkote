@@ -5,6 +5,7 @@
 //! Each layer only knows about the abstractions below it.
 
 pub mod addin;
+pub mod workbench;
 pub mod agent;
 pub mod badges;
 pub mod config;
@@ -191,17 +192,27 @@ pub fn router(app: App) -> Router {
         .merge(routes::connector::router())
         .merge(addin::router());
 
+    // A directory when one is named, the embedded copy otherwise. An explicit
+    // flag must win: it is how the frontend is developed, and a flag silently
+    // losing to something compiled in months ago is a bad hour for somebody.
     let started_config = app.config();
-    if let Some(dir) = &started_config.web_dir {
-        let index = dir.join("index.html");
-        if index.exists() {
+    let from_disk = started_config
+        .web_dir
+        .as_ref()
+        .filter(|dir| dir.join("index.html").exists());
+    match from_disk {
+        Some(dir) => {
             // SPA fallback: unknown paths render the app shell, not a 404.
-            router = router.fallback_service(
-                ServeDir::new(dir).fallback(ServeFile::new(index)),
-            );
-            tracing::info!(dir = %dir.display(), "serving workbench");
-        } else {
-            tracing::warn!(dir = %dir.display(), "web_dir has no index.html; UI disabled");
+            router = router
+                .fallback_service(ServeDir::new(dir).fallback(ServeFile::new(dir.join("index.html"))));
+            tracing::info!(dir = %dir.display(), "serving workbench from disk");
+        }
+        None => {
+            if let Some(dir) = &started_config.web_dir {
+                tracing::warn!(dir = %dir.display(), "no index.html there; using the built-in copy");
+            }
+            router = router.fallback(workbench::serve);
+            tracing::info!(embedded = workbench::is_embedded(), "serving built-in workbench");
         }
     }
 

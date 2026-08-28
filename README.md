@@ -137,6 +137,23 @@ plugins/       示例插件（见 plugins/README.md）
 | [16-workspace-rules](docs/16-workspace-rules.md) | **工作区规则：无弹窗、tab 模型、踩坑记录** |
 | [plugins/README](plugins/README.md) | **插件开发指南与协议规范** |
 
+## 分发
+
+**一个可执行文件，没有别的。** 工作台（`web/dist`）编译进二进制，SQLite 静态链接
+（`rusqlite` 的 `bundled`），Word 任务窗格也在里面；Linux 上动态依赖只有 libc /
+libm / libgcc。把二进制拷到任意空目录直接跑即可：
+
+```
+./yinkote --data-dir ~/.yinkote --port 23119
+```
+
+体积约 18 MB（其中工作台约 5 MB）。
+
+- **`--web-dir` 仍然优先**：开发前端时指向 `web/dist`，改完刷新即可，不必重编 Rust。
+- **插件是磁盘上的目录**，这是插件系统的本意——它们本来就该能被换掉。
+- 没跑过 `npm run build` 也能编译成功：`build.rs` 会放一个页面说明发生了什么，
+  API 照常可用。
+
 ## 路线（尚未实现）
 
 设计已完成、代码待补：**多端同步**。

@@ -600,6 +600,17 @@ fi
 check "path is not a key" "$(curl -sS -o /dev/null -w '%{http_code}' \
                               -X POST "$BASE/libraries/$LIB/items/..%2fetc/reveal" | grep -E '4[0-9][0-9]')"
 
+echo "▸ single binary"
+# The premise is that somebody installs this and starts it, and that only holds
+# if "install" means one file. The workbench is compiled in; a directory named
+# with --web-dir still wins, because that is how the frontend is developed.
+ORIGIN2=${BASE%/api/v1}
+check "workbench served"  "$(curl -sS -o /dev/null -w '%{content_type}' "$ORIGIN2/" | grep -o 'text/html')"
+# A client route must reach the app shell, not a 404 from a server that has
+# never heard of it.
+check "client routes"     "$(curl -sS -o /dev/null -w '%{http_code}' "$ORIGIN2/reader/ABCD1234" | grep -x 200)"
+check "hashed asset"      "$(curl -sS "$ORIGIN2/" | grep -o '/assets/index-[A-Za-z0-9_-]*\.js' | head -1)"
+
 echo "▸ word add-in"
 # The pane is served by the binary, outside /api/v1 and outside the SPA
 # fallback. The fallback answering manifest.xml with index.html is the failure
