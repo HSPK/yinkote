@@ -57,6 +57,8 @@ export const zhCN = {
   'table.emptyLibrary': '文库是空的。可以在设置里从 Zotero 导入，用 {shortcut}K 粘贴 DOI 或网址，或者把 PDF 拖进来。',
   'table.countApprox': '{shown} / {total}+ 条',
   'table.count': '{shown} / {total} 条',
+  'table.ranked': '按相关度排序',
+  'table.rankedHint': '搜索按相关度返回最佳结果，因此列排序不适用。清空搜索后即可排序。',
   'table.loading': '载入中…',
 
   'detail.title': '详情',

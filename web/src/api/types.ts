@@ -98,6 +98,8 @@ export interface Page<T> {
   /** Absent for a browse, which counts exactly. Present when the total is a
    *  floor because a search filled its candidate pool. */
   approximate?: boolean
+  /** Rows are in relevance order; any requested sort was not applied. */
+  ranked?: boolean
   offset: number
   limit: number
 }

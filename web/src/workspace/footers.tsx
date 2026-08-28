@@ -36,6 +36,7 @@ export function LibraryFooter() {
   const items = useStore((s) => s.items)
   const total = useStore((s) => s.total)
   const approximate = useStore((s) => s.approximate)
+  const ranked = useStore((s) => s.ranked)
   const loading = useStore((s) => s.loading)
   const loadingMore = useStore((s) => s.loadingMore)
   const badgeDefs = useStore((s) => s.badgeDefs)
@@ -58,6 +59,8 @@ export function LibraryFooter() {
           total,
         })}
       </span>
+      {/* Say what the order is, since the column header can no longer. */}
+      {ranked && <span className="dim" title={t('table.rankedHint')}>{t('table.ranked')}</span>}
       {(loading || loadingMore) && <span className="dim">{t('table.loading')}</span>}
       <span className="spacer" />
 

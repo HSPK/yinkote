@@ -56,6 +56,8 @@ export const enUS: Record<MessageKey, string> = {
   'table.emptyLibrary': 'Your library is empty. Import from Zotero in Settings, paste a DOI or URL with {shortcut}K, or drop a PDF here.',
   'table.countApprox': '{shown} / {total}+',
   'table.count': '{shown} / {total}',
+  'table.ranked': 'Best match first',
+  'table.rankedHint': 'A search returns its best matches first, so column sorting does not apply. Clear the search to sort.',
   'table.loading': 'Loading…',
 
   'detail.title': 'Detail',

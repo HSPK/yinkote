@@ -131,6 +131,17 @@ check "chinese"          "$(j "$BASE/libraries/$LIB/search?q=%E6%89%A9%E6%95%A3%
 check "tag operator"     "$(j "$BASE/libraries/$LIB/search?q=tag:nlp" | jq -r '.hits|length')"
 check "snippet mark"     "$(j "$BASE/libraries/$LIB/search?q=transformer" | jq -r '.hits[0].snippet' | grep -c '<mark>')"
 check "items?q= hydrate" "$(j "$BASE/libraries/$LIB/items?q=attention" | jq -r '.items[0].match.sources|length')"
+# A word query cannot honour a column sort: it scores a bounded pool and
+# returns it best-first. That was true and unsaid, so the table drew an arrow
+# on a column it was not sorted by and took clicks that changed nothing.
+check "search is ranked"  "$(j "$BASE/libraries/$LIB/items?q=attention&sort=title" \
+                              | jq -r '.ranked | select(. == true) | "ranked"')"
+# The same request with a filter-only query *is* sorted, so the flag must not
+# simply be on whenever `q=` is present.
+check "filter not ranked" "$(j "$BASE/libraries/$LIB/items?q=tag:nlp&sort=title" \
+                              | jq -r 'if .ranked then empty else "sorted" end')"
+check "browse not ranked" "$(j "$BASE/libraries/$LIB/items?sort=title" \
+                              | jq -r 'if .ranked then empty else "sorted" end')"
 
 echo "▸ quick add"
 # Quick add had no coverage at all, which is how "nothing resolved" managed to

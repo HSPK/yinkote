@@ -251,6 +251,7 @@ export function ItemTable() {
   const selected = useStore((s) => s.selected)
   const cursor = useStore((s) => s.cursor)
   const sort = useStore((s) => s.sort)
+  const ranked = useStore((s) => s.ranked)
   const direction = useStore((s) => s.direction)
   const setSort = useStore((s) => s.setSort)
   const loading = useStore((s) => s.loading)
@@ -334,14 +335,20 @@ export function ItemTable() {
           data-column={c.id}
           onContextMenu={contextMenu(() => headerMenu(c))}
         >
+          {/* A ranked search returns its pool best-first and cannot honour a
+              column sort, so while one is running the header neither draws an
+              arrow nor accepts a click. It used to do both: the arrow moved,
+              the rows did not, and nothing said why. Sorting the pool instead
+              would be worse — the first title among three hundred hits,
+              presented as the first title in the library. */}
           <button
-            className={sort === c.sort ? 'sorted' : undefined}
-            disabled={!c.sort}
-            title={headerLabel(c)}
+            className={!ranked && sort === c.sort ? 'sorted' : undefined}
+            disabled={!c.sort || ranked}
+            title={ranked ? t('table.rankedHint') : headerLabel(c)}
             onClick={() => c.sort && setSort(c.sort)}
           >
             <span className="head-label">{headerContent(c)}</span>
-            {sort === c.sort && (
+            {!ranked && sort === c.sort && (
               <span className="sort-arrow">{direction === 'asc' ? '↑' : '↓'}</span>
             )}
           </button>

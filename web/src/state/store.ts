@@ -311,6 +311,7 @@ export const useStore = create<State>((set, get, store) => ({
         items: page.items,
         total: page.total,
         approximate: page.approximate ?? false,
+        ranked: page.ranked ?? false,
         loading: false,
         tookMs: Math.round(performance.now() - started),
         cursor: Math.min(get().cursor, Math.max(0, page.items.length - 1)),
@@ -340,6 +341,7 @@ export const useStore = create<State>((set, get, store) => ({
         items: [...get().items, ...page.items],
         total: page.total,
         approximate: page.approximate ?? false,
+        ranked: page.ranked ?? false,
         loadingMore: false,
       })
       void get().loadBadges(page.items.map((i) => i.key))

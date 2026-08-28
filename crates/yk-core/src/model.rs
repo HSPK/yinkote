@@ -594,16 +594,32 @@ pub struct Page<T> {
     /// matching twenty thousand — reads as precision that is not there.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub approximate: bool,
+    /// Whether these rows are in relevance order rather than the asked-for one.
+    ///
+    /// A ranked search cannot honour a column sort: it scores a bounded pool
+    /// and returns it best-first, so sorting that pool by title would give the
+    /// first title *among the best three hundred*, presented as the first
+    /// title in the library. The sort is therefore ignored — and it was
+    /// ignored silently, with the table still drawing an arrow on the column
+    /// and still accepting clicks that changed nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ranked: bool,
 }
 
 impl<T> Page<T> {
     pub fn new(items: Vec<T>, total: i64, offset: u32, limit: u32) -> Self {
-        Self { items, total, offset, limit, approximate: false }
+        Self { items, total, offset, limit, approximate: false, ranked: false }
     }
 
     /// The same page, with its total marked as a lower bound.
     pub fn approximate(mut self) -> Self {
         self.approximate = true;
+        self
+    }
+
+    /// The same page, marked as ordered by relevance.
+    pub fn ranked(mut self) -> Self {
+        self.ranked = true;
         self
     }
 
@@ -614,6 +630,7 @@ impl<T> Page<T> {
             offset: self.offset,
             limit: self.limit,
             approximate: self.approximate,
+            ranked: self.ranked,
         }
     }
 }

@@ -174,6 +174,9 @@ async fn list(
     // Marked when a retriever filled its pool: the client then shows "300+"
     // rather than a figure it would be reasonable to read as exact.
     let page = if capped { page.approximate() } else { page };
+    // Relevance order, whatever sort was asked for. Said out loud so the table
+    // stops drawing an arrow on a column it is not sorted by.
+    let page = page.ranked();
     Ok((version_header(version), Json(page)))
 }
 

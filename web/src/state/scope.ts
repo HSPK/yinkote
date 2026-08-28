@@ -28,6 +28,10 @@ export interface Scope {
   /** Whether `total` is a floor. A ranked search scores a bounded pool, so it
    *  knows it found "at least" this many; a browse counts exactly. */
   approximate: boolean
+  /** Whether the rows are in relevance order rather than the asked-for one.
+   *  A ranked search scores a bounded pool and returns it best-first, so it
+   *  cannot honour a column sort — and the header must not claim it did. */
+  ranked: boolean
   loading: boolean
   loadingMore: boolean
   tookMs: number
@@ -54,6 +58,7 @@ export function emptyScope(patch: Partial<Scope> = {}): Scope {
     items: [],
     total: 0,
     approximate: false,
+    ranked: false,
     loading: false,
     loadingMore: false,
     tookMs: 0,
