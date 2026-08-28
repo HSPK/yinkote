@@ -1474,3 +1474,81 @@ async fn cached_pages_go_when_the_item_does() {
         .unwrap_or_default();
     assert!(left.is_empty(), "left behind: {left:?}");
 }
+
+#[tokio::test]
+async fn a_rename_preview_of_a_selection_matches_the_whole_library_scan() {
+    // The two paths exist for cost, not for meaning: picking twelve files must
+    // plan exactly what a full scan would have planned for those twelve.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let mut attachments = Vec::new();
+    for i in 0..6 {
+        let paper = c
+            .post(
+                &format!("/libraries/{lib}/items"),
+                json!([{ "itemType": "journalArticle", "title": format!("Paper {i}"),
+                         "date": "2021", "creators": [{ "creatorType": "author", "lastName": "Ren" }] }]),
+            )
+            .await["created"][0]["key"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let att = c
+            .post(
+                &format!("/libraries/{lib}/items"),
+                json!([{ "itemType": "attachment", "parentKey": paper,
+                         "filename": format!("raw-{i}.pdf"), "contentType": "application/pdf" }]),
+            )
+            .await["created"][0]["key"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        attachments.push(att);
+    }
+
+    let all = c.post(&format!("/libraries/{lib}/files/preview"), json!({})).await;
+    assert_eq!(all["total"], 6, "every file would be renamed: {all}");
+
+    let picked: Vec<&String> = attachments.iter().take(2).collect();
+    let some = c
+        .post(&format!("/libraries/{lib}/files/preview"), json!({ "keys": picked }))
+        .await;
+    assert_eq!(some["total"], 2);
+
+    // Same names, so the fast path is a shortcut and not a second opinion.
+    let named = |plan: &Value| -> Vec<String> {
+        let mut v: Vec<String> = plan["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["to"].as_str().unwrap().to_string())
+            .collect();
+        v.sort();
+        v
+    };
+    let from_all: Vec<String> = named(&all)
+        .into_iter()
+        .filter(|n| named(&some).contains(n))
+        .collect();
+    assert_eq!(from_all, named(&some), "the selection planned different names");
+    assert!(!named(&some).is_empty());
+}
+
+#[tokio::test]
+async fn a_rename_selection_ignores_keys_that_are_not_attachments() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let paper = c.post(&format!("/libraries/{lib}/items"), json!([article("Just a paper")])).await
+        ["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // A paper has no filename to change, and an unknown key names nothing at
+    // all. Neither is an error worth failing a preview over.
+    let plan = c
+        .post(&format!("/libraries/{lib}/files/preview"), json!({ "keys": [paper, "ZZZZZZZZ"] }))
+        .await;
+    assert_eq!(plan["total"], 0, "{plan}");
+}

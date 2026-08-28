@@ -78,14 +78,23 @@ pub fn keyword(
     query: &str,
     limit: usize,
 ) -> Result<Vec<(i64, f32)>> {
+    let mut tried: Option<String> = None;
     for conjunctive in [true, false] {
         let Some(expr) = match_expression(query, conjunctive) else { return Ok(Vec::new()) };
+        // A one-token query joins to the same string either way, so the
+        // "fallback" would re-run the identical statement — twice the work to
+        // reach the same empty answer, on exactly the queries that already
+        // found nothing.
+        if tried.as_deref() == Some(expr.as_str()) {
+            break;
+        }
         let hits = run_bm25(conn, library_id, &expr, limit)?;
         // Fall back to a disjunctive query only when the strict one found
         // nothing, which keeps precision high for multi-word queries.
         if !hits.is_empty() {
             return Ok(hits);
         }
+        tried = Some(expr);
     }
     Ok(Vec::new())
 }
@@ -291,5 +300,33 @@ mod tests {
     fn cjk_becomes_multiple_terms() {
         let e = match_expression("扩散模型", true).unwrap();
         assert!(e.contains(" AND "));
+    }
+}
+
+#[cfg(test)]
+mod single_token_tests {
+    use super::*;
+
+    #[test]
+    fn one_token_reads_the_same_either_way() {
+        // Which is why `keyword` stops after the first pass: the disjunctive
+        // "fallback" is the same statement, and it only ever runs when the
+        // first one found nothing — so the cost is paid exactly on the misses.
+        assert_eq!(
+            match_expression("transformer", true),
+            match_expression("transformer", false),
+        );
+    }
+
+    #[test]
+    fn more_than_one_token_really_does_differ() {
+        let and = match_expression("diffusion alignment", true).unwrap();
+        let or = match_expression("diffusion alignment", false).unwrap();
+        assert_ne!(and, or);
+        assert!(and.contains(" AND "), "{and}");
+        assert!(or.contains(" OR "), "{or}");
+        // Only the last token is a prefix, so as-you-type stays cheap.
+        assert!(and.contains("\"alignment\"*"), "{and}");
+        assert!(!and.contains("\"diffusion\"*"), "{and}");
     }
 }

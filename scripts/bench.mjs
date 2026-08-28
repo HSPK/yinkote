@@ -127,6 +127,9 @@ const BUDGET = {
   // and nearly all of what is left is the count rather than the page. A
   // regression to materialising every tag would land back above this.
   'list filtered by tag': 28,
+  // 313.7ms before a selection was fetched by key instead of filtered out of
+  // the whole library, 1.5ms after. This is the path the UI uses.
+  'rename preview (selection)': 15,
   'list one collection': 25,
   'list collection + children': 25,
   facets: 15,
@@ -134,6 +137,25 @@ const BUDGET = {
 }
 
 const overBudget = []
+
+/** Print one line and hold it to its budget.
+ *
+ *  Separate from `measure` because not every measurement is a plain GET — a
+ *  preview is a POST with a body — and the budget is the point of the whole
+ *  script. A measurement that prints through its own format string is a
+ *  measurement nothing is checking.
+ */
+function report(label, s, count) {
+  const budget = BUDGET[label]
+  const over = budget !== undefined && s.p50 > budget
+  if (over) overBudget.push(`${label}: ${s.p50.toFixed(1)}ms, budget ${budget}ms`)
+  console.log(
+    `  ${label.padEnd(34)} p50 ${s.p50.toFixed(1).padStart(6)}ms  ` +
+      `p95 ${s.p95.toFixed(1).padStart(6)}ms  p99 ${s.p99.toFixed(1).padStart(6)}ms  ` +
+      `(n=${count})${over ? '  ← OVER BUDGET' : ''}`,
+  )
+  return s
+}
 
 async function measure(label, path, runs = 40) {
   const samples = []
@@ -144,16 +166,7 @@ async function measure(label, path, runs = 40) {
     samples.push(performance.now() - t)
     count = body.total ?? body.hits?.length ?? 0
   }
-  const s = stats(samples)
-  const budget = BUDGET[label]
-  const over = budget !== undefined && s.p50 > budget
-  if (over) overBudget.push(`${label}: ${s.p50.toFixed(1)}ms, budget ${budget}ms`)
-  console.log(
-    `  ${label.padEnd(34)} p50 ${s.p50.toFixed(1).padStart(6)}ms  ` +
-      `p95 ${s.p95.toFixed(1).padStart(6)}ms  p99 ${s.p99.toFixed(1).padStart(6)}ms  ` +
-      `(n=${count})${over ? '  ← OVER BUDGET' : ''}`,
-  )
-  return s
+  return report(label, stats(samples), count)
 }
 
 async function seed(lib) {
@@ -338,6 +351,29 @@ async function main() {
       `  ${'rename preview'.padEnd(34)} ${(performance.now() - t).toFixed(1).padStart(6)}ms  ` +
         `${(text.length / 1024).toFixed(1)} KB`,
     )
+  }
+  {
+    // The case the UI actually uses: pick a few files and preview those. It
+    // has to cost what the selection costs, not what the library costs —
+    // planning all 30,000 to keep twelve was 314ms, and the discarding was a
+    // linear scan of the selection per row.
+    // Sliced here rather than trusted to the query: `/files` pages by its own
+    // rule, and a benchmark whose input size is decided elsewhere measures
+    // something different every time that rule changes.
+    const files = await get(`/libraries/${lib}/files`)
+    const keys = files.files.filter((f) => f.filename).map((f) => f.key).slice(0, 100)
+    const samples = []
+    for (let i = 0; i < 20; i++) {
+      const t = performance.now()
+      await fetch(`${BASE}/libraries/${lib}/files/preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ template: '{author} {year} - {title}', keys }),
+      }).then((r) => r.text())
+      samples.push(performance.now() - t)
+    }
+    const s = stats(samples)
+    report('rename preview (selection)', s, keys.length)
   }
 
   console.log('\n▸ citations')

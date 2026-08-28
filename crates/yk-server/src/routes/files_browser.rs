@@ -197,16 +197,21 @@ async fn plan(
     body: &Rename,
     template: &str,
 ) -> Result<Vec<(Item, String, String)>, Error> {
-    let chosen: Vec<Key> =
-        body.keys.iter().filter_map(|k| Key::parse(k).ok()).collect();
+    let chosen: Vec<Key> = body.keys.iter().filter_map(|k| Key::parse(k).ok()).collect();
 
-    let page = app.store().items.attachments(lib, u32::MAX, 0).await?;
-    let mut out = Vec::new();
+    // Renaming a selection is the ordinary case, and it should cost what the
+    // selection costs. Reading every attachment in the library and discarding
+    // all but twelve of them was 314ms on a 30,000-file library — and the
+    // discarding was a linear scan of the selection per row, so it got worse
+    // the more the user had picked.
+    let pairs = if chosen.is_empty() {
+        app.store().items.attachments(lib, u32::MAX, 0).await?.items
+    } else {
+        with_parents(app, lib, &chosen).await?
+    };
 
-    for (attachment, parent) in page.items {
-        if !chosen.is_empty() && !chosen.contains(&attachment.key) {
-            continue;
-        }
+    let mut out = Vec::with_capacity(pairs.len().min(1024));
+    for (attachment, parent) in pairs {
         let Some(parent) = parent else { continue };
 
         let from = attachment.field("filename").unwrap_or_default().to_string();
@@ -221,4 +226,41 @@ async fn plan(
     }
 
     Ok(out)
+}
+
+/// The chosen attachments, each with the parent the template reads from.
+///
+/// Two batched queries rather than one per attachment: a rename of a few
+/// hundred files is a request, and a query per file inside a request is how a
+/// pool runs out of connections (see `docs/16` 3.98).
+async fn with_parents(app: &App, lib: i64, keys: &[Key]) -> Result<Vec<(Item, Option<Item>)>, Error> {
+    let attachments: Vec<Item> = app
+        .store()
+        .items
+        .get_many(lib, keys)
+        .await?
+        .into_iter()
+        .filter(|i| i.item_type == "attachment")
+        .collect();
+
+    let parent_keys: Vec<Key> = {
+        let mut seen = std::collections::HashSet::new();
+        attachments.iter().filter_map(|a| a.parent_key.clone()).filter(|k| seen.insert(k.clone())).collect()
+    };
+    let parents: std::collections::HashMap<Key, Item> = app
+        .store()
+        .items
+        .get_many(lib, &parent_keys)
+        .await?
+        .into_iter()
+        .map(|p| (p.key.clone(), p))
+        .collect();
+
+    Ok(attachments
+        .into_iter()
+        .map(|a| {
+            let parent = a.parent_key.as_ref().and_then(|k| parents.get(k).cloned());
+            (a, parent)
+        })
+        .collect())
 }
