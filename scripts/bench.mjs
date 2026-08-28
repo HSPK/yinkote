@@ -176,7 +176,10 @@ async function measure(label, path, runs = 40) {
     samples.push(performance.now() - t)
     count = body.total ?? body.hits?.length ?? 0
   }
-  return report(label, stats(samples), count)
+  // The first sample is kept separate: for anything the server warms at
+  // startup, a broken warm-up shows up only there — the other 39 calls warm
+  // each other and the median says nothing.
+  return { ...report(label, stats(samples), count), first: samples[0] }
 }
 
 async function seed(lib) {
@@ -328,7 +331,20 @@ async function main() {
       `/libraries/${lib}/items?limit=100&tag=${encodeURIComponent(rare.name)}`,
     )
   }
-  await measure('facets', `/libraries/${lib}/facets?limit=60`)
+  // No `limit`, because the sidebar sends none and the startup warm-up
+  // computes that exact slot. Asking for 60 measured a cache nobody fills:
+  // 232ms on the first call and 1.9ms after, for a path the product never
+  // takes — reporting a number three orders out from what a user sees, and
+  // leaving the warm-up with no coverage at all. Third time this shape has
+  // bitten; see docs/16 3.48, 3.49 and 3.126.
+  const facetTiming = await measure('facets', `/libraries/${lib}/facets`)
+  // 227ms cold against 2ms warm, which is why `warm_first_load` exists. By the
+  // time the benchmark runs, startup is long over, so the first call here is
+  // warm *if the warm-up worked* — and that is the only sample that can tell.
+  if (facetTiming.first > 40) {
+    overBudget.push(`facets first call: ${facetTiming.first.toFixed(1)}ms — startup warm-up missed it`)
+    console.log(`  ${' '.repeat(34)} first ${facetTiming.first.toFixed(1)}ms  ← COLD`)
+  }
   // Browsing a shelf, which is how most people navigate a library and which
   // went entirely unmeasured while the corpus had no collections in it.
   const shelf = shelves[0]?.key

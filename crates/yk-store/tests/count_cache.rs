@@ -108,3 +108,30 @@ async fn permanent_deletion_is_reflected() {
     s.items.delete(lib, &[one.key]).await.unwrap();
     assert_eq!(total(&s, all(lib)).await, 0);
 }
+
+#[tokio::test]
+async fn count_and_list_never_disagree() {
+    // They are the same question asked two ways, and for a while they were two
+    // implementations — only one of which read the cache. A test that asks both
+    // across a write is what keeps them one.
+    let (s, lib) = store().await;
+    for i in 0..5 {
+        let mut draft = article(&format!("Paper {i}"));
+        if i % 2 == 0 {
+            draft.tags = vec![ItemTag::manual("even")];
+        }
+        s.items.create(lib, draft).await.unwrap();
+    }
+
+    for filter in [all(lib), tagged(lib, "even"), tagged(lib, "nothing")] {
+        let listed = total(&s, filter.clone()).await;
+        let counted = s.items.count(&filter).await.unwrap();
+        assert_eq!(listed, counted, "list and count disagreed for {filter:?}");
+    }
+
+    // And again after a write, so a cached answer cannot outlive its state in
+    // one of them but not the other.
+    s.items.create(lib, article("Late arrival")).await.unwrap();
+    assert_eq!(total(&s, all(lib)).await, s.items.count(&all(lib)).await.unwrap());
+    assert_eq!(s.items.count(&all(lib)).await.unwrap(), 6);
+}

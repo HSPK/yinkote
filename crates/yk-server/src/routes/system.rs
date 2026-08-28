@@ -66,14 +66,27 @@ async fn stats(State(app): State<App>) -> ApiResult<Json<Value>> {
         trash: yk_core::query::TrashScope::Only,
         ..Default::default()
     };
+    // Six independent questions, so the answer takes as long as the slowest
+    // rather than as long as all of them. Written out in one `join!` instead of
+    // awaited in turn: nothing here reads anything else here, and the sum was
+    // most of what the workbench waited for on load.
+    let (items, trashed, collections, tags, search, version) = tokio::join!(
+        app.store().items.count(&filter),
+        app.store().items.count(&trashed),
+        app.store().collections.count(lib),
+        app.store().tags.count(lib),
+        app.search().stats(),
+        app.store().libraries.version(lib),
+    );
+
     Ok(Json(json!({
-        "items": app.store().items.count(&filter).await?,
-        "trashed": app.store().items.count(&trashed).await?,
-        "collections": app.store().collections.count(lib).await?,
-        "tags": app.store().tags.count(lib).await?,
-        "search": app.search().stats().await?,
+        "items": items?,
+        "trashed": trashed?,
+        "collections": collections?,
+        "tags": tags?,
+        "search": search?,
         "plugins": app.plugins.list().await.len(),
-        "version": app.store().libraries.version(lib).await?,
+        "version": version?,
         "uptimeSecs": app.uptime_secs(),
         "wsClients": app.events().subscriber_count(),
     })))

@@ -94,6 +94,41 @@ fn map_row(row: &Row<'_>) -> rusqlite::Result<(i64, Item)> {
 /// away — 95.7ms at offset 50000 against 2.1ms. The outer `ORDER BY` re-sorts a
 /// hundred rows, which is free, and is needed because `IN` does not preserve
 /// order.
+/// How many rows a predicate matches, remembered against the library version.
+///
+/// One implementation for both callers. `list` reports this as a page total and
+/// `count` returns it directly; two copies would have drifted, and in fact did
+/// — only one of them was reading the cache, so `/stats` recounted the whole
+/// library on every workbench load.
+///
+/// A version of -1 (a library that has gone missing between the query and now)
+/// is not cached: there is no state to key it to.
+fn cached_count(
+    c: &rusqlite::Connection,
+    cache: &crate::counts::CountCache,
+    library_id: i64,
+    p: &Predicate,
+) -> Result<i64> {
+    let version: i64 = c
+        .query_row("SELECT version FROM libraries WHERE id = ?1", params![library_id], |r| r.get(0))
+        .unwrap_or(-1);
+    let key = crate::counts::CountCache::key(library_id, p);
+    if let Some(total) = cache.get(&key, version) {
+        return Ok(total);
+    }
+
+    let sql = format!("SELECT count(*) FROM items i WHERE {}", p.sql);
+    let total = c
+        .prepare_cached(&sql)
+        .map_err(sql_err)?
+        .query_row(params_from_iter(p.params.iter()), |r| r.get(0))
+        .map_err(sql_err)?;
+    if version >= 0 {
+        cache.put(key, version, total);
+    }
+    Ok(total)
+}
+
 fn page_sql(p: &Predicate, sort: SortField, direction: Direction) -> String {
     let order = order_by(sort, direction);
     // Name the index for a plain browse. See `filter::sort_index`: one unrelated
@@ -817,33 +852,7 @@ impl ItemRepository for SqliteItemRepository {
                 let cols = Self::resolve_collections(c, &query.filter)?;
                 let p = Predicate::build(&query.filter, cols.as_deref());
 
-                // The library version is what makes this exact: every write
-                // moves it, so a cached total is either from the state being
-                // queried or it is not used at all.
-                let version: i64 = c
-                    .query_row(
-                        "SELECT version FROM libraries WHERE id = ?1",
-                        params![query.filter.library_id],
-                        |r| r.get(0),
-                    )
-                    .unwrap_or(-1);
-                let cache_key = crate::counts::CountCache::key(query.filter.library_id, &p);
-
-                let total: i64 = match counts.get(&cache_key, version) {
-                    Some(total) => total,
-                    None => {
-                        let sql = format!("SELECT count(*) FROM items i WHERE {}", p.sql);
-                        let total = c
-                            .prepare_cached(&sql)
-                            .map_err(sql_err)?
-                            .query_row(params_from_iter(p.params.iter()), |r| r.get(0))
-                            .map_err(sql_err)?;
-                        if version >= 0 {
-                            counts.put(cache_key, version, total);
-                        }
-                        total
-                    }
-                };
+                let total = cached_count(c, &counts, query.filter.library_id, &p)?;
 
                 // Which way to write the tag filter is a cost decision, and
                 // `total` is the number it turns on — which is why the count
@@ -1484,15 +1493,12 @@ impl ItemRepository for SqliteItemRepository {
 
     async fn count(&self, filter: &ItemFilter) -> Result<i64> {
         let filter = filter.clone();
+        let counts = self.counts.clone();
         self.db
             .call(move |c| {
                 let cols = Self::resolve_collections(c, &filter)?;
                 let p = Predicate::build(&filter, cols.as_deref());
-                let sql = format!("SELECT count(*) FROM items i WHERE {}", p.sql);
-                c.prepare_cached(&sql)
-                    .map_err(sql_err)?
-                    .query_row(params_from_iter(p.params.iter()), |r| r.get(0))
-                    .map_err(sql_err)
+                cached_count(c, &counts, filter.library_id, &p)
             })
             .await
     }
