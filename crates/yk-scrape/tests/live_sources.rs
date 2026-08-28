@@ -113,6 +113,38 @@ fn probes() -> Vec<(Box<dyn Resolver>, Probe)> {
     ]
 }
 
+/// Every source in the registry is actually probed above.
+///
+/// **Not `#[ignore]`, on purpose.** The rest of this file needs the network,
+/// so the attribute got applied to the file's subject rather than to each
+/// test's real requirement — but *this* question is offline: both lists are
+/// built by constructing resolvers, and construction talks to nobody. Left
+/// behind `--ignored` it would be answered only by someone who already
+/// remembered the live suite exists, which is exactly the person who does not
+/// need reminding.
+///
+/// Without this, adding a ninth resolver leaves the live suite testing eight
+/// and reporting success — a check that silently stops covering what it
+/// names (§3.200). The registry is *meant* to grow, so the guard has to be
+/// the thing that grows with it.
+#[test]
+fn every_registered_source_has_a_probe() {
+    let registered: Vec<&str> =
+        yk_scrape::ScrapeEngine::with_defaults().sources().iter().map(|s| s.id).collect();
+    let probed: Vec<&str> = probes().iter().map(|(_, p)| p.source).collect();
+
+    let unprobed: Vec<&&str> = registered.iter().filter(|id| !probed.contains(id)).collect();
+    assert!(
+        unprobed.is_empty(),
+        "in the registry but never probed live, so nothing checks their URLs: {unprobed:?}"
+    );
+
+    // And the other way: a probe for a source no longer registered is dead
+    // weight that still costs a network round trip on every live run.
+    let orphaned: Vec<&&str> = probed.iter().filter(|id| !registered.contains(id)).collect();
+    assert!(orphaned.is_empty(), "probed but not in the registry: {orphaned:?}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "talks to the live services; run with --ignored"]
 async fn every_source_answers_for_something_that_certainly_exists() {
@@ -171,4 +203,68 @@ async fn the_fallback_chain_reaches_past_the_first_source() {
     assert_eq!(hits.len(), 1, "the fallback never ran");
     assert_ne!(hits[0].source, "crossref");
     assert_eq!(hits[0].draft.item_type, "dataset", "a dataset is not an article");
+}
+
+/// The `webpage` fallback against the publishers people actually paste.
+///
+/// The probe above proves one URL works. That is not the question this one
+/// asks: the fallback's whole job is pages nobody wrote a mapping for, so its
+/// coverage is only knowable by trying a spread and looking at what comes
+/// back. Run it when touching `meta`/`jsonld`.
+///
+/// Deliberately **not** asserting a title per site — publishers rewrite pages,
+/// and a test that goes red because a journal reworded a heading is a test
+/// that gets switched off. It asserts the two things that are our fault:
+/// nothing is saved with a bot-wall title, and a page that answers at all
+/// yields a title plus either an author or a DOI (otherwise the record is not
+/// worth having and `to_draft` should have declined).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "talks to the live services; run with --ignored"]
+async fn the_web_fallback_handles_real_publisher_pages() {
+    use yk_scrape::resolver::WebPage;
+    let pages = [
+        "https://www.nature.com/articles/nature14539",
+        "https://link.springer.com/article/10.1007/s11263-015-0816-y",
+        "https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0173664",
+        "https://aclanthology.org/N19-1423/",
+        "https://www.jmlr.org/papers/v21/20-074.html",
+        // Answers 200 with a browser check to anything without a session. The
+        // right outcome is no item at all; see `INTERSTITIAL` in `meta`.
+        "https://openreview.net/forum?id=YicbFdNTTy",
+        "https://en.wikipedia.org/wiki/Transformer_(deep_learning_architecture)",
+    ];
+
+    let web = WebPage::default();
+    let mut bad: Vec<String> = Vec::new();
+    let mut answered = 0usize;
+
+    for url in pages {
+        match web.resolve(&Identifier::Url(url.to_string())).await {
+            Ok(Some(draft)) => {
+                answered += 1;
+                let field = |k: &str| {
+                    draft.fields.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_string()
+                };
+                let title = field("title");
+                println!("  saved     {:<24} {title}", draft.item_type);
+                if is_wall(&title) {
+                    bad.push(format!("{url}: saved an interstitial as an item: {title:?}"));
+                } else if draft.creators.is_empty() && field("DOI").is_empty() {
+                    bad.push(format!("{url}: title only, no author and no DOI: {title:?}"));
+                }
+            }
+            Ok(None) => println!("  declined  {url}"),
+            Err(e) => println!("  skipped   {url}: {e}"),
+        }
+    }
+
+    assert!(bad.is_empty(), "bad records:\n  {}", bad.join("\n  "));
+    assert!(answered > 0, "no page answered at all, so this run proved nothing");
+}
+
+fn is_wall(title: &str) -> bool {
+    let t = title.to_lowercase();
+    ["verifying your browser", "just a moment", "attention required", "not found", "access denied"]
+        .iter()
+        .any(|p| t.contains(p))
 }

@@ -223,14 +223,72 @@ fn item_type(meta: &PageMeta) -> &'static str {
     "webpage"
 }
 
+/// Titles that mean "you are not looking at the page yet".
+///
+/// Bot walls, JavaScript checks and login interstitials answer `200 OK` with a
+/// complete little HTML document, so nothing below the network layer can tell
+/// them apart from a real page — and they have a `<title>`, which is all
+/// `to_draft` needs to build an item. The result is the worst kind of failure:
+/// not an error the user can act on, but a **library record that looks real**,
+/// titled "Verifying your browser | OpenReview", filed next to their papers.
+/// Silently wrong data outlives any error message.
+///
+/// Matched against the bare `<title>` only, and only for pages carrying no
+/// bibliographic metadata at all — a page with `citation_title` or a DOI has
+/// been served properly whatever it chose to call itself, and a real article
+/// genuinely titled "Access denied" would still be saved if its publisher
+/// tagged it. Being wrong here drops something real, so the list stays
+/// literal and short rather than clever.
+const INTERSTITIAL: &[&str] = &[
+    "just a moment",
+    "verifying your browser",
+    "checking your browser",
+    "attention required",
+    "are you a robot",
+    "are you a human",
+    "please enable javascript",
+    "enable javascript and cookies",
+    "access denied",
+    "access to this page has been denied",
+    "403 forbidden",
+    "404 not found",
+    "page not found",
+    "security check",
+    "one moment, please",
+    "bot verification",
+    "request unsuccessful",
+    "site maintenance",
+    "log in to continue",
+    "sign in to continue",
+];
+
+fn is_interstitial(title: &str) -> bool {
+    let t = title.trim().to_lowercase();
+    INTERSTITIAL.iter().any(|p| t.contains(p))
+}
+
 /// Build a draft from page metadata. Returns `None` when the page carries
 /// nothing worth saving beyond a bare URL.
 pub fn to_draft(meta: &PageMeta, url: &str) -> Option<ItemDraft> {
+    // Precedence unchanged: `ld:title` stays last among the tags because some
+    // sites' JSON-LD `name` is the description, and `og:title` is right there
+    // and correct. Whether the page was *tagged* is a separate question from
+    // which tag names it best, so the guard below asks it separately rather
+    // than by reordering this list.
     let title = meta
         .any(&["citation_title", "dc.title", "og:title", "twitter:title", "ld:title"])
         .map(str::to_string)
         .or_else(|| meta.title.clone())?;
     if title.trim().is_empty() {
+        return None;
+    }
+    // No publisher metadata *and* a title that announces an interstitial: this
+    // is the wall, not the page behind it. Answering nothing lets the caller
+    // say so, and points the user at the browser connector, which is inside
+    // the session that would get through.
+    let tagged = meta.any(&["citation_title", "dc.title", "ld:title"]).is_some()
+        || meta.any(&["citation_doi", "dc.identifier.doi", "ld:doi"]).is_some();
+    if !tagged && is_interstitial(&title) {
         return None;
     }
 
@@ -468,5 +526,53 @@ mod jsonld_precedence_tests {
         let draft = to_draft(&parse(bare), "https://x/y").unwrap();
         assert_eq!(draft.fields.get("title").unwrap(), "Just a page");
         assert_eq!(draft.item_type, "webpage");
+    }
+
+    #[test]
+    fn a_bot_wall_is_not_an_item() {
+        // Captured from openreview.net, which answers this to a plain fetch.
+        let wall = "<html><head><title>Verifying your browser | OpenReview</title></head></html>";
+        assert!(
+            to_draft(&parse(wall), "https://openreview.net/forum?id=x").is_none(),
+            "an interstitial became a library record"
+        );
+        for t in ["Just a moment...", "Attention Required! | Cloudflare", "404 Not Found"] {
+            let html = format!("<html><head><title>{t}</title></head></html>");
+            assert!(to_draft(&parse(&html), "https://x/y").is_none(), "{t} became an item");
+        }
+    }
+
+    #[test]
+    fn a_real_page_that_says_so_is_still_saved() {
+        // The guard must cost nothing to pages that were served properly. A
+        // paper *about* bot detection keeps its title because the publisher
+        // tagged it, which is the signal the guard actually keys on.
+        let tagged = r#"<html><head>
+            <meta name="citation_title" content="Are You a Robot? Bot Detection at Scale">
+            <meta name="citation_journal_title" content="J. Sec.">
+            <title>Are you a robot</title></head></html>"#;
+        let draft = to_draft(&parse(tagged), "https://x/y").expect("dropped a real article");
+        assert_eq!(draft.fields.get("title").unwrap(), "Are You a Robot? Bot Detection at Scale");
+
+        // And an ordinary page whose title merely resembles nothing suspicious.
+        let plain = "<html><head><title>Access to Justice in Rural Courts</title></head></html>";
+        assert!(to_draft(&parse(plain), "https://x/y").is_some());
+    }
+
+    #[test]
+    fn og_title_beats_json_ld() {
+        // Wikipedia's JSON-LD `name` is the *description*; its `og:title` is
+        // the article name. Reordering these two once silently retitled every
+        // Wikipedia page to a sentence fragment, and only a live network test
+        // noticed — so the precedence is pinned here, offline, where it is
+        // cheap to notice.
+        let html = r#"<html><head>
+            <meta property="og:title" content="Transformer (deep learning architecture)">
+            <script type="application/ld+json">
+              {"@type":"Article","name":"a model architecture developed by Google Brain"}
+            </script>
+            <title>Transformer - Wikipedia</title></head></html>"#;
+        let draft = to_draft(&parse(html), "https://en.wikipedia.org/wiki/Transformer").unwrap();
+        assert_eq!(draft.fields.get("title").unwrap(), "Transformer (deep learning architecture)");
     }
 }
