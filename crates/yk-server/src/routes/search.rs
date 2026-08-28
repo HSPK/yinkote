@@ -22,6 +22,8 @@ struct SearchResponse {
     hits: Vec<SearchHit>,
     /// How many candidates the query produced. `hits` is one page of them.
     total: i64,
+    /// Whether `total` is a floor: a retriever filled its candidate pool.
+    approximate: bool,
     /// Echoed so the UI can show which strategy actually ran.
     mode: yk_core::query::SearchMode,
     #[serde(rename = "tookMs")]
@@ -49,6 +51,7 @@ async fn search(
         .await?;
     Ok(Json(SearchResponse {
         total: hits.total,
+        approximate: hits.capped,
         hits: hits.hits,
         mode,
         took_ms: started.elapsed().as_millis() as u64,

@@ -171,6 +171,9 @@ const BUDGET = {
   // 105.8ms for five saved searches, counted one after another; 0.6ms once the
   // list is remembered against the library version.
   'smart collections (counts)': 15,
+  // 191.8ms per open before the scan was remembered against the library
+  // version. Both its plans were already the best SQLite had.
+  'duplicate groups': 30,
 }
 
 const overBudget = []
@@ -401,6 +404,11 @@ async function main() {
   // count is a full search. Unmeasured until a corpus with saved searches in it
   // showed 105.8ms for five of them.
   await measure('smart collections (counts)', `/libraries/${lib}/smart-collections?counts=true`)
+  // Two full-library GROUP BYs, loaded whenever the Duplicates tab is opened.
+  // Twenty runs, not ten: the first call is the cold scan and with a small
+  // sample it drags the median with it, reporting neither the cold cost nor
+  // the warm one.
+  await measure('duplicate groups', `/libraries/${lib}/duplicates`, 20)
 
   console.log('\n▸ search')
   await measure('keyword (1 term)', `/libraries/${lib}/search?q=transformer&mode=keyword`)

@@ -200,6 +200,11 @@ pub struct SearchHit {
 pub struct SearchPage {
     pub hits: Vec<SearchHit>,
     pub total: i64,
+    /// Whether a retriever filled its candidate pool, which makes `total` a
+    /// floor rather than a count. A query matching twenty thousand documents
+    /// and one matching exactly three hundred both report three hundred; only
+    /// this tells them apart.
+    pub capped: bool,
 }
 
 /// A document as seen by the search index — flat, denormalised, cheap to score.

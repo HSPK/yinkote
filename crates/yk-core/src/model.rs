@@ -537,11 +537,25 @@ pub struct Page<T> {
     pub total: i64,
     pub offset: u32,
     pub limit: u32,
+    /// Whether `total` is a floor rather than a count.
+    ///
+    /// A browse counts every matching row, so it is exact. A ranked search
+    /// scores a bounded pool of candidates and stops; its total is "at least
+    /// this many", and presenting that as a figure — "100 of 300" for a query
+    /// matching twenty thousand — reads as precision that is not there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub approximate: bool,
 }
 
 impl<T> Page<T> {
     pub fn new(items: Vec<T>, total: i64, offset: u32, limit: u32) -> Self {
-        Self { items, total, offset, limit }
+        Self { items, total, offset, limit, approximate: false }
+    }
+
+    /// The same page, with its total marked as a lower bound.
+    pub fn approximate(mut self) -> Self {
+        self.approximate = true;
+        self
     }
 
     pub fn map<U>(self, f: impl FnMut(T) -> U) -> Page<U> {
@@ -550,6 +564,7 @@ impl<T> Page<T> {
             total: self.total,
             offset: self.offset,
             limit: self.limit,
+            approximate: self.approximate,
         }
     }
 }

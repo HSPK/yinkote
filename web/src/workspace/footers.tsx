@@ -35,6 +35,7 @@ export function LibraryFooter() {
   const t = useT()
   const items = useStore((s) => s.items)
   const total = useStore((s) => s.total)
+  const approximate = useStore((s) => s.approximate)
   const loading = useStore((s) => s.loading)
   const loadingMore = useStore((s) => s.loadingMore)
   const badgeDefs = useStore((s) => s.badgeDefs)
@@ -48,7 +49,15 @@ export function LibraryFooter() {
 
   return (
     <>
-      <span>{t('table.count', { shown: items.length, total })}</span>
+      {/* A ranked search knows it found "at least" this many; a browse counts
+          exactly. Rendering both the same way would read as precision that a
+          search does not have. */}
+      <span>
+        {t(approximate ? 'table.countApprox' : 'table.count', {
+          shown: items.length,
+          total,
+        })}
+      </span>
       {(loading || loadingMore) && <span className="dim">{t('table.loading')}</span>}
       <span className="spacer" />
 

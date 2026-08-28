@@ -240,3 +240,59 @@ async fn the_sidebar_list_moves_with_the_library() {
         .unwrap();
     assert_eq!(held().await.name, "Renamed");
 }
+
+#[tokio::test]
+async fn the_duplicate_scan_is_redone_after_a_merge() {
+    // Two full-library GROUP BYs, so the answer is remembered — which makes
+    // "does it notice the library changed" the only question worth asking.
+    let (s, lib) = store().await;
+    for _ in 0..2 {
+        s.items
+            .create(
+                lib,
+                ItemDraft::new("journalArticle")
+                    .with_field("title", "The same paper twice")
+                    .with_field("date", "2021"),
+            )
+            .await
+            .unwrap();
+    }
+
+    let groups = s.items.duplicate_groups(lib, 50).await.unwrap();
+    assert_eq!(groups.len(), 1, "two records of one paper is one group");
+    assert_eq!(groups[0].len(), 2);
+    // Asked twice, answered the same — this is the read the cache serves.
+    assert_eq!(s.items.duplicate_groups(lib, 50).await.unwrap().len(), 1);
+
+    let master = groups[0][0].key.clone();
+    let other = groups[0][1].key.clone();
+    s.items.merge(lib, &master, std::slice::from_ref(&other)).await.unwrap();
+
+    assert!(
+        s.items.duplicate_groups(lib, 50).await.unwrap().is_empty(),
+        "the pair was merged, so there is nothing left to report"
+    );
+}
+
+#[tokio::test]
+async fn a_different_limit_is_a_different_question() {
+    // The scan takes a limit, so two callers asking for different numbers of
+    // groups must not answer each other.
+    let (s, lib) = store().await;
+    for i in 0..6 {
+        for _ in 0..2 {
+            s.items
+                .create(
+                    lib,
+                    ItemDraft::new("journalArticle")
+                        .with_field("title", format!("Paper {i}"))
+                        .with_field("date", "2021"),
+                )
+                .await
+                .unwrap();
+        }
+    }
+    assert_eq!(s.items.duplicate_groups(lib, 2).await.unwrap().len(), 2);
+    assert_eq!(s.items.duplicate_groups(lib, 6).await.unwrap().len(), 6);
+    assert_eq!(s.items.duplicate_groups(lib, 2).await.unwrap().len(), 2, "and back again");
+}

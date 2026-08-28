@@ -1606,3 +1606,27 @@ async fn the_search_endpoint_reports_the_same_total() {
     // shape — the two endpoints must not disagree about what was found.
     assert!(page["total"].as_i64().unwrap() >= 25, "{page}");
 }
+
+#[tokio::test]
+async fn a_capped_search_says_its_total_is_a_floor() {
+    // "100 of 300" for a query matching twenty thousand reads as precision the
+    // search does not have. A browse counts exactly and says nothing; a ranked
+    // search that filled its candidate pool has to say so.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let browse = c.get(&format!("/libraries/{lib}/items?limit=5")).await;
+    assert!(browse["approximate"].is_null(), "a browse counts exactly: {browse}");
+
+    let drafts: Vec<Value> = (0..12)
+        .map(|i| json!({ "itemType": "journalArticle", "title": format!("Neural {i:02}") }))
+        .collect();
+    c.post(&format!("/libraries/{lib}/items"), json!(drafts)).await;
+
+    // Well under any pool, so this total is a real count and must not be
+    // marked — otherwise every search would show a "+" and the mark would
+    // stop meaning anything.
+    let small = c.get(&format!("/libraries/{lib}/items?q=neural&limit=5")).await;
+    assert!(small["total"].as_i64().unwrap() >= 12, "{small}");
+    assert!(small["approximate"].is_null(), "a small search is exact: {small}");
+}

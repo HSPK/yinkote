@@ -52,6 +52,7 @@ export const enUS: Record<MessageKey, string> = {
   'attach.file': 'File',
   'table.modified': 'Modified',
   'table.empty': 'No items yet — press {shortcut} to create one',
+  'table.countApprox': '{shown} / {total}+',
   'table.count': '{shown} / {total}',
   'table.loading': 'Loading…',
 

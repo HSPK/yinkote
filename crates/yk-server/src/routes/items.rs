@@ -138,6 +138,7 @@ async fn list(
         .await?;
 
     let found = hits.total;
+    let capped = hits.capped;
     let hits = hits.hits;
     let keys: Vec<Key> = hits.iter().map(|h| h.key.clone()).collect();
     let items = app.store().items.get_many(lib, &keys).await?;
@@ -160,10 +161,11 @@ async fn list(
     // and its infinite scroll stopped there: a search could never show more
     // than one page of results.
     let total = found;
-    Ok((
-        version_header(version),
-        Json(Page::new(views, total, query.offset, query.limit)),
-    ))
+    let page = Page::new(views, total, query.offset, query.limit);
+    // Marked when a retriever filled its pool: the client then shows "300+"
+    // rather than a figure it would be reasonable to read as exact.
+    let page = if capped { page.approximate() } else { page };
+    Ok((version_header(version), Json(page)))
 }
 
 async fn get_one(

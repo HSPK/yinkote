@@ -95,6 +95,9 @@ export interface Tag {
 export interface Page<T> {
   items: T[]
   total: number
+  /** Absent for a browse, which counts exactly. Present when the total is a
+   *  floor because a search filled its candidate pool. */
+  approximate?: boolean
   offset: number
   limit: number
 }

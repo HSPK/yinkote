@@ -610,11 +610,19 @@ pub struct SqliteItemRepository {
     /// See [`crate::counts`]: counting is what a listing spends its time on,
     /// and scrolling asks the same question on every page.
     counts: std::sync::Arc<crate::counts::CountCache>,
+    /// The duplicate scan, which is two full-library `GROUP BY`s and 192ms.
+    ///
+    /// Both plans are already the best SQLite has — naming an index for the
+    /// title scan measured *worse* — so the only saving left is not repeating
+    /// it. Merging a pair does invalidate this, but the page removes the merged
+    /// group itself rather than reloading, so what this actually buys is
+    /// leaving the tab and coming back.
+    duplicates: std::sync::Arc<crate::counts::Versioned<Vec<Vec<Item>>>>,
 }
 
 impl SqliteItemRepository {
     pub fn new(db: Db, counts: std::sync::Arc<crate::counts::CountCache>) -> Self {
-        Self { db, counts }
+        Self { db, counts, duplicates: Default::default() }
     }
 
     /// Rebuild every derived search structure for a library from scratch.
@@ -1005,7 +1013,7 @@ impl ItemRepository for SqliteItemRepository {
                 // so a slightly larger library would not have been slow, it
                 // would have failed.
 
-                Ok(Page { items, total, limit, offset })
+                Ok(Page::new(items, total, offset, limit))
             })
             .await
     }
@@ -1113,8 +1121,22 @@ impl ItemRepository for SqliteItemRepository {
     }
 
     async fn duplicate_groups(&self, library_id: i64, limit: u32) -> Result<Vec<Vec<Item>>> {
+        let cache = self.duplicates.clone();
         self.db
             .call(move |c| {
+                let version: i64 = c
+                    .query_row(
+                        "SELECT version FROM libraries WHERE id = ?1",
+                        params![library_id],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or(-1);
+                // The limit is part of the question: asking for ten groups and
+                // asking for two hundred are different answers.
+                let cache_key = format!("dupes:{library_id}:{limit}");
+                if let Some(cached) = cache.get(&cache_key, version) {
+                    return Ok(cached);
+                }
                 // Two ways of being the same paper, and an item is in a group
                 // if it matches either. They overlap — three records where two
                 // share a DOI and two share a title are one group of three, not
@@ -1139,6 +1161,11 @@ impl ItemRepository for SqliteItemRepository {
                 }
                 let sets = coalesce(sets);
                 if sets.is_empty() {
+                    // "None" costs both full scans to establish and is the
+                    // answer a tidy library gets every time it is asked.
+                    if version >= 0 {
+                        cache.put(cache_key, version, Vec::new());
+                    }
                     return Ok(Vec::new());
                 }
 
@@ -1161,12 +1188,16 @@ impl ItemRepository for SqliteItemRepository {
                     by_id.extend(rows);
                 }
 
-                Ok(sets
+                let groups: Vec<Vec<Item>> = sets
                     .into_iter()
                     .take(limit as usize)
                     .map(|set| set.iter().filter_map(|id| by_id.remove(id)).collect::<Vec<_>>())
                     .filter(|group: &Vec<Item>| group.len() > 1)
-                    .collect())
+                    .collect();
+                if version >= 0 {
+                    cache.put(cache_key, version, groups.clone());
+                }
+                Ok(groups)
             })
             .await
     }

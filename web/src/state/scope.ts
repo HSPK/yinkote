@@ -25,6 +25,9 @@ export interface Scope {
   typeFilter: string[]
   items: Item[]
   total: number
+  /** Whether `total` is a floor. A ranked search scores a bounded pool, so it
+   *  knows it found "at least" this many; a browse counts exactly. */
+  approximate: boolean
   loading: boolean
   loadingMore: boolean
   tookMs: number
@@ -50,6 +53,7 @@ export function emptyScope(patch: Partial<Scope> = {}): Scope {
     typeFilter: [],
     items: [],
     total: 0,
+    approximate: false,
     loading: false,
     loadingMore: false,
     tookMs: 0,

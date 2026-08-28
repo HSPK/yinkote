@@ -53,6 +53,7 @@ export const zhCN = {
   'attach.file': '文件',
   'table.modified': '修改',
   'table.empty': '这里还没有条目 — 按 {shortcut} 新建',
+  'table.countApprox': '{shown} / {total}+ 条',
   'table.count': '{shown} / {total} 条',
   'table.loading': '载入中…',
 

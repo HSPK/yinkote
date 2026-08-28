@@ -416,6 +416,9 @@ impl SearchIndex for SearchEngine {
                 .collect()
         };
 
+        let (keyword_len, fuzzy_len) = (keyword_hits.len(), fuzzy_hits.len());
+        let semantic_len = semantic_hits.len();
+
         let lists = vec![
             RankedList { source: MatchSource::Keyword, weight: W_KEYWORD, ids: keep(keyword_hits) },
             RankedList {
@@ -432,12 +435,16 @@ impl SearchIndex for SearchEngine {
         // know there is anything after the page it asked for; `hits.len()` says
         // "nothing more" on every full page.
         let total = fused.len() as i64;
+        // A retriever that returned exactly what it was allowed to return had
+        // more to give. That is the difference between "three hundred matches"
+        // and "the first three hundred of twenty thousand".
+        let capped = [keyword_len, semantic_len, fuzzy_len].iter().any(|n| *n >= CANDIDATES);
 
         let start = request.offset as usize;
         let page: Vec<fusion::Fused> =
             fused.into_iter().skip(start).take(request.limit as usize).collect();
         if page.is_empty() {
-            return Ok(SearchPage { hits: Vec::new(), total });
+            return Ok(SearchPage { hits: Vec::new(), total, capped });
         }
 
         let ids: Vec<i64> = page.iter().map(|f| f.id).collect();
@@ -463,7 +470,7 @@ impl SearchIndex for SearchEngine {
                 })
             })
             .collect();
-        Ok(SearchPage { hits, total })
+        Ok(SearchPage { hits, total, capped })
     }
 
     async fn similar(&self, library_id: i64, key: &Key, k: usize) -> Result<Vec<(Key, f32)>> {

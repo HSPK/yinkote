@@ -282,6 +282,7 @@ export const useStore = create<State>((set, get, store) => ({
       set({
         items: page.items,
         total: page.total,
+        approximate: page.approximate ?? false,
         loading: false,
         tookMs: Math.round(performance.now() - started),
         cursor: Math.min(get().cursor, Math.max(0, page.items.length - 1)),
@@ -307,7 +308,12 @@ export const useStore = create<State>((set, get, store) => ({
     try {
       const page = await api.items.list(s.library, get().listQuery(s.items.length))
       if (seq !== requestSeq) return
-      set({ items: [...get().items, ...page.items], total: page.total, loadingMore: false })
+      set({
+        items: [...get().items, ...page.items],
+        total: page.total,
+        approximate: page.approximate ?? false,
+        loadingMore: false,
+      })
       void get().loadBadges(page.items.map((i) => i.key))
     } catch {
       if (seq === requestSeq) set({ loadingMore: false })
