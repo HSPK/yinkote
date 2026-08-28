@@ -195,8 +195,11 @@ pub fn router(app: App) -> Router {
         .layer(axum::middleware::from_fn(error::envelope_rejections));
 
     // The connector sits outside the API guard and outside `/api/v1`: the
-    // browser extension can hold no key and knows only Zotero's paths. It is
-    // reachable only on loopback, and accepts only the shapes it defines.
+    // browser extension can hold no key and knows only Zotero's paths. Its
+    // authentication is that the caller is on this machine, enforced on the
+    // routes themselves — this copy is merged onto the main listener, which
+    // binds wherever `--host` says, so the loopback this comment used to claim
+    // was only ever true of the *other* copy. See `connector.rs`.
     // The add-in sits outside `/api/v1` and outside the SPA fallback. Office
     // fetches the manifest and the pane with no key and no Yinkote knowledge,
     // and answering `manifest.xml` with `index.html` — which the fallback
@@ -283,9 +286,14 @@ pub async fn serve(app: App) -> anyhow::Result<()> {
     serve_connector(&app).await;
 
     let plugins = app.plugins.clone();
-    axum::serve(listener, router(app))
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    // With connect info: the browser connector authenticates by the caller
+    // being on this machine, and it cannot ask unless the peer is recorded.
+    axum::serve(
+        listener,
+        router(app).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     tracing::info!("shutting down plugins");
     plugins.shutdown().await;
@@ -311,7 +319,12 @@ async fn serve_connector(app: &App) {
             app.connector_bound.store(true, std::sync::atomic::Ordering::Relaxed);
             let router = router(app.clone());
             tokio::spawn(async move {
-                if let Err(e) = axum::serve(listener, router).await {
+                if let Err(e) = axum::serve(
+                    listener,
+                    router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+                )
+                .await
+                {
                     tracing::warn!(error = %e, "browser connector stopped");
                 }
             });

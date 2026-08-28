@@ -22,7 +22,7 @@
 //! these routes sit outside the API guard. They are loopback-only, and they
 //! accept exactly the shapes below and nothing else.
 
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
@@ -42,6 +42,39 @@ pub fn router() -> Router<App> {
         .route("/connector/saveItems", post(save_items))
         .route("/connector/saveSnapshot", post(save_snapshot))
         .route("/connector/updateSession", post(update_session))
+        .layer(axum::middleware::from_fn(only_from_this_machine))
+}
+
+/// The connector's authentication is that the caller is on this machine.
+///
+/// These routes sit outside the API guard on purpose: a browser extension
+/// speaking Zotero's protocol has nowhere to put a key and no knowledge of
+/// Yinkote. That was safe only while the port was loopback — and the second
+/// listener is loopback, but this same router is also merged onto the *main*
+/// one, which binds wherever `--host` says.
+///
+/// So `--host 0.0.0.0` with an API key set produced a library whose API
+/// answered 401 and whose `/connector/saveItems` wrote an item for anyone on
+/// the network. The comment in `lib.rs` claimed loopback; only one of the two
+/// copies had it.
+///
+/// Checking the peer rather than the bind keeps the design intact: a local
+/// extension still works on whatever port the user runs, and a remote caller
+/// gets nothing.
+async fn only_from_this_machine(
+    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if !peer.ip().is_loopback() {
+        tracing::warn!(%peer, "refused a browser-connector request from off this machine");
+        return (
+            StatusCode::FORBIDDEN,
+            "the browser connector answers only programs running on this machine",
+        )
+            .into_response();
+    }
+    next.run(request).await
 }
 
 /// Keys the connector sends that describe *structure* rather than a field.

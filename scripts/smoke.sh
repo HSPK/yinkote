@@ -644,6 +644,31 @@ else
   skip "names both ways out" "no release binary to try it with"
 fi
 
+# The browser connector sits outside the API guard on purpose — an extension
+# speaking Zotero's protocol has nowhere to put a key. That was safe only while
+# the port was loopback, and the same router is merged onto the main one, which
+# binds wherever --host says. Its authentication is that the caller is here.
+LANIP=$(hostname -I 2>/dev/null | awk '{print $1}')
+if [[ -x ./target/release/yinkote && -n "$LANIP" ]]; then
+  setsid ./target/release/yinkote --data-dir "/tmp/yk-peer-$$" --host 0.0.0.0 \
+    --port 23998 --allow-anonymous > /dev/null 2>&1 < /dev/null &
+  sleep 4
+  check "connector is local-only" "$(curl -sS -o /dev/null -w '%{http_code}' \
+                                      -X POST -H 'Content-Type: application/json' \
+                                      "http://$LANIP:23998/connector/saveItems" \
+                                      -d '{"items":[{"itemType":"journalArticle","title":"remote"}]}' \
+                                      | grep -x 403)"
+  # And still answers the extension actually running on this machine.
+  check "connector still local" "$(curl -sS -o /dev/null -w '%{http_code}' \
+                                    "http://127.0.0.1:23998/connector/ping" | grep -x 200)"
+  PEERPID=$(ss -lptnH 'sport = :23998' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
+  [[ -n "$PEERPID" ]] && kill "$PEERPID" 2>/dev/null
+  rm -rf "/tmp/yk-peer-$$"
+else
+  skip "connector is local-only" "needs a release binary and a routable address"
+  skip "connector still local"   "needs a release binary and a routable address"
+fi
+
 echo "▸ one server per library"# Two servers on one data directory do not fail — they quietly disagree, each
 # with its own copy of the search index. So the second must refuse to start.
 DATA_OF=$(j "$BASE/ping" | jq -r .dataDir)

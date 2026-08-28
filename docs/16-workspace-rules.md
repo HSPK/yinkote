@@ -2923,3 +2923,33 @@ if let Some(expected) = &config.api_key { /* 校验 key */ }
 这次是启动日志——同一个错误在两个地方各写了一遍。
 这回把翻译抽成 `lock::browsable_url()` 给两边共用，`local=0.0.0.0:23201`
 仍然保留在结构化字段里，因为诊断时要看的是真实绑定。
+
+### 3.190 那句注释只对两份拷贝中的一份成立
+
+`lib.rs` 里写着：
+
+> The connector sits outside the API guard … It is **reachable only on loopback**.
+
+前半句是设计意图（浏览器扩展没地方放 key），后半句是**假的**。
+`serve_connector` 那个监听器确实只绑 127.0.0.1，但**同一个 router 还被 merge 到了主
+router 上**，而主监听器绑在 `--host` 指定的任何地址。
+
+实测（设了 `YK_API_KEY` 并 `--host 0.0.0.0`）：
+
+```
+/api/v1/items          无 key → 401     ← 守卫正常
+/connector/ping        无 key → 200
+/connector/saveItems   无 key → 写入成功
+```
+
+**API 要钥匙，连接器不要，而连接器能写。** `saveSnapshot` 还能往磁盘写文件。
+这是一条完整的未认证写入路径，而且恰恰出现在用户"按文档正确地"设了 key 之后——
+上一轮加的暴露拒绝把没设 key 的人挡住了，反而让设了 key 的人以为自己是安全的。
+
+修的是边界的**判据**：不是"哪个端口"，而是**"对端在不在这台机器上"**。
+`ConnectInfo` 的 peer IP 必须 loopback，否则 403。这样设计意图完好——
+本机扩展在任何端口上照常工作——而远程调用什么也拿不到。
+代价是两处 `axum::serve` 都要改成 `into_make_service_with_connect_info`。
+
+教训：**看到"reachable only on X"这类注释，先去数有几份拷贝**。
+这个 router 被装配了两次，而注释只描述了作者当时正看着的那一份。
