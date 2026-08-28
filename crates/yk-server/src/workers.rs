@@ -13,8 +13,40 @@ pub fn spawn(app: App) {
     embedding_worker(app.clone());
     checkpoint_worker(app.clone());
     download_worker(app.clone());
+    keep_statistics_current(app.clone());
     warm_first_load(app.clone());
     startup_hook(app);
+}
+
+/// Give the query planner something to plan with.
+///
+/// SQLite chooses between materialising a filter and probing it from
+/// `sqlite_stat1`. With no statistics it guesses, and one guess is expensive:
+/// listing a shelf walks the sort index probing membership per row instead of
+/// reading the 4,500 members and sorting them — 14.2ms against 4.4ms on a
+/// 131,940-item library, measured both ways on the same file.
+///
+/// Nothing ran this except a hand-written POST to `/maintenance/optimize`, so
+/// a real library never had statistics at all. The benchmark had been calling
+/// it after seeding to be fair to the server, which quietly hid that every
+/// user was in the state the benchmark refused to measure. See docs/16 §3.187.
+///
+/// `PRAGMA optimize` is built for exactly this: it analyses only what has
+/// changed enough to matter, so the repeat is nearly free and the first run on
+/// an already-analysed library does almost nothing.
+fn keep_statistics_current(app: App) {
+    tokio::spawn(async move {
+        // Behind the listener. Statistics decide how fast queries are, not
+        // whether they answer, so nobody should wait on this to open the page.
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        loop {
+            if let Err(error) = app.store().db().maintenance().await {
+                tracing::debug!(%error, "could not refresh planner statistics");
+            }
+            // Often enough to follow a big import, rare enough to be invisible.
+            tokio::time::sleep(Duration::from_secs(60 * 30)).await;
+        }
+    });
 }
 
 /// Do the reads the first page load does, before anybody asks for them.
