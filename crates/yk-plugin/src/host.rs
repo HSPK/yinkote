@@ -79,6 +79,10 @@ impl Entry {
     fn status(&self) -> PluginStatus {
         PluginStatus {
             manifest: self.manifest.clone(),
+            // Everything except an explicit disable counts as on: a plugin that
+            // is merely stopped or still starting has not been turned off, and
+            // one that failed was trying.
+            enabled: !matches!(self.state, PluginState::Disabled),
             state: self.state.clone(),
             contributions: self.contributions.clone(),
             calls: self.stats.calls,

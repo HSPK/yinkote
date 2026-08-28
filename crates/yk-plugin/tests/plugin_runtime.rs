@@ -267,12 +267,19 @@ async fn disable_and_enable_controls_the_process() {
 
     let off = reg.set_enabled("toggle", false).await.unwrap();
     assert_eq!(off.state, PluginState::Disabled);
+    // The reported `enabled` must agree with the state. It used to be the
+    // manifest's load-time default flattened into the status, so a disabled
+    // plugin answered `state: "disabled"` and `enabled: true` in one object.
+    // Our settings page reads `state` and so was right by luck; anything
+    // binding a toggle to the obvious field showed it the wrong way round.
+    assert!(!off.enabled, "disabled, and saying so");
     assert!(reg.contributions().await.metadata_sources.is_empty());
     let err = reg.call("toggle", "echo", json!(1)).await.unwrap_err();
     assert_eq!(err.kind(), yk_core::ErrorKind::Forbidden);
 
     let on = reg.set_enabled("toggle", true).await.unwrap();
     assert!(on.state.is_ready());
+    assert!(on.enabled, "and back on");
     assert!(reg.call("toggle", "echo", json!(1)).await.is_ok());
     reg.shutdown().await;
 }

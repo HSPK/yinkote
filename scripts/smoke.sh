@@ -131,8 +131,14 @@ check "tags"             "$(j "$BASE/libraries/$LIB/tags" | jq -r 'length')"
 check "facets"           "$(j "$BASE/libraries/$LIB/facets" | jq -r 'length')"
 
 echo "▸ plugins"
-check "plugin list"      "$(j "$BASE/plugins" | jq -r 'type')"
-check "contributions"    "$(j "$BASE/plugins/contributions" | jq -r 'type')"
+# `jq type` answers "array" for an empty one, so these passed whether or not a
+# single plugin had loaded. The point of shipping three is that they run.
+check "plugins loaded"   "$(j "$BASE/plugins" | jq -r '[.[] | select(.state == "ready")] | length | select(. >= 3)')"
+check "contributions"    "$(j "$BASE/plugins/contributions" | jq -r '[to_entries[] | select((.value | length) > 0)] | length | select(. > 0) | "contributed"')"
+# `enabled` and `state` are the same question. They disagreed: the manifest's
+# load-time default was flattened in beside the runtime state, so a disabled
+# plugin reported `enabled: true`.
+check "enabled agrees"   "$(j "$BASE/plugins" | jq -r '[.[] | select(.enabled != (.state != "disabled"))] | length | select(. == 0) | "coherent"')"
 
 echo "▸ collection appearance"
 APPK=$(j -X POST "$BASE/libraries/$LIB/collections" \

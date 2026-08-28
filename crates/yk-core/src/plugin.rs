@@ -99,7 +99,16 @@ pub struct PluginManifest {
     /// Hook names this plugin subscribes to (see [`hooks`]).
     #[serde(default)]
     pub hooks: Vec<String>,
-    #[serde(default = "default_true")]
+    /// Whether the manifest asks to be started. A *load-time input*, not the
+    /// answer to "is this plugin on right now" — which is
+    /// [`PluginStatus::enabled`], derived from the running state.
+    ///
+    /// Not serialised: flattened into a status it sat beside the runtime
+    /// `state` under a name that plainly means the runtime answer, so a
+    /// disabled plugin reported `state: "disabled"` next to `enabled: true`.
+    /// Our own settings page reads `state` and was unaffected; anything else
+    /// binding a toggle to the obvious field showed it the wrong way round.
+    #[serde(default = "default_true", skip_serializing)]
     pub enabled: bool,
     /// Milliseconds before a call is aborted.
     #[serde(rename = "timeoutMs", default = "default_timeout")]
@@ -271,6 +280,10 @@ pub struct PluginStatus {
     pub manifest: PluginManifest,
     #[serde(flatten)]
     pub state: PluginState,
+    /// Whether the plugin is on, now. The name a client will reach for, so it
+    /// answers the question the name asks rather than repeating the manifest's
+    /// load-time default.
+    pub enabled: bool,
     pub contributions: Contributions,
     pub calls: u64,
     pub failures: u64,
