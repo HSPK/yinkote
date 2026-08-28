@@ -96,7 +96,20 @@ async fn stats(State(app): State<App>) -> ApiResult<Json<Value>> {
 /// Take the figures and remember them, with what they cost.
 async fn gather(app: &App, lib: i64, key: String, version: i64) -> ApiResult<Value> {
     let started = std::time::Instant::now();
-    let filter = yk_core::query::ItemFilter { library_id: lib, ..Default::default() };
+    // Each count is taken with the same filter as the view it labels, because
+    // both appear on screen at once: the number beside "My Library" sat above
+    // a footer counting the rows that row actually opens, and they disagreed
+    // by 141. A count that does not match what clicking it shows is worse than
+    // no count — it reads as items gone missing.
+    //
+    // So the library figure excludes attachments, notes and highlights, and
+    // the trash figure does not: the trash lists everything deleted, since a
+    // trashed attachment whose paper is untouched is top-level to nobody.
+    let filter = yk_core::query::ItemFilter {
+        library_id: lib,
+        top_level_only: true,
+        ..Default::default()
+    };
     let trashed = yk_core::query::ItemFilter {
         library_id: lib,
         trash: yk_core::query::TrashScope::Only,

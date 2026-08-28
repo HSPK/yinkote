@@ -162,6 +162,23 @@ j -X DELETE "$BASE/libraries/$LIB/items" -d "{\"keys\":[\"$TRKID\"]}" > /dev/nul
 check "trashed child shows" "$(j "$BASE/libraries/$LIB/items?trash=only&limit=100" \
                                 | jq -r --arg k "$TRKID" '[.items[]|select(.key==$k)]|length|select(.==1)')"
 j -X DELETE "$BASE/libraries/$LIB/items" -d "{\"keys\":[\"$TRPAP\"]}" > /dev/null
+# The sidebar count and the footer count are on screen together, so they have
+# to be counting the same thing. They differed by 141 once browsing started
+# excluding children: a count that does not match what clicking it shows reads
+# as items having gone missing.
+#
+# Read in a loop: the two figures come from two requests, and this suite is
+# writing throughout, so a single pair can differ for no better reason than an
+# item created between them. Retrying makes the check about whether they *can*
+# agree, which is the actual invariant; a permanently wrong pair never will.
+AGREED=""
+for _ in $(seq 1 6); do
+  SIDEBAR=$(j "$BASE/stats" | jq -r '.items')
+  BROWSED=$(j "$BASE/libraries/$LIB/items?limit=1&topLevel=true" | jq -r '.total')
+  if [[ "$SIDEBAR" == "$BROWSED" ]]; then AGREED="$SIDEBAR"; break; fi
+  sleep 1
+done
+check "counts agree"     "$AGREED"
 # A word query cannot honour a column sort: it scores a bounded pool and
 # returns it best-first. That was true and unsaid, so the table drew an arrow
 # on a column it was not sorted by and took clicks that changed nothing.
