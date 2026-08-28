@@ -4,6 +4,7 @@
 //! aggregate that owns the connection pool and hands out `Arc`'d ports.
 
 mod cache;
+pub mod counts;
 mod collections;
 mod conversations;
 mod db;

@@ -120,9 +120,14 @@ function stats(samples) {
  *  printing is not checking.
  */
 const BUDGET = {
-  'list first page (sort=modified)': 25,
-  'list deep page (offset=50000)': 25,
-  'list sorted by title': 25,
+  // 8.3ms before the listing total was cached against the library version,
+  // 4.4 after — counting was most of a browse. Held at 15 rather than 6: the
+  // job of these numbers is to catch a plan collapsing (9ms to 69ms when an
+  // index stopped being named), and a threshold close to the measurement fails
+  // for machine reasons instead.
+  'list first page (sort=modified)': 15,
+  'list deep page (offset=50000)': 15,
+  'list sorted by title': 15,
   // 36.2ms before the plan was chosen from the tag's cardinality, 17.3 after,
   // and nearly all of what is left is the count rather than the page. A
   // regression to materialising every tag would land back above this.

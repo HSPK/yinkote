@@ -572,11 +572,14 @@ fn apply_patch(item: &mut Item, patch: ItemPatch) {
 #[derive(Clone)]
 pub struct SqliteItemRepository {
     db: Db,
+    /// See [`crate::counts`]: counting is what a listing spends its time on,
+    /// and scrolling asks the same question on every page.
+    counts: std::sync::Arc<crate::counts::CountCache>,
 }
 
 impl SqliteItemRepository {
     pub fn new(db: Db) -> Self {
-        Self { db }
+        Self { db, counts: Default::default() }
     }
 
     /// Rebuild every derived search structure for a library from scratch.
@@ -808,17 +811,38 @@ impl ItemRepository for SqliteItemRepository {
 
     async fn list(&self, query: &ItemQuery) -> Result<Page<Item>> {
         let query = query.clone().clamped();
+        let counts = self.counts.clone();
         self.db
             .call(move |c| {
                 let cols = Self::resolve_collections(c, &query.filter)?;
                 let p = Predicate::build(&query.filter, cols.as_deref());
 
-                let total: i64 = {
-                    let sql = format!("SELECT count(*) FROM items i WHERE {}", p.sql);
-                    c.prepare_cached(&sql)
-                        .map_err(sql_err)?
-                        .query_row(params_from_iter(p.params.iter()), |r| r.get(0))
-                        .map_err(sql_err)?
+                // The library version is what makes this exact: every write
+                // moves it, so a cached total is either from the state being
+                // queried or it is not used at all.
+                let version: i64 = c
+                    .query_row(
+                        "SELECT version FROM libraries WHERE id = ?1",
+                        params![query.filter.library_id],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or(-1);
+                let cache_key = crate::counts::CountCache::key(query.filter.library_id, &p);
+
+                let total: i64 = match counts.get(&cache_key, version) {
+                    Some(total) => total,
+                    None => {
+                        let sql = format!("SELECT count(*) FROM items i WHERE {}", p.sql);
+                        let total = c
+                            .prepare_cached(&sql)
+                            .map_err(sql_err)?
+                            .query_row(params_from_iter(p.params.iter()), |r| r.get(0))
+                            .map_err(sql_err)?;
+                        if version >= 0 {
+                            counts.put(cache_key, version, total);
+                        }
+                        total
+                    }
                 };
 
                 // Which way to write the tag filter is a cost decision, and
