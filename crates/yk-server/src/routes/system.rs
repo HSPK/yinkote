@@ -9,6 +9,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::broadcast::error::RecvError;
+use yk_store::counts::Answer;
 use yk_core::model::Library;
 use yk_core::schema::{schema, Schema};
 
@@ -60,6 +61,34 @@ async fn libraries(State(app): State<App>) -> ApiResult<Json<Vec<Library>>> {
 
 async fn stats(State(app): State<App>) -> ApiResult<Json<Value>> {
     let lib = app.services.default_library;
+    let version = app.store().libraries.version(lib).await.unwrap_or(-1);
+    let key = format!("stats:{lib}");
+
+    match app.stats.look_up(&key, version) {
+        Answer::Fresh(cached) => return Ok(Json(cached)),
+        // Handed back as it stands. Two of these are exact counts of the whole
+        // library, and the first paint recomputes them alongside the item list
+        // that is already counting — 37ms inside a 43ms burst, after every
+        // edit, for numbers nothing depends on.
+        Answer::Stale(cached) => {
+            if app.stats.claim(&key) {
+                let app = app.clone();
+                let key = key.clone();
+                tokio::spawn(async move {
+                    let _ = gather(&app, lib, key.clone(), version).await;
+                    app.stats.release(&key);
+                });
+            }
+            return Ok(Json(cached));
+        }
+        Answer::Missing => {}
+    }
+    Ok(Json(gather(&app, lib, key, version).await?))
+}
+
+/// Take the figures and remember them, with what they cost.
+async fn gather(app: &App, lib: i64, key: String, version: i64) -> ApiResult<Value> {
+    let started = std::time::Instant::now();
     let filter = yk_core::query::ItemFilter { library_id: lib, ..Default::default() };
     let trashed = yk_core::query::ItemFilter {
         library_id: lib,
@@ -70,26 +99,31 @@ async fn stats(State(app): State<App>) -> ApiResult<Json<Value>> {
     // rather than as long as all of them. Written out in one `join!` instead of
     // awaited in turn: nothing here reads anything else here, and the sum was
     // most of what the workbench waited for on load.
-    let (items, trashed, collections, tags, search, version) = tokio::join!(
+    // The library version is already in hand — it is what this answer is keyed
+    // on — so it is not asked for again here.
+    let (items, trashed, collections, tags, search) = tokio::join!(
         app.store().items.count(&filter),
         app.store().items.count(&trashed),
         app.store().collections.count(lib),
         app.store().tags.count(lib),
         app.search().stats(),
-        app.store().libraries.version(lib),
     );
 
-    Ok(Json(json!({
+    let value = json!({
         "items": items?,
         "trashed": trashed?,
         "collections": collections?,
         "tags": tags?,
         "search": search?,
         "plugins": app.plugins.list().await.len(),
-        "version": version?,
+        "version": version,
         "uptimeSecs": app.uptime_secs(),
         "wsClients": app.events().subscriber_count(),
-    })))
+    });
+    if version >= 0 {
+        app.stats.put_timed(key, version, value.clone(), started.elapsed());
+    }
+    Ok(value)
 }
 
 async fn get_settings(State(app): State<App>) -> ApiResult<Json<Value>> {

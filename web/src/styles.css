@@ -2683,3 +2683,42 @@ option {
 }
 .cover:hover { border-color: var(--accent); }
 .cover img { display: block; width: 100%; height: auto; }
+
+/* A rail of page thumbnails: the fastest way to find a figure in a long paper.
+   Narrow on purpose — it is a means of navigation, not a second reader — and
+   it scrolls independently so the current page can be kept in view without
+   dragging the document with it. */
+.page-rail {
+  flex: 0 0 132px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.page-cell {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  padding: 3px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.page-cell:hover { border-color: var(--line); }
+.page-cell[data-active='true'] { border-color: var(--accent); color: var(--text); }
+/* A fixed box, so the rail does not reflow as pictures arrive one by one. */
+.page-shot {
+  display: block;
+  width: 96px;
+  min-height: 124px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+.page-shot img { display: block; width: 100%; height: auto; }

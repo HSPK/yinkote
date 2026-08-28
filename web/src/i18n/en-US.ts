@@ -424,6 +424,8 @@ export const enUS: Record<MessageKey, string> = {
   'reader.gatherHint': 'Collect every highlight on this paper into one note, in page order',
   'reader.gathered': 'Gathered {count} highlights into a note',
   'reader.gatherFailed': 'Could not make a note',
+  'reader.pages': 'Pages',
+  'reader.goToPage': 'Page {page}',
   'reader.annotations': 'Annotations · {count}',
   'reader.noAnnotations': 'Select text to highlight it',
   'reader.blankNote': 'Empty note',

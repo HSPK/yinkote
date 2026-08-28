@@ -58,6 +58,13 @@ pub struct AppState {
     /// saved query through the *search engine* — 21ms each, and the sidebar
     /// asks for all of them on every navigation.
     pub smart_counts: Arc<yk_store::counts::Versioned<Vec<yk_core::model::SmartCollection>>>,
+    /// The statistics panel, against the library version it was taken at.
+    ///
+    /// Every figure here is a label on a status bar, so one of them being a
+    /// moment behind is invisible. What is not invisible is that two of them
+    /// are exact counts of the whole library, recomputed inside the same
+    /// first-paint burst that the item list is already counting in.
+    pub stats: Arc<yk_store::counts::Versioned<serde_json::Value>>,
 }
 
 impl AppState {

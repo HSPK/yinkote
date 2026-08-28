@@ -1721,3 +1721,28 @@ async fn year_and_author_are_not_treated_as_filters() {
     let nobody = c.get(&format!("/libraries/{lib}/items?q=author:nobody&limit=5")).await;
     assert_eq!(nobody["total"], 0, "{nobody}");
 }
+
+#[tokio::test]
+async fn the_statistics_keep_up_with_the_library() {
+    // These figures may be handed back a version behind while fresh ones are
+    // computed, so the property worth pinning is that they arrive: a panel that
+    // settles on a number from before the user's last edit is worse than a slow
+    // one.
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    assert_eq!(c.get("/stats").await["items"], 0);
+    c.post(&format!("/libraries/{lib}/items"), json!([article("First")])).await;
+
+    // On a library this small the figures cost well under a millisecond, so
+    // they are recomputed rather than deferred — exactness is free here.
+    let after = c.get("/stats").await;
+    assert_eq!(after["items"], 1);
+    assert_eq!(
+        after["items"], after["search"]["documents"],
+        "the two counts come from one answer and must never disagree: {after}"
+    );
+
+    c.post(&format!("/libraries/{lib}/items"), json!([article("Second")])).await;
+    assert_eq!(c.get("/stats").await["items"], 2, "and it keeps up across writes");
+}

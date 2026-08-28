@@ -15,6 +15,7 @@ import {
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, contextMenu, toast, withToast } from '../ui'
 import { PdfPage } from './PdfPage'
+import { PageRail } from '../components/PageRail'
 import { useFind } from './useFind'
 import { usePdf } from './usePdf'
 
@@ -39,6 +40,9 @@ export function ReaderView({ target }: { target?: string }) {
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [colour, setColour] = useState<HighlightColour>('amber')
   const [zoom, setZoom] = useState(1.2)
+  /** Which page is being read. Set where it is already worked out for saving,
+   *  so there is one definition of it rather than two that can disagree. */
+  const [page, setPage] = useState(1)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const file = current ? api.files.url(library, current) : null
@@ -158,6 +162,7 @@ export function ReaderView({ target }: { target?: string }) {
             best = Number((el as HTMLElement).dataset.page ?? 1)
           }
         }
+        setPage(best)
         void api.readerState.put(library, current, { lastPage: best, zoom }).catch(() => {})
       }, SAVE_AFTER_MS)
     }
@@ -243,6 +248,15 @@ export function ReaderView({ target }: { target?: string }) {
       </div>
 
       <div className="reader-body">
+        {doc && current && pages.length > 1 && (
+          <PageRail
+            library={library}
+            attachmentKey={current}
+            pages={pages}
+            current={page}
+            onJump={goTo}
+          />
+        )}
         <div className="reader-pages" ref={scrollRef}>
           {error && <Empty>{t('reader.unsupported')}</Empty>}
           {!doc && !error && <Empty>{t('reader.loading')}</Empty>}

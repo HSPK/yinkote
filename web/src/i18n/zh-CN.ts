@@ -420,6 +420,8 @@ export const zhCN = {
   'reader.gatherHint': '把这篇文献的所有标注按页码汇成一条笔记',
   'reader.gathered': '已将 {count} 处标注汇成笔记',
   'reader.gatherFailed': '生成笔记失败',
+  'reader.pages': '页面',
+  'reader.goToPage': '第 {page} 页',
   'reader.annotations': '标注 · {count}',
   'reader.noAnnotations': '选中文字即可高亮',
   'reader.blankNote': '空批注',
