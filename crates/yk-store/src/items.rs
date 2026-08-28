@@ -425,13 +425,32 @@ fn coalesce(sets: Vec<Vec<i64>>) -> Vec<Vec<i64>> {
     out
 }
 
-fn set_tags(tx: &Connection, library_id: i64, id: i64, tags: &[ItemTag]) -> Result<()> {
-    tx.execute("DELETE FROM item_tags WHERE item_id = ?1", params![id]).map_err(sql_err)?;
+/// Tags as they will be stored: trimmed, blanks dropped, duplicates removed.
+///
+/// The rule lived only inside `set_tags`, so the row written and the item
+/// handed back disagreed. Creating an item tagged `"   "` and `"  Kept  "`
+/// answered with both, spelled exactly as sent, while the library held one
+/// tag called `Kept` — and the workbench puts the created items straight into
+/// the list, so a tag that does not exist was on screen until something forced
+/// a reload.
+///
+/// Idempotent, so applying it on the way in and on the way out costs nothing.
+pub fn normalise_tags(tags: &[ItemTag]) -> Vec<ItemTag> {
+    let mut out: Vec<ItemTag> = Vec::with_capacity(tags.len());
     for t in tags {
         let name = t.tag.trim();
-        if name.is_empty() {
+        if name.is_empty() || out.iter().any(|k| k.tag == name) {
             continue;
         }
+        out.push(ItemTag { tag: name.to_string(), r#type: t.r#type });
+    }
+    out
+}
+
+fn set_tags(tx: &Connection, library_id: i64, id: i64, tags: &[ItemTag]) -> Result<()> {
+    tx.execute("DELETE FROM item_tags WHERE item_id = ?1", params![id]).map_err(sql_err)?;
+    for t in &normalise_tags(tags) {
+        let name = t.tag.as_str();
         let tid = tag_id(tx, library_id, name)?;
         tx.execute(
             "INSERT INTO item_tags(item_id, tag_id, type) VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING",
@@ -515,7 +534,11 @@ fn insert(tx: &Connection, library_id: i64, draft: ItemDraft, version: i64) -> R
         Some(k) => k.clone(),
         None => Key::generate(),
     };
-    let tags = draft.tags.clone();
+    // Normalised once, here, because this list is used three times over: to
+    // write `item_tags`, to build the item handed back, and to feed the search
+    // index. Trimming inside `set_tags` alone left the other two holding the
+    // raw text.
+    let tags = normalise_tags(&draft.tags);
     let collections = draft.collections.clone();
     let item = draft.into_item(key, library_id, version);
     let d = denorm(&item);
@@ -588,7 +611,9 @@ fn apply_patch(item: &mut Item, patch: ItemPatch) {
         item.creators = c;
     }
     if let Some(t) = patch.tags {
-        item.tags = t;
+        // Normalised here as well as on insert: the updated item is returned
+        // to the caller, and a patch is the other way a raw tag gets in.
+        item.tags = normalise_tags(&t);
     }
     if let Some(c) = patch.collections {
         item.collections = c;

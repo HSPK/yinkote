@@ -1124,4 +1124,60 @@ mod counting_tests {
         // numbers are allowed to differ.
         assert_eq!(s.tags.count(lib).await.unwrap(), 1);
     }
+
+    /// What `create` answers must be what the library holds.
+    ///
+    /// Tags were trimmed inside `set_tags`, which writes the rows — but the
+    /// item handed back was built from the draft and then had the raw list
+    /// copied over it. Creating an item tagged `"   "` and `"  Kept  "`
+    /// answered with both, spelled as sent, while the library held one tag
+    /// called `Kept`. The workbench puts created items straight into the list,
+    /// so a tag that does not exist sat on screen until a reload.
+    #[tokio::test]
+    async fn a_created_item_reports_the_tags_that_were_stored() {
+        let store = Store::in_memory().unwrap();
+        let lib = store.default_library;
+
+        let mut draft = ItemDraft::new("journalArticle").with_field("title", "Tag shapes");
+        draft.tags = vec![
+            ItemTag { tag: "   ".into(), r#type: 0 },
+            ItemTag { tag: "  Kept  ".into(), r#type: 0 },
+            ItemTag { tag: "Kept".into(), r#type: 0 },
+        ];
+        let created = store.items.create(lib, draft).await.unwrap();
+
+        let names: Vec<&str> = created.tags.iter().map(|t| t.tag.as_str()).collect();
+        assert_eq!(names, vec!["Kept"], "the reply did not match what was written");
+
+        let stored = store.items.get(lib, &created.key).await.unwrap();
+        let stored_names: Vec<&str> = stored.tags.iter().map(|t| t.tag.as_str()).collect();
+        assert_eq!(stored_names, names, "reply and storage disagree");
+    }
+
+    /// The same on the way through a patch, which is the other way a raw tag
+    /// reaches the store.
+    #[tokio::test]
+    async fn a_patched_item_reports_the_tags_that_were_stored() {
+        let store = Store::in_memory().unwrap();
+        let lib = store.default_library;
+        let item = store
+            .items
+            .create(lib, ItemDraft::new("journalArticle").with_field("title", "Patch shapes"))
+            .await
+            .unwrap();
+
+        let patch = yk_core::model::ItemPatch {
+            tags: Some(vec![
+                ItemTag { tag: " Padded ".into(), r#type: 0 },
+                ItemTag { tag: "\t".into(), r#type: 0 },
+            ]),
+            ..Default::default()
+        };
+        let updated = store.items.update(lib, &item.key, patch, None).await.unwrap();
+
+        let names: Vec<&str> = updated.tags.iter().map(|t| t.tag.as_str()).collect();
+        assert_eq!(names, vec!["Padded"]);
+        let stored = store.items.get(lib, &item.key).await.unwrap();
+        assert_eq!(stored.tags.len(), 1, "reply and storage disagree");
+    }
 }
