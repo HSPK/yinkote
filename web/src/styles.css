@@ -1935,11 +1935,15 @@ option {
   cursor: pointer;
 }
 
-.pdf-highlight[data-colour='amber'] { background: rgb(255 214 102 / 55%); }
-.pdf-highlight[data-colour='green'] { background: rgb(134 226 154 / 55%); }
-.pdf-highlight[data-colour='blue'] { background: rgb(134 190 250 / 55%); }
-.pdf-highlight[data-colour='violet'] { background: rgb(198 166 246 / 55%); }
-.pdf-highlight[data-colour='red'] { background: rgb(250 150 142 / 55%); }
+/* One palette, named once. A highlight fills with it and an underline draws a
+   line in it, and the popup's swatches show it — three places that must agree
+   about what "amber" is. */
+[data-colour='amber']  { --mark: 255 214 102; }
+[data-colour='green']  { --mark: 134 226 154; }
+[data-colour='blue']   { --mark: 134 190 250; }
+[data-colour='violet'] { --mark: 198 166 246; }
+[data-colour='red']    { --mark: 250 150 142; }
+.pdf-highlight[data-colour] { background: rgb(var(--mark) / 55%); }
 
 /* pdf.js positions transparent spans over the canvas; without them a page is a
    picture with no text to select. */
@@ -2770,3 +2774,51 @@ option {
   border: 1px solid var(--line);
 }
 .page-shot img { display: block; width: 100%; height: auto; }
+
+/* The selection popup: a question, not an action. Nothing is written to the
+   library until one of these is clicked — releasing the mouse used to create a
+   highlight, so reading with the mouse edited the document. */
+.selection-popup {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.35);
+}
+.selection-popup .swatches { display: flex; gap: 3px; }
+.selection-popup .swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgb(255 255 255 / 0.25);
+  cursor: pointer;
+  padding: 0;
+}
+.selection-popup .swatch[data-colour] { background: rgb(var(--mark) / 90%); }
+.selection-popup .swatch[data-active='true'] { outline: 1px solid var(--accent); outline-offset: 1px; }
+.selection-popup .popup-action {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 20px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.selection-popup .popup-action:hover { background: var(--bg); color: var(--text); }
+.selection-popup .underline-glyph { font-size: 12px; text-decoration: underline; line-height: 1; }
+
+/* An underline marks the same rectangles as a highlight, but along the baseline
+   rather than through the words — so the text stays as readable as it was. */
+.pdf-highlight[data-kind='underline'] {
+  background: none;
+  border-bottom: 2px solid rgb(var(--mark) / 90%);
+}

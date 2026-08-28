@@ -11,11 +11,13 @@ import {
   toDraft,
   type Annotation,
   type HighlightColour,
+  type Mark,
 } from '../lib/annotations'
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, contextMenu, toast, withToast } from '../ui'
 import { PdfPage } from './PdfPage'
 import { Outline } from '../components/Outline'
+import { SelectionPopup } from '../components/SelectionPopup'
 import { PageRail } from '../components/PageRail'
 import { loadOutline, type OutlineNode } from '../lib/outline'
 import { useFind } from './useFind'
@@ -45,7 +47,12 @@ export function ReaderView({ target }: { target?: string }) {
   /** Which page is being read. Set where it is already worked out for saving,
    *  so there is one definition of it rather than two that can disagree. */
   const [page, setPage] = useState(1)
+  const citationStyle = useStore((s) => s.citationStyle)
   const [outline, setOutline] = useState<OutlineNode[]>([])
+  /** A selection waiting for the reader to say what it is for. */
+  const [pending, setPending] = useState<
+    { page: number; rects: ReturnType<typeof rectsFromSelection>; text: string; at: { x: number; y: number } } | null
+  >(null)
   const [railTab, setRailTab] = useState<'pages' | 'outline'>('pages')
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -88,21 +95,69 @@ export function ReaderView({ target }: { target?: string }) {
   }, [reload])
 
   /** Turn whatever is selected into a highlight. */
-  const highlight = async (pageNumber: number, pageBox: DOMRect) => {
+  /** Remember what was selected and ask; write nothing yet. */
+  const select = (pageNumber: number, pageBox: DOMRect) => {
     const selection = window.getSelection()
     const text = selection?.toString().trim() ?? ''
-    if (!selection || !text || !current) return
-
+    if (!selection || !text || !current) {
+      setPending(null)
+      return
+    }
     const rects = rectsFromSelection(selection, pageBox)
-    if (!rects.length) return
+    if (!rects.length) {
+      setPending(null)
+      return
+    }
+    // Anchored above the last rectangle, which is where the reader's eye and
+    // pointer already are.
+    const last = selection.getRangeAt(selection.rangeCount - 1).getClientRects()
+    const box = last[last.length - 1]
+    setPending({
+      page: pageNumber,
+      rects,
+      text,
+      at: { x: (box?.left ?? 0) + (box?.width ?? 0) / 2, y: (box?.top ?? 0) - 8 },
+    })
+  }
 
-    selection.removeAllRanges()
+  const mark = async (kind: Mark, chosen: HighlightColour) => {
+    if (!pending || !current) return
+    window.getSelection()?.removeAllRanges()
+    const { page: on, rects, text } = pending
+    setPending(null)
     try {
-      await api.items.create(library, [toDraft(current, { page: pageNumber, rects }, text, colour)])
+      await api.items.create(library, [toDraft(current, { page: on, rects }, text, chosen, kind)])
       await reload()
     } catch (e) {
       toast.fromError(t('reader.highlightFailed'), e)
     }
+  }
+
+  const copyText = async () => {
+    if (!pending) return
+    await navigator.clipboard.writeText(pending.text).catch(() => {})
+    window.getSelection()?.removeAllRanges()
+    setPending(null)
+    toast.success(t('reader.copied'))
+  }
+
+  /** The quoted sentence with a reference after it, which is what somebody
+   *  reading a paper into their own notes actually wants. */
+  const copyCitation = async () => {
+    if (!pending || !target) return
+    const quoted = `"${pending.text}"`
+    try {
+      const rendered = await api.citations.render(library, [target], citationStyle)
+      const reference = rendered.citations[0] ?? ''
+      await navigator.clipboard.writeText(
+        `${quoted} ${reference} ${t('reader.atPage', { page: pending.page })}`.trim(),
+      )
+      toast.success(t('reader.copied'))
+    } catch (e) {
+      toast.fromError(t('toast.citationFailed'), e)
+    }
+    window.getSelection()?.removeAllRanges()
+    setPending(null)
   }
 
   const remove = async (key: string) => {
@@ -302,7 +357,7 @@ export function ReaderView({ target }: { target?: string }) {
             )}
           </div>
         )}
-        <div className="reader-pages" ref={scrollRef}>
+        <div className="reader-pages" ref={scrollRef} onMouseDown={() => setPending(null)}>
           {error && <Empty>{t('reader.unsupported')}</Empty>}
           {!doc && !error && <Empty>{t('reader.loading')}</Empty>}
           {doc &&
@@ -313,7 +368,7 @@ export function ReaderView({ target }: { target?: string }) {
                 pageNumber={n}
                 zoom={zoom}
                 annotations={annotations.filter((a) => a.page === n)}
-                onHighlight={highlight}
+                onSelect={select}
                 onRemove={remove}
               />
             ))}
@@ -365,6 +420,17 @@ export function ReaderView({ target }: { target?: string }) {
           ))}
         </aside>
       </div>
+
+      {pending && (
+        <SelectionPopup
+          at={pending.at}
+          colour={colour}
+          onMark={mark}
+          onCopy={copyText}
+          onCite={copyCitation}
+          onDismiss={() => setPending(null)}
+        />
+      )}
     </div>
   )
 }

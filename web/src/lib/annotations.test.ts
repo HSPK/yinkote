@@ -191,3 +191,36 @@ describe('imported Zotero geometry', () => {
     ])
   })
 })
+
+const markItem = (over: Partial<Item>) =>
+  ({
+    key: 'AAAA1111',
+    itemType: 'annotation',
+    annotationPage: '3',
+    annotationPosition: JSON.stringify({ page: 3, rects: [{ x: 0, y: 0, w: 1, h: 0.1 }] }),
+    tags: [],
+    collections: [],
+    ...over,
+  }) as unknown as Item
+
+describe('what a mark on the page is', () => {
+  it('keeps the kind an imported annotation was stored with', () => {
+    // Zotero's own names, so a library imported from it keeps its underlines
+    // and one exported to it is still readable.
+    expect(toAnnotation(markItem({ annotationType: 'underline' }))?.kind).toBe('underline')
+    expect(toAnnotation(markItem({ annotationType: 'highlight' }))?.kind).toBe('highlight')
+  })
+
+  it('treats anything it does not know as a highlight', () => {
+    // Drawn the wrong way is recoverable; not drawn at all looks like data
+    // loss.
+    expect(toAnnotation(markItem({ annotationType: 'ink' }))?.kind).toBe('highlight')
+    expect(toAnnotation(markItem({ annotationType: undefined }))?.kind).toBe('highlight')
+  })
+
+  it('writes the kind it was asked for, and highlights by default', () => {
+    const where = { page: 2, rects: [{ x: 0, y: 0, w: 1, h: 0.1 }] }
+    expect(toDraft('BBBB2222', where, 'text', 'green', 'underline').annotationType).toBe('underline')
+    expect(toDraft('BBBB2222', where, 'text', 'green').annotationType).toBe('highlight')
+  })
+})

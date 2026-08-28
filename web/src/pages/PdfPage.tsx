@@ -8,7 +8,9 @@ export interface PdfPageProps {
   pageNumber: number
   zoom: number
   annotations: Annotation[]
-  onHighlight: (page: number, pageBox: DOMRect) => void
+  /** Reports a selection; it does not act on one. Releasing the mouse used to
+   *  write a highlight, so reading with the mouse edited the library. */
+  onSelect: (page: number, pageBox: DOMRect) => void
   onRemove: (key: string) => void
 }
 
@@ -25,7 +27,7 @@ export function PdfPage({
   pageNumber,
   zoom,
   annotations,
-  onHighlight,
+  onSelect,
   onRemove,
 }: PdfPageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -92,7 +94,7 @@ export function PdfPage({
       style={{ width: size.width || undefined, height: size.height || undefined }}
       onMouseUp={() => {
         const box = wrapRef.current?.getBoundingClientRect()
-        if (box) onHighlight(pageNumber, box)
+        if (box) onSelect(pageNumber, box)
       }}
     >
       <canvas ref={canvasRef} style={{ width: size.width, height: size.height }} />
@@ -103,6 +105,7 @@ export function PdfPage({
             <span
               key={`${a.key}-${i}`}
               className="pdf-highlight"
+              data-kind={a.kind}
               data-colour={a.colour}
               title={a.comment || a.text}
               style={{

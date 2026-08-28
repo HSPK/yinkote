@@ -48,8 +48,18 @@ export interface Position {
   space: Space
 }
 
+/** What a mark on the page is.
+ *
+ *  The same names Zotero uses, so an imported library keeps its underlines and
+ *  an exported one is still readable there. Anything unrecognised is treated as
+ *  a highlight: an annotation drawn the wrong way is recoverable, one that is
+ *  not drawn at all looks like data loss. */
+export const MARKS = ['highlight', 'underline'] as const
+export type Mark = (typeof MARKS)[number]
+
 export interface Annotation {
   key: string
+  kind: Mark
   page: number
   rects: Rect[]
   space: Space
@@ -125,6 +135,7 @@ export function toAnnotation(item: Item): Annotation | null {
   const position = parsePosition(item.annotationPosition)
   if (!position) return null
   const colour = String(item.annotationColor ?? 'amber')
+  const kind = String(item.annotationType ?? 'highlight')
   return {
     key: item.key,
     page: position.page,
@@ -132,6 +143,7 @@ export function toAnnotation(item: Item): Annotation | null {
     space: position.space,
     text: String(item.annotationText ?? ''),
     comment: String(item.annotationComment ?? ''),
+    kind: (MARKS as readonly string[]).includes(kind) ? (kind as Mark) : 'highlight',
     colour: (HIGHLIGHT_COLOURS as readonly string[]).includes(colour)
       ? (colour as HighlightColour)
       : 'amber',
@@ -144,11 +156,12 @@ export function toDraft(
   position: Omit<Position, 'space'>,
   text: string,
   colour: HighlightColour,
+  kind: Mark = 'highlight',
 ) {
   return {
     itemType: 'annotation',
     parentKey: attachmentKey,
-    annotationType: 'highlight',
+    annotationType: kind,
     annotationText: text,
     annotationColor: colour,
     annotationPage: String(position.page),
