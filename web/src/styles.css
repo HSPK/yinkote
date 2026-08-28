@@ -2688,12 +2688,60 @@ option {
    Narrow on purpose — it is a means of navigation, not a second reader — and
    it scrolls independently so the current page can be kept in view without
    dragging the document with it. */
-.page-rail {
+/* The rail holds one of two panels; the width belongs to the container so
+   switching tabs does not resize the reader beside it. */
+.reader-rail {
   flex: 0 0 132px;
-  overflow-y: auto;
-  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border-right: 1px solid var(--line);
   background: var(--bg);
+}
+.rail-tabs { display: flex; border-bottom: 1px solid var(--line); }
+.rail-tab {
+  flex: 1;
+  padding: 5px 4px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+.rail-tab:hover { color: var(--text); }
+.rail-tab[data-active='true'] { color: var(--text); border-bottom-color: var(--accent); }
+
+/* Flat with an indent rather than nested lists: the panel is 132px wide and a
+   thesis outline is four levels deep, which would leave the deepest headings a
+   few characters across. */
+.outline { overflow: auto; flex: 1; padding: 4px 0; }
+.outline-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  width: 100%;
+  padding: 3px 6px;
+  background: none;
+  border: none;
+  border-left: 2px solid transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.outline-row:hover:not(:disabled) { color: var(--text); background: var(--panel); }
+.outline-row[data-active='true'] { color: var(--text); border-left-color: var(--accent); }
+.outline-row:disabled { cursor: default; opacity: 0.55; }
+.outline-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outline-page { font-variant-numeric: tabular-nums; opacity: 0.7; }
+
+.page-rail {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 6px;
   display: flex;
   flex-direction: column;

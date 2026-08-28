@@ -15,7 +15,9 @@ import {
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, contextMenu, toast, withToast } from '../ui'
 import { PdfPage } from './PdfPage'
+import { Outline } from '../components/Outline'
 import { PageRail } from '../components/PageRail'
+import { loadOutline, type OutlineNode } from '../lib/outline'
 import { useFind } from './useFind'
 import { usePdf } from './usePdf'
 
@@ -43,6 +45,8 @@ export function ReaderView({ target }: { target?: string }) {
   /** Which page is being read. Set where it is already worked out for saving,
    *  so there is one definition of it rather than two that can disagree. */
   const [page, setPage] = useState(1)
+  const [outline, setOutline] = useState<OutlineNode[]>([])
+  const [railTab, setRailTab] = useState<'pages' | 'outline'>('pages')
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const file = current ? api.files.url(library, current) : null
@@ -105,6 +109,25 @@ export function ReaderView({ target }: { target?: string }) {
     await api.items.destroy(library, [key])
     await reload()
   }
+
+  /** The document's own table of contents, when it has one. */
+  useEffect(() => {
+    if (!doc) {
+      setOutline([])
+      return
+    }
+    let live = true
+    void loadOutline(doc).then((nodes) => {
+      if (!live) return
+      setOutline(nodes)
+      // Shown first when there is one: a reader who opened a thesis wants its
+      // contents, not two hundred thumbnails.
+      setRailTab(nodes.length ? 'outline' : 'pages')
+    })
+    return () => {
+      live = false
+    }
+  }, [doc])
 
   const goTo = useCallback((page: number, smooth = true) => {
     scrollRef.current
@@ -249,13 +272,35 @@ export function ReaderView({ target }: { target?: string }) {
 
       <div className="reader-body">
         {doc && current && pages.length > 1 && (
-          <PageRail
-            library={library}
-            attachmentKey={current}
-            pages={pages}
-            current={page}
-            onJump={goTo}
-          />
+          <div className="reader-rail">
+            {/* Only offered when the document has an outline. A tab that is
+                always there and usually empty teaches people to ignore it. */}
+            {outline.length > 0 && (
+              <div className="rail-tabs">
+                {(['outline', 'pages'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    className="rail-tab"
+                    data-active={railTab === tab}
+                    onClick={() => setRailTab(tab)}
+                  >
+                    {t(tab === 'outline' ? 'reader.outline' : 'reader.pages')}
+                  </button>
+                ))}
+              </div>
+            )}
+            {railTab === 'outline' && outline.length > 0 ? (
+              <Outline nodes={outline} current={page} onJump={goTo} />
+            ) : (
+              <PageRail
+                library={library}
+                attachmentKey={current}
+                pages={pages}
+                current={page}
+                onJump={goTo}
+              />
+            )}
+          </div>
         )}
         <div className="reader-pages" ref={scrollRef}>
           {error && <Empty>{t('reader.unsupported')}</Empty>}
