@@ -6,7 +6,7 @@
  */
 import { create } from 'zustand'
 
-import { api, connectEvents } from '../api/client'
+import { ApiError, api, connectEvents, setApiKey } from '../api/client'
 import { follow } from '../lib/tasks'
 import { schemaLabel, t, useI18n } from '../i18n'
 import { createPrefsSlice, type PrefsSlice } from './slices/prefs'
@@ -52,6 +52,9 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   ready: boolean
   connected: boolean
   error: string | null
+  /** The server wants an API key and this browser has not got a working one. */
+  needsKey: boolean
+  useApiKey: (key: string) => Promise<void>
   library: number
   schema: Schema | null
   stats: Stats | null
@@ -202,6 +205,7 @@ export const useStore = create<State>((set, get, store) => ({
 
   panel: 'detail',
   paletteOpen: false,
+  needsKey: false,
 
   async bootstrap() {
     try {
@@ -248,8 +252,23 @@ export const useStore = create<State>((set, get, store) => ({
         }
       })
     } catch (e) {
+      // A server started with YK_API_KEY answers 401 to everything, and the
+      // page has no way to know that except by being told. Without this the
+      // workbench sat on "connecting" for ever, which reads as a broken
+      // server rather than as a library asking who you are.
+      if (e instanceof ApiError && e.status === 401) {
+        set({ needsKey: true, ready: true, error: null })
+        return
+      }
       set({ error: e instanceof Error ? e.message : String(e), ready: true })
     }
+  },
+
+  /** Try the key the user just typed by starting again from the top. */
+  async useApiKey(key: string) {
+    setApiKey(key.trim() || null)
+    set({ needsKey: false, ready: false, error: null })
+    await get().bootstrap()
   },
 
   /** Build the list query for the current view; shared by the first page and

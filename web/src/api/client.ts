@@ -50,11 +50,45 @@ export class ApiError extends Error {
   }
 }
 
+/** Where the key lives, matching the Word add-in's `yinkote.apiKey`. */
+const KEY_STORE = 'yinkote.apiKey'
+
+/**
+ * The key for this server, if the user has given us one.
+ *
+ * A server started with `YK_API_KEY` answers 401 to everything, and the
+ * workbench sent no key at all — so the page loaded and every request it made
+ * failed. The only documented way to expose a library safely made the product
+ * unusable, which left `--allow-anonymous` as the path of least resistance.
+ *
+ * The key belongs to the user, not the server: it is typed in here and kept in
+ * this browser, exactly as the add-in's task pane does it. Nothing serves it,
+ * so nothing can leak it.
+ */
+export function apiKey(): string | null {
+  try {
+    return window.localStorage.getItem(KEY_STORE)
+  } catch {
+    return null // private mode, or storage disabled; the key is optional anyway.
+  }
+}
+
+export function setApiKey(key: string | null) {
+  try {
+    if (key) window.localStorage.setItem(KEY_STORE, key)
+    else window.localStorage.removeItem(KEY_STORE)
+  } catch {
+    /* nothing to do: the request will ask again */
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const key = apiKey()
   const res = await fetch(BASE + path, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(key ? { 'x-api-key': key } : {}),
       ...(init?.headers ?? {}),
     },
   })

@@ -10,6 +10,7 @@ import { TABS } from './workspace/registry'
 import { useT } from './i18n'
 import { useStore } from './state/store'
 import { Button, ErrorBoundary, OverlayHost, Splitter } from './ui'
+import { KeyGate } from './components/KeyGate'
 
 /** True when a keystroke belongs to whatever the user is typing into. */
 function isEditing(target: EventTarget | null): boolean {
@@ -125,6 +126,7 @@ function NoTab() {
 export function App() {
   const t = useT()
   const ready = useStore((s) => s.ready)
+  const needsKey = useStore((s) => s.needsKey)
   const error = useStore((s) => s.error)
   const tabs = useStore((s) => s.tabs)
   const activeTab = useStore((s) => s.activeTab)
@@ -138,6 +140,9 @@ export function App() {
   }, [bootstrap])
 
   useGlobalKeys()
+
+  // Before anything else: with no accepted key there is no library to show.
+  if (needsKey) return <KeyGate />
 
   if (!ready) {
     return (
