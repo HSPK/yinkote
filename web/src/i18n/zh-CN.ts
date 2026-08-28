@@ -388,6 +388,7 @@ export const zhCN = {
   'reader.fetchFailed': '获取失败',
   'summary.generate': '生成摘要',
   'summary.done': '摘要已生成',
+  'summary.partial': '摘要已添加，但模型已达步数上限，内容可能不完整',
   'summary.failed': '摘要生成失败',
   'summary.working': '生成中…',
   'summary.needsModel': '未配置模型，无法生成摘要',

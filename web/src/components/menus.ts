@@ -149,10 +149,14 @@ export function itemMenu(item: Item): MenuItem[] {
     },
     {
       label: t('summary.generate'),
+      // The success message depends on how the run ended: a summary the model
+      // did not finish is still worth keeping, but calling it done is a lie.
+      // The note carries the same fact as a tag, since a toast lasts seconds
+      // and the note lasts years.
       onSelect: () =>
         withToast(() => store.summarise(item.key), {
           pending: t('summary.working'),
-          success: t('summary.done'),
+          success: (truncated) => (truncated ? t('summary.partial') : t('summary.done')),
           failure: t('summary.failed'),
         }),
     },

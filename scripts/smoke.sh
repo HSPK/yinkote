@@ -103,6 +103,13 @@ check "stale patch -> 412" "$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
                              -H 'Content-Type: application/json' \
                              -H "If-Unmodified-Since-Version: $VER" \
                              -d '{"fields":{"volume":"31"}}' | grep -x 412)"
+# `ItemPatch` keeps its fields in a nested object, so a flattened patch matched
+# nothing and produced a patch that was None throughout: 200, and no change.
+# Regenerating a summary had been doing exactly that for as long as it existed.
+check "flat patch -> 422" "$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
+                             "$BASE/libraries/$LIB/items/$KEY" \
+                             -H 'Content-Type: application/json' \
+                             -d '{"title":"flattened"}' | grep -x 422)"
 # The name says 412 and the check has to as well: `check` passes any non-empty
 # value, so printing the status without comparing it accepts 200 just as
 # happily — a check that cannot fail for the reason it is named after.

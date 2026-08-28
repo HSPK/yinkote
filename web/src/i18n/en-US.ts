@@ -391,6 +391,7 @@ export const enUS: Record<MessageKey, string> = {
   'reader.fetchFailed': 'Fetch failed',
   'summary.generate': 'Summarise',
   'summary.done': 'Summary written',
+  'summary.partial': 'Summary added, but the model ran out of steps — it may be incomplete',
   'summary.failed': 'Could not summarise',
   'summary.working': 'Writing…',
   'summary.needsModel': 'No model configured',

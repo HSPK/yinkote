@@ -23,6 +23,67 @@ use crate::state::App;
 /// Marks a note as machine-written, so it is never mistaken for the user's own.
 pub const SUMMARY_TAG: &str = "summary";
 
+/// Marks a summary the model did not get to finish.
+///
+/// On the note rather than only in the reply, because a note outlives the
+/// request that made it: the toast is gone in three seconds and the note is
+/// still there next year, reading like a complete summary that stops mid
+/// thought. Being a tag, it is also searchable — "show me the summaries worth
+/// regenerating" is a real question.
+pub const TRUNCATED_TAG: &str = "summary-incomplete";
+
+/// Type 1 is an automatic tag: the user did not write it.
+const AUTOMATIC: u8 = 1;
+
+/// The tags a summary note should carry, given how the run ended.
+fn summary_tags(truncated: bool) -> Vec<yk_core::model::ItemTag> {
+    let mut tags =
+        vec![yk_core::model::ItemTag { tag: SUMMARY_TAG.into(), r#type: AUTOMATIC }];
+    if truncated {
+        tags.push(yk_core::model::ItemTag { tag: TRUNCATED_TAG.into(), r#type: AUTOMATIC });
+    }
+    tags
+}
+
+/// How a summary note is listed: the opening of the summary itself.
+fn summary_title(reply: &str) -> String {
+    yk_core::text::note_title(reply, yk_core::text::NOTE_TITLE_CHARS).to_string()
+}
+
+/// The patch that makes an existing note hold this summary.
+///
+/// **`fields` is a nested object on `ItemPatch`, not a flattened one.** This
+/// sent `{"note": ...}` at the top level, where serde matched nothing and
+/// produced a patch that was `None` throughout — so regenerating a summary
+/// answered 200, changed nothing, and reported "Summary added" over the old
+/// text. A patch shape that silently means "do nothing" is the worst kind of
+/// mistake to make, because every layer above it looks like it worked.
+///
+/// The title goes in too: it is the only part of a note most screens show, and
+/// it was left describing the summary it had just replaced. Tags go in for the
+/// same reason in reverse — regenerating a truncated summary successfully has
+/// to *clear* the warning, or the first bad run marks the note for good.
+fn summary_fields(reply: &str, truncated: bool) -> serde_json::Value {
+    json!({
+        "fields": { "note": reply, "title": summary_title(reply) },
+        "tags": summary_tags(truncated),
+    })
+}
+
+/// A fresh note holding this summary.
+///
+/// Built rather than deserialised from `summary_fields`: `ItemDraft` requires
+/// `itemType`, so that round trip failed outright — every new summary would
+/// have been a 500. The two paths share the *derivations* instead, which is
+/// where the drift was, and neither depends on the other's shape.
+fn summary_draft(reply: &str, truncated: bool) -> ItemDraft {
+    let mut draft = ItemDraft::new("note")
+        .with_field("note", reply)
+        .with_field("title", summary_title(reply).as_str());
+    draft.tags = summary_tags(truncated);
+    draft
+}
+
 pub fn router() -> Router<App> {
     Router::new().route("/libraries/:lib/items/:key/summarise", post(summarise))
 }
@@ -71,7 +132,8 @@ async fn summarise(
                 .update(
                     lib,
                     &note.key,
-                    serde_json::from_value(json!({ "note": turn.reply })).map_err(internal)?,
+                    serde_json::from_value(summary_fields(&turn.reply, turn.truncated))
+                        .map_err(internal)?,
                     // No version check: regenerating deliberately overwrites
                     // whatever summary was there.
                     None,
@@ -79,19 +141,8 @@ async fn summarise(
                 .await?
         }
         None => {
-            let mut draft = ItemDraft::new("note")
-                .with_field("note", turn.reply.as_str())
-                .with_field(
-                    "title",
-                    yk_core::text::note_title(&turn.reply, yk_core::text::NOTE_TITLE_CHARS)
-                        .as_str(),
-                );
+            let mut draft = summary_draft(&turn.reply, turn.truncated);
             draft.parent_key = Some(parent.clone());
-            draft.tags = vec![yk_core::model::ItemTag {
-                tag: SUMMARY_TAG.into(),
-                // Type 1 is an automatic tag: the user did not write it.
-                r#type: 1,
-            }];
             app.store().items.create(lib, draft).await?
         }
     };
@@ -204,5 +255,74 @@ mod tests {
     #[test]
     fn the_model_is_told_not_to_pad_a_thin_record() {
         assert!(prompt(&item(), None).contains("too thin"));
+    }
+
+    /// Replacing a summary must rewrite the title too.
+    ///
+    /// It did not: the update path patched `note` alone, so the note went on
+    /// being *listed* under a sentence from the summary it had just replaced.
+    /// The title is the only part of a note most screens ever show, which is
+    /// what made this invisible in the response and obvious in the sidebar.
+    /// The patch must actually be a patch.
+    ///
+    /// `ItemPatch` keeps its fields in a nested `fields` object and ignores
+    /// anything else, so `{"note": ...}` deserialised into a patch that was
+    /// entirely `None`: regenerating a summary answered 200 and changed
+    /// nothing. Nothing above this could tell, which is why the check has to
+    /// be here, on the deserialised patch rather than on the JSON.
+    #[test]
+    fn a_replaced_summary_actually_replaces_it() {
+        let patch: yk_core::model::ItemPatch =
+            serde_json::from_value(summary_fields("Evaluates on three benchmarks.", false))
+                .unwrap();
+        let fields = patch.fields.expect("the patch changes no fields at all");
+        assert_eq!(
+            fields.get("note").and_then(|v| v.as_str()),
+            Some("Evaluates on three benchmarks."),
+        );
+        assert!(
+            fields.get("title").and_then(|v| v.as_str()).unwrap().starts_with("Evaluates on"),
+            "the title would go on describing the summary it replaced",
+        );
+        assert!(patch.tags.is_some(), "the truncation warning would never be cleared");
+    }
+
+    /// A note outlives the toast that announced it.
+    #[test]
+    fn an_unfinished_summary_says_so_on_the_note() {
+        let tags = summary_fields("Half an ans", true)["tags"].clone();
+        let names: Vec<String> =
+            tags.as_array().unwrap().iter().map(|t| t["tag"].as_str().unwrap().into()).collect();
+        assert!(names.contains(&SUMMARY_TAG.to_string()));
+        assert!(names.contains(&TRUNCATED_TAG.to_string()), "nothing records the truncation");
+    }
+
+    /// And regenerating it successfully must take the warning away again,
+    /// otherwise the first bad run marks the note for good.
+    #[test]
+    fn a_finished_summary_clears_the_warning() {
+        let tags = summary_fields("A whole answer.", false)["tags"].clone();
+        let names: Vec<String> =
+            tags.as_array().unwrap().iter().map(|t| t["tag"].as_str().unwrap().into()).collect();
+        assert_eq!(names, vec![SUMMARY_TAG.to_string()], "a stale warning would stick forever");
+    }
+
+    /// The create path builds its draft from the same value, so the fields
+    /// have to survive the round trip into `ItemDraft` rather than being
+    /// silently dropped by a shape mismatch.
+    /// A new summary and a replaced one must produce the same note.
+    ///
+    /// They are built by different code — a draft cannot be deserialised from
+    /// the patch, since `ItemDraft` requires `itemType` — so the only thing
+    /// keeping them together is that they share the derivations. This is the
+    /// check that says so.
+    #[test]
+    fn creating_and_replacing_agree() {
+        let draft = summary_draft("Body text here.", true);
+        let patch = summary_fields("Body text here.", true);
+        assert_eq!(draft.fields.get("note").and_then(|v| v.as_str()), Some("Body text here."));
+        assert_eq!(draft.fields.get("title"), patch["fields"].get("title"));
+        assert_eq!(serde_json::to_value(&draft.tags).unwrap(), patch["tags"]);
+        assert_eq!(draft.item_type, "note");
     }
 }

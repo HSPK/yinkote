@@ -69,7 +69,7 @@ export interface ChatSlice {
   removeConversation: (key: string) => Promise<void>
   sendMessage: (text: string, mentions?: string[]) => Promise<void>
   askAbout: (itemKey: string) => Promise<void>
-  summarise: (itemKey: string) => Promise<void>
+  summarise: (itemKey: string) => Promise<boolean>
 }
 
 export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get) => ({
@@ -274,9 +274,14 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
     )
   },
 
-  /** Ask the model for a summary; it lands as a note under the item. */
+  /** Ask the model for a summary; it lands as a note under the item.
+   *
+   *  Returns whether the model ran out of steps. The answer used to be thrown
+   *  away, so a summary that stops mid-thought was announced as "Summary
+   *  added" like any other. */
   async summarise(itemKey) {
-    await api.summarise(get().library, itemKey)
+    const { truncated } = await api.summarise(get().library, itemKey)
     await get().refresh()
+    return truncated
   },
 })

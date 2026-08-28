@@ -327,6 +327,7 @@ impl ItemDraft {
 /// Sparse update. `None` means "leave untouched"; an explicit `null` inside
 /// `fields` clears that field.
 #[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ItemPatch {
     #[serde(rename = "itemType", default)]
     pub item_type: Option<String>,
