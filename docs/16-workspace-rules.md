@@ -2273,3 +2273,41 @@ figshare、绝大多数机构库和学位论文都在 DataCite。实测
 
 联网测试用的标识符必须是永久记录：2015 年被引一万次的论文不会被撤回。
 选一个可能消失的对象，就是给自己埋一个将来某天为了没人能行动的理由而变红的测试。
+
+### 3.156 写完文件不等于装好了服务
+
+`yinkote service install` 写一个开机自启文件。Linux 上写完 unit **服务并不会跑**：
+systemd 没被告知去看，也没被 enable。这时候打印一句 "done" 是最糟的结果——
+用户以为装好了，重启之后什么都没有，而且没有任何线索指向这里。
+
+所以 `Platform::activation()` 返回"还差哪一步"，install 如实转述：
+
+```
+wrote /home/ada/.config/systemd/user/yinkote.service
+
+now run:
+    systemctl --user daemon-reload && systemctl --user enable --now yinkote
+```
+
+macOS 和 Windows 返回 `None`——它们下次登录自然生效，**编一句"还需要执行"同样是撒谎**。
+
+三条设计约束写在模块头上：
+- **永远是用户级服务**，不是系统级。系统服务要 root、以别人的身份运行、
+  把个人文献库放到本人够不着的地方。文献管理器不是基础设施。
+- **路径和文件内容是纯函数**，只有写盘那步碰磁盘。这样三个平台的答案在任何一个
+  平台上都能测——**这是作者不用的那两个平台唯一有机会写对的方式。**
+- **可执行文件路径必须是绝对的**：登录会话的 `PATH` 不是 shell 的 `PATH`，
+  裸程序名是这类文件"什么都不做"的最常见原因。
+
+### 3.157 让平台自己的校验器来判卷
+
+单元测试断言的是"文件里写着什么"，只能证明它说了我想让它说的话。
+**systemd 接不接受这个 unit，是 systemd 的意见，而那是唯一算数的意见。**
+
+`tests/service_unit.rs`（`#[ignore]`）把生成的 unit 交给 `systemd-analyze verify`，
+plist 交给 `plutil -lint`。和上一轮 `live_sources.rs` 是同一条道理：
+**录下来的形状证明不了真东西同意。**
+
+一个必要的细节：`systemd-analyze` 会连带校验它拉进来的系统 unit，
+那些不是我们该答的。只统计提到 `yinkote.service` 的行——
+否则这条检查会因为发行版自己的告警而变红，然后被关掉。

@@ -176,6 +176,18 @@ libm / libgcc。把二进制拷到任意空目录直接跑即可：
 
 体积约 18 MB（其中工作台约 5 MB）。
 
+**开机自启**（当前用户，绝不是系统服务——个人文献库不该属于 root）：
+
+```
+yinkote service install --data-dir ~/.yinkote --port 23119
+yinkote service status
+yinkote service uninstall
+```
+
+写出的是各平台原生的那一个：Linux 的 systemd user unit、macOS 的 launchd agent、
+Windows 的启动文件夹脚本。**systemd 需要再执行一步才生效，安装命令会如实告诉你，
+而不是打印一句"完成"然后留下一个永远不会启动的服务。**
+
 - **`--web-dir` 仍然优先**：开发前端时指向 `web/dist`，改完刷新即可，不必重编 Rust。
 - **插件是磁盘上的目录**，这是插件系统的本意——它们本来就该能被换掉。
 - 没跑过 `npm run build` 也能编译成功：`build.rs` 会放一个页面说明发生了什么，

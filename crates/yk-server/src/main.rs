@@ -26,12 +26,19 @@ async fn main() -> anyhow::Result<()> {
         .with_target(false)
         .init();
 
-    let mut config = Config::load(args.data_dir);
-    if let Some(p) = args.connector_port {
-        config.connector_port = Some(p);
-    }
+    let mut config = Config::load(args.data_dir.clone());
     if let Some(p) = args.port {
         config.port = p;
+    }
+
+    // Before anything is started: these manage the service rather than being
+    // it, and starting a second copy to install an autostart file would be an
+    // odd thing to do.
+    if let Some(command) = &args.service {
+        return run_service(command, &config);
+    }
+    if let Some(p) = args.connector_port {
+        config.connector_port = Some(p);
     }
     if let Some(h) = args.host {
         config.host = h;
@@ -58,11 +65,49 @@ async fn main() -> anyhow::Result<()> {
     yk_server::serve(app).await
 }
 
+/// `yinkote service …` — arranging for the program to start at login.
+///
+/// Kept out of `main` because it is a different program: it writes one file and
+/// exits, and every line of it is about reporting exactly what happened. An
+/// install that says "done" while leaving a unit systemd has not been told
+/// about is worse than one that says what is left to do.
+fn run_service(command: &str, config: &Config) -> anyhow::Result<()> {
+    use yk_server::service;
+    match command {
+        "install" => {
+            let done = service::install(&config.data_dir(), config.port)?;
+            println!("wrote {}", done.path.display());
+            match done.activation {
+                Some(next) => println!("\nnow run:\n    {next}"),
+                None => println!("it will start at your next login"),
+            }
+        }
+        "uninstall" => match service::uninstall()? {
+            Some(path) => println!("removed {}", path.display()),
+            None => println!("nothing was installed"),
+        },
+        "status" => match service::status() {
+            Some(path) => println!("installed: {}", path.display()),
+            None => println!("not installed"),
+        },
+        other => {
+            anyhow::bail!("unknown service command '{other}'; expected install, uninstall or status")
+        }
+    }
+    Ok(())
+}
+
 const USAGE: &str = "\
 yinkote — local-first reference manager
 
 USAGE:
     yinkote [OPTIONS]
+    yinkote service install|uninstall|status
+
+    `service install` writes an autostart file for the current user — a
+    systemd user unit, a launchd agent, or a Startup-folder script — using
+    the --data-dir and --port given alongside it. Never a system service:
+    a personal library does not belong to root.
 
 OPTIONS:
     -p, --port <PORT>        Port to listen on (default 23130)
@@ -92,6 +137,8 @@ struct Args {
     data_dir: Option<PathBuf>,
     web_dir: Option<PathBuf>,
     plugin_dirs: Vec<PathBuf>,
+    /// `install`, `uninstall` or `status`; `None` means "be the server".
+    service: Option<String>,
     help: bool,
     version: bool,
 }
@@ -102,6 +149,7 @@ impl Args {
         let mut it = std::env::args().skip(1);
         while let Some(arg) = it.next() {
             match arg.as_str() {
+                "service" => args.service = Some(it.next().unwrap_or_else(|| "status".into())),
                 "-h" | "--help" => args.help = true,
                 "-V" | "--version" => args.version = true,
                 "-p" | "--port" => args.port = it.next().and_then(|v| v.parse().ok()),

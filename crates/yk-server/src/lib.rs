@@ -15,6 +15,7 @@ pub mod integration;
 pub mod maintenance;
 pub mod routes;
 pub mod security;
+pub mod service;
 pub mod storage;
 pub mod state;
 pub mod naming;
