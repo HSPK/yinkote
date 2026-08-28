@@ -13,7 +13,7 @@ import {
   type ColumnDef,
 } from '../lib/columns'
 import { beginDrag, endDrag } from '../lib/dnd'
-import { creatorSummary, shortDate, snippetParts, year } from '../lib/format'
+import { creatorSummary, modKey, shortDate, snippetParts, year } from '../lib/format'
 import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
 import { contextMenu, Icon, type MenuItem } from '../ui'
@@ -225,6 +225,26 @@ function Row({
   )
 }
 
+/** What "nothing here" means, which is not one thing.
+ *
+ *  A search that matched nothing, a shelf nobody has filled yet, and a library
+ *  that has never had anything in it are three different situations, and only
+ *  the last one is somebody's first five minutes with the program. Telling a
+ *  new arrival to press a key and type a paper in by hand is the worst of the
+ *  three answers: what they almost certainly want is to bring a library they
+ *  already have.
+ */
+function emptyMessage(
+  t: ReturnType<typeof useT>,
+  s: { query: string; view: string; collection: string | null; total: number },
+): string {
+  if (s.query) return t('search.empty', { query: s.query })
+  // Scoped to something — a shelf, the trash, a saved search — so the library
+  // as a whole is not what is empty.
+  if (s.collection || s.view !== 'library') return t('table.emptyHere')
+  return t('table.emptyLibrary', { shortcut: modKey() })
+}
+
 export function ItemTable() {
   const t = useT()
   const items = useStore((s) => s.items)
@@ -236,6 +256,9 @@ export function ItemTable() {
   const loading = useStore((s) => s.loading)
   const loadMore = useStore((s) => s.loadMore)
   const query = useStore((s) => s.query)
+  const view = useStore((s) => s.view)
+  const collection = useStore((s) => s.collection)
+  const total = useStore((s) => s.total)
 
   const badgeDefs = useStore((s) => s.badgeDefs)
   const order = useStore((s) => s.columnOrder)
@@ -346,7 +369,7 @@ export function ItemTable() {
         empty={
           loading ? null : (
             <div className="empty">
-              {query ? t('search.empty', { query }) : t('table.empty', { shortcut: '⌘K' })}
+              {emptyMessage(t, { query, view, collection, total })}
             </div>
           )
         }

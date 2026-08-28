@@ -91,3 +91,17 @@ export function elapsed(ms: number): string {
   if (m) return `${m}m ${String(s).padStart(2, '0')}s`
   return `${s}s`
 }
+
+/** The modifier key this machine actually uses, for labels that name it.
+ *
+ *  The handlers all accept `metaKey || ctrlKey`, so both platforms work — but
+ *  the empty-library hint said "press ⌘K" to everybody, which is a Mac symbol
+ *  shown to Linux and Windows users of a program whose whole point is being
+ *  cross-platform. Detected rather than configured: nobody should have to tell
+ *  a local application which keyboard is in front of them.
+ */
+export function modKey(): string {
+  const platform =
+    (typeof navigator === 'undefined' ? '' : navigator.platform || navigator.userAgent) ?? ''
+  return /Mac|iPhone|iPad/i.test(platform) ? '⌘' : 'Ctrl+'
+}
