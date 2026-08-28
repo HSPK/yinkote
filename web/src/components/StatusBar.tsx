@@ -1,4 +1,5 @@
 import { ActivityIndicator } from './ActivityIndicator'
+import { searchText } from '../state/scope'
 import { useStore } from '../state/store'
 import { useT } from '../i18n'
 import { TABS } from '../workspace/registry'
@@ -9,7 +10,7 @@ export function StatusBar() {
   const selected = useStore((s) => s.selected)
   const tookMs = useStore((s) => s.tookMs)
   const mode = useStore((s) => s.mode)
-  const query = useStore((s) => s.query)
+  const query = useStore(searchText)
   const error = useStore((s) => s.error)
   const stats = useStore((s) => s.stats)
   const tabs = useStore((s) => s.tabs)

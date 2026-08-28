@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { SCOPE_KEYS, applyClick, captureScope, emptyScope, rangeOf } from './scope'
+import { SCOPE_KEYS, applyClick, captureScope, emptyScope, rangeOf, searchText } from './scope'
 
 const keys = ['a', 'b', 'c', 'd', 'e']
 const at = (selected: string[], anchor: number) => ({ selected, anchor })
@@ -74,5 +74,23 @@ describe('applyClick', () => {
   it('ignores a click past the end of the list', () => {
     const current = at(['a'], 0)
     expect(applyClick(keys, current, 99, 'none')).toEqual({ ...current, cursor: 99 })
+  })
+})
+
+describe('what is actually being searched for', () => {
+  it('is nothing when the box holds only whitespace', () => {
+    // `'   '` is truthy. Every decision that asked "is a search running?" by
+    // testing the raw string answered yes to a single stray space.
+    expect(searchText({ query: '   ' })).toBe('')
+    expect(searchText({ query: '' })).toBe('')
+    expect(searchText({ query: '\t\n ' })).toBe('')
+  })
+
+  it('keeps the spaces inside a phrase', () => {
+    // Trimming the ends must not touch the middle: searching for several
+    // words is the ordinary case, and it has been broken here before.
+    expect(searchText({ query: '  attention is all you need ' })).toBe(
+      'attention is all you need',
+    )
   })
 })

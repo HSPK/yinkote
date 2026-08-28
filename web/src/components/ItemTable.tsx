@@ -15,6 +15,7 @@ import {
 import { beginDrag, endDrag } from '../lib/dnd'
 import { creatorSummary, displayTitle, modKey, shortDate, snippetParts, year } from '../lib/format'
 import { tagColour } from '../lib/tags'
+import { searchText } from '../state/scope'
 import { useStore } from '../state/store'
 import { contextMenu, Icon, type MenuItem } from '../ui'
 import { itemMenu } from './menus'
@@ -238,7 +239,8 @@ function emptyMessage(
   t: ReturnType<typeof useT>,
   s: { query: string; view: string; collection: string | null; total: number },
 ): string {
-  if (s.query) return t('search.empty', { query: s.query })
+  const text = searchText(s)
+  if (text) return t('search.empty', { query: text })
   // Scoped to something — a shelf, the trash, a saved search — so the library
   // as a whole is not what is empty.
   if (s.collection || s.view !== 'library') return t('table.emptyHere')

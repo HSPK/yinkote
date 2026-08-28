@@ -16,6 +16,7 @@ import {
   applyClick,
   captureScope,
   emptyScope,
+  searchText,
   type Scope,
 } from './scope'
 import {
@@ -284,9 +285,16 @@ export const useStore = create<State>((set, get, store) => ({
    *  every one after it, so they cannot disagree about what is being listed. */
   listQuery(offset = 0) {
     const s = get()
+    // Trimmed once and used for all three decisions below. `'   '` is truthy,
+    // so a single space typed into the search box counted as a search: the
+    // list switched from papers to everything, attachments and highlights
+    // reappeared among the rows, and the total moved by 137 while the sidebar
+    // count stayed put. The search box is precisely where stray whitespace
+    // gets typed.
+    const text = searchText(s)
     return {
-      q: s.query || undefined,
-      mode: s.query ? s.mode : undefined,
+      q: text || undefined,
+      mode: text ? s.mode : undefined,
       collection: s.view === 'collection' ? (s.collection ?? undefined) : undefined,
       tag: s.activeTags.length ? s.activeTags : undefined,
       itemType: s.typeFilter.length ? s.typeFilter : undefined,
@@ -308,7 +316,7 @@ export const useStore = create<State>((set, get, store) => ({
       // show a child under. Trashing an attachment on its own leaves a paper
       // that is not deleted, so a top-level trash listed nothing at all: the
       // file could not be restored and could not be emptied, only orphaned.
-      topLevel: s.query || s.view === 'trash' ? undefined : true,
+      topLevel: text || s.view === 'trash' ? undefined : true,
       sort: s.sort,
       direction: s.direction,
       limit: PAGE,

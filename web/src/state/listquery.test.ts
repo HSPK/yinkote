@@ -58,4 +58,23 @@ describe('listQuery decides who is included', () => {
     useStore.setState({ view: 'collection', collection: 'ABCD1234', query: '' })
     expect(query().topLevel).toBe(true)
   })
+
+  it('treats a box holding only whitespace as no search at all', () => {
+    // `'   '` is truthy, so a single space counted as a search: the list
+    // switched from papers to everything, attachments and highlights appeared
+    // among the rows, and the total moved by 137 while the sidebar count --
+    // fixed one round earlier to agree with it -- stayed where it was.
+    useStore.setState({ view: 'library', query: '   ' })
+    expect(query().q, 'whitespace was sent as a query').toBeUndefined()
+    expect(query().topLevel, 'a stray space changed which rows are listed').toBe(true)
+    expect(query().mode).toBeUndefined()
+  })
+
+  it('keeps the spaces inside a real phrase', () => {
+    // Trimming the ends must not touch the middle: multi-word searching is
+    // the ordinary case, and it has been broken here before.
+    useStore.setState({ view: 'library', query: '  attention is all you need  ' })
+    expect(query().q).toBe('attention is all you need')
+    expect(query().topLevel).toBeUndefined()
+  })
 })

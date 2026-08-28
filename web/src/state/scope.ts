@@ -45,6 +45,22 @@ export interface Scope {
 const DEFAULT_SORT = 'dateModified'
 const DEFAULT_DIRECTION = 'desc' as const
 
+/**
+ * What is actually being searched for, as opposed to what is in the box.
+ *
+ * `query` holds exactly what the user typed, because the input needs it that
+ * way — spaces included, since a search is usually several words. But every
+ * *decision* about whether a search is running has to be made on the trimmed
+ * text: `'   '` is truthy, and a single stray space made the list switch from
+ * papers to everything, moved the total by 137, and left the sidebar count
+ * disagreeing with the footer again.
+ *
+ * One function so the next place that asks the question gets the same answer.
+ */
+export function searchText(s: { query: string }): string {
+  return s.query.trim()
+}
+
 export function emptyScope(patch: Partial<Scope> = {}): Scope {
   return {
     view: 'library',
