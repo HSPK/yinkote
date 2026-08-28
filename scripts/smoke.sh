@@ -1028,6 +1028,59 @@ check "stats items"      "$(j "$BASE/stats" | jq -r .items)"
 check "search stats"     "$(j "$BASE/search/stats" | jq -r .documents)"
 check "embedded vectors" "$(j "$BASE/search/stats" | jq -r .embedded)"
 
+# ─── clear up after ourselves ──────────────────────────────────────────────
+#
+# The database is kept between runs, and every run used to leave its fixtures
+# in it: 178 items tagged `colour-smoke`, 186 `smoke-connector`, and one new
+# `graph-smoke-<random>` tag family per run — about 160 of them by now. That is
+# §3.163's lesson from the other side: the corpus the tests measure drifts
+# because of the measuring, and the junk lands exactly where the tag graph and
+# the duplicate scan read.
+#
+# After every check, so nothing here can change a result. Failures are ignored:
+# tidying is not a test, and a library that will not tidy is not a red run.
+echo "▸ tidy"
+GONE=0
+
+# By tag where there is one. A tag filter reports an exact total and pages
+# without a candidate cap, unlike `?q=`, which stops at 300 and made the first
+# version of this look as though it had done nothing.
+for tag in colour-smoke smoke-connector; do
+  for _ in $(seq 1 40); do
+    KEYS=$(j "$BASE/libraries/$LIB/items?tag=$tag&limit=100&trash=include" \
+             | jq -r '[.items[].key] | @tsv' 2>/dev/null)
+    [[ -z "$KEYS" ]] && break
+    N=$(j -X POST "$BASE/libraries/$LIB/items/delete" \
+          -d "$(printf '%s' "$KEYS" | tr '\t' '\n' | jq -R . | jq -sc '{keys: .}')" \
+          | jq -r '.deleted // 0')
+    GONE=$((GONE + N))
+    [[ "$N" == "0" ]] && break
+  done
+done
+
+# And by exact title for the fixtures that carry no tag of their own.
+for title in "Graph neighbour" "Citation smoke" "Archive Marker" "Cover page" "Nobody Wrote This"; do
+  for _ in $(seq 1 20); do
+    KEYS=$(j "$BASE/libraries/$LIB/items?q=$(printf '%s' "$title" | jq -sRr @uri)&limit=100&trash=include" \
+             | jq -r --arg t "$title" '[.items[] | select(.title == $t) | .key] | @tsv' 2>/dev/null)
+    [[ -z "$KEYS" ]] && break
+    N=$(j -X POST "$BASE/libraries/$LIB/items/delete" \
+          -d "$(printf '%s' "$KEYS" | tr '\t' '\n' | jq -R . | jq -sc '{keys: .}')" \
+          | jq -r '.deleted // 0')
+    GONE=$((GONE + N))
+    [[ "$N" == "0" ]] && break
+  done
+done
+
+# The per-run graph tags have no items once their papers are gone, but the
+# names linger in the tag list.
+LEFTOVER=0
+for tag in $(j "$BASE/libraries/$LIB/tags?q=graph-smoke&limit=500" | jq -r '.[].name' 2>/dev/null); do
+  j -X DELETE "$BASE/libraries/$LIB/tags" -d "$(jq -nc --arg n "$tag" '{name:$n}')" > /dev/null 2>&1 || true
+  LEFTOVER=$((LEFTOVER + 1))
+done
+printf '  removed %s fixture items and %s spent tags\n' "$GONE" "$LEFTOVER"
+
 echo
 if [[ $FAIL -eq 0 ]]; then
   # The skipped count is part of the result, not a footnote. A throttled model
