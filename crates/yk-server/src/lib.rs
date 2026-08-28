@@ -240,12 +240,44 @@ pub fn router(app: App) -> Router {
         .with_state(app)
 }
 
+/// Whether an address is reachable only from this machine.
+pub fn is_loopback(host: &str) -> bool {
+    matches!(host.trim_start_matches('[').trim_end_matches(']'), "127.0.0.1" | "::1" | "localhost")
+}
+
+/// Refuse to publish somebody's library to the network by accident.
+///
+/// Binding past loopback disables both of the things that were protecting it:
+/// the Host check in [`crate::security::guard`] only applies on loopback, and
+/// there is no key to ask for. What is then reachable by anyone who can route
+/// to the port is not a read-only view — it is the whole API, including
+/// deleting items and reading files off the disk.
+///
+/// It is a refusal rather than a warning because a warning is a line in a log
+/// that the person who most needs it will never read (§3.168), and because the
+/// mistake is silent and total. Both ways forward are named, and there is a
+/// deliberate way to say "yes, I meant it" for somebody behind their own proxy.
+pub fn exposure_refusal(host: &str, has_key: bool, allowed: bool) -> Option<String> {
+    if is_loopback(host) || has_key || allowed {
+        return None;
+    }
+    Some(format!(
+        "refusing to serve {host} with no API key.\n\
+         Anyone who can reach this port would have your whole library — reading it, \
+         editing it, and opening files on this machine — with nothing to get past.\n\
+         Set one:            YK_API_KEY=… yinkote --host {host}\n\
+         Or keep it private: yinkote            (the default, this machine only)\n\
+         If something else is authenticating for you: --allow-anonymous"
+    ))
+}
+
 /// Bind and serve until the process is asked to stop.
 pub async fn serve(app: App) -> anyhow::Result<()> {
     let addr = app.config().bind_addr();
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     let local = listener.local_addr()?;
-    tracing::info!(%local, "yinkote listening — open http://{local}");
+    let shown = lock::browsable_url(&app.config().host, local.port());
+    tracing::info!(%local, "yinkote listening — open {shown}");
 
     workers::spawn(app.clone());
     serve_connector(&app).await;
@@ -313,5 +345,37 @@ async fn shutdown_signal() {
     tokio::select! {
         _ = ctrl_c => {},
         _ = terminate => {},
+    }
+}
+
+#[cfg(test)]
+mod exposure_tests {
+    use super::*;
+
+    #[test]
+    fn loopback_needs_no_key() {
+        // The default, and the whole premise of a local-first tool: nothing
+        // off this machine can reach it, so there is nobody to authenticate.
+        assert!(exposure_refusal("127.0.0.1", false, false).is_none());
+        assert!(exposure_refusal("::1", false, false).is_none());
+        assert!(exposure_refusal("localhost", false, false).is_none());
+    }
+
+    #[test]
+    fn a_wildcard_bind_with_no_key_is_refused() {
+        // Both protections are off at once here: the Host check applies only
+        // on loopback, and there is no key to ask for. What is exposed is not
+        // a read-only view but the whole API.
+        let refusal = exposure_refusal("0.0.0.0", false, false).expect("must refuse");
+        assert!(refusal.contains("YK_API_KEY"), "no way forward: {refusal}");
+        assert!(refusal.contains("--allow-anonymous"), "no deliberate opt-out: {refusal}");
+        // And it says what is at stake, not just that it declined.
+        assert!(refusal.contains("whole library"), "no reason given: {refusal}");
+    }
+
+    #[test]
+    fn a_key_or_an_explicit_yes_is_enough() {
+        assert!(exposure_refusal("0.0.0.0", true, false).is_none(), "a key was set");
+        assert!(exposure_refusal("192.168.1.4", false, true).is_none(), "said so on purpose");
     }
 }

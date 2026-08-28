@@ -628,8 +628,23 @@ fi
 check "path is not a key" "$(curl -sS -o /dev/null -w '%{http_code}' \
                               -X POST "$BASE/libraries/$LIB/items/..%2fetc/reveal" | grep -E '4[0-9][0-9]')"
 
-echo "▸ one server per library"
-# Two servers on one data directory do not fail — they quietly disagree, each
+echo "▸ exposure"
+# Binding past loopback turns off both protections at once: the Host check
+# applies only on loopback, and with no key there is nothing to ask for. What
+# is then reachable is the whole API, not a read-only view.
+if [[ -x ./target/release/yinkote ]]; then
+  EXPOSED=$(./target/release/yinkote --data-dir /tmp/yk-exposure-$$ --host 0.0.0.0 --port 23999 2>&1 || true)
+  rm -rf "/tmp/yk-exposure-$$"
+  check "refuses to publish"  "$(printf '%s' "$EXPOSED" | grep -o 'refusing to serve')"
+  # A refusal nobody can act on is only an annoyance — the same standard the
+  # data-directory lock is held to.
+  check "names both ways out" "$(printf '%s' "$EXPOSED" | grep -c -e 'YK_API_KEY' -e 'allow-anonymous' | grep -x 2)"
+else
+  skip "refuses to publish" "no release binary to try it with"
+  skip "names both ways out" "no release binary to try it with"
+fi
+
+echo "▸ one server per library"# Two servers on one data directory do not fail — they quietly disagree, each
 # with its own copy of the search index. So the second must refuse to start.
 DATA_OF=$(j "$BASE/ping" | jq -r .dataDir)
 if [[ -x ./target/release/yinkote && -n "$DATA_OF" ]]; then

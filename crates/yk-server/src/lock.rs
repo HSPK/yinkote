@@ -130,22 +130,30 @@ impl Holder {
     }
 
     /// The address a browser should be pointed at.
-    ///
-    /// A wildcard bind is reachable on loopback but cannot be *typed* as one —
-    /// `http://0.0.0.0:23130` is not a working URL on any platform.
     pub fn url(&self) -> String {
-        let host = match self.host.as_str() {
-            "0.0.0.0" | "" => "127.0.0.1",
-            "::" | "[::]" => "[::1]",
-            other => other,
-        };
-        // A bare IPv6 literal has to be bracketed or the port reads as part of
-        // the address.
-        if host.contains(':') && !host.starts_with('[') {
-            format!("http://[{host}]:{}", self.port)
-        } else {
-            format!("http://{host}:{}", self.port)
-        }
+        browsable_url(&self.host, self.port)
+    }
+}
+
+/// An address a person can actually open, from one a socket was bound to.
+///
+/// A wildcard bind is reachable on loopback but cannot be *typed* as one:
+/// `http://0.0.0.0:23130` is not a working URL on any platform, and it is what
+/// naively echoing the bind address produces — which the startup line did for
+/// a long time, telling everyone who ran `--host 0.0.0.0` to open something
+/// that goes nowhere.
+pub fn browsable_url(host: &str, port: u16) -> String {
+    let host = match host {
+        "0.0.0.0" | "" => "127.0.0.1",
+        "::" | "[::]" => "[::1]",
+        other => other,
+    };
+    // A bare IPv6 literal has to be bracketed or the port reads as part of
+    // the address.
+    if host.contains(':') && !host.starts_with('[') {
+        format!("http://[{host}]:{port}")
+    } else {
+        format!("http://{host}:{port}")
     }
 }
 

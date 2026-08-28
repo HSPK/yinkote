@@ -188,6 +188,17 @@ yinkote service uninstall
 Windows 的启动文件夹脚本。**systemd 需要再执行一步才生效，安装命令会如实告诉你，
 而不是打印一句"完成"然后留下一个永远不会启动的服务。**
 
+**绑到 loopback 之外会被拒绝**——除非你给了 API key，或明确说了 `--allow-anonymous`：
+
+```
+YK_API_KEY=… yinkote --host 0.0.0.0     # 有钥匙
+yinkote --host 0.0.0.0 --allow-anonymous # 前面有别的东西在认证
+```
+
+越过 loopback 会同时关掉两道保护：Host 校验只在 loopback 生效，而没有 key 就没有
+东西可查。那时暴露出去的**不是只读视图，而是整套 API**——包括删条目和打开本机文件。
+所以这里是拒绝而不是警告：**日志里的一行警告，最需要看到它的人恰好不会看**。
+
 **打开工作台**——装完自启的人往往并不会去终端里敲地址：
 
 ```

@@ -63,6 +63,16 @@ async fn main() -> anyhow::Result<()> {
 
     std::fs::create_dir_all(config.data_dir())?;
 
+    // Before the lock, before anything is opened: publishing a library to the
+    // network by accident is the one mistake here that cannot be undone by
+    // stopping the program.
+    if let Some(refusal) =
+        yk_server::exposure_refusal(&config.host, config.api_key.is_some(), args.allow_anonymous)
+    {
+        eprintln!("{refusal}");
+        std::process::exit(1);
+    }
+
     // One server per data directory. Two sharing one library do not fail —
     // they quietly disagree, each with its own copy of the search index — so
     // the check has to happen here rather than being noticed later.
@@ -178,6 +188,12 @@ OPTIONS:
                              conventionally 23119. Off unless asked for: that
                              port belongs to Zotero, and taking it would break
                              a running copy.
+        --allow-anonymous    Serve a non-loopback address with no API key.
+                             Refused by default: binding past loopback turns
+                             off the Host check *and* leaves nothing to ask
+                             for, so the whole library — including deleting
+                             items and opening files — is available to anyone
+                             who can reach the port.
     -h, --help               Print this help
     -V, --version            Print version
 
@@ -199,6 +215,8 @@ struct Args {
     service: Option<String>,
     /// Point a browser at the server that is already running.
     open: bool,
+    /// Serve a non-loopback address with no API key, deliberately.
+    allow_anonymous: bool,
     help: bool,
     version: bool,
 }
@@ -211,6 +229,7 @@ impl Args {
             match arg.as_str() {
                 "service" => args.service = Some(it.next().unwrap_or_else(|| "status".into())),
                 "open" => args.open = true,
+                "--allow-anonymous" => args.allow_anonymous = true,
                 "-h" | "--help" => args.help = true,
                 "-V" | "--version" => args.version = true,
                 "-p" | "--port" => args.port = it.next().and_then(|v| v.parse().ok()),
