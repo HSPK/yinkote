@@ -167,7 +167,12 @@ const BUDGET = {
   'list filtered by rare tag': 8,
   // Was 47.7ms while the common-tag ceiling recounted the library on every
   // view and the five queries ran in turn.
-  'graph neighbourhood': 45,
+  //
+  // Now deliberately close to the measured cost rather than to the worst it
+  // has ever been: a budget of 45 let it slide from 7ms to 32ms without ever
+  // going red. It is 32ms today for a reason nobody has found yet (§3.194),
+  // so this holds the line where it stands instead of pretending otherwise.
+  'graph neighbourhood': 38,
   'tag operator': 10,
   'list one collection': 25,
   'list collection + children': 25,
