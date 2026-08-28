@@ -162,6 +162,27 @@ async fn ping_reports_service_metadata() {
     assert_eq!(body["ok"], true);
     assert_eq!(body["service"], "yinkote");
     assert!(body["defaultLibrary"].as_i64().unwrap() >= 1);
+    // Browser saving is off unless asked for, and the settings page can only
+    // say so if the server says so.
+    assert_eq!(body["connector"]["state"], "off");
+}
+
+#[tokio::test]
+async fn a_requested_connector_is_not_reported_as_a_working_one() {
+    // The bind is allowed to fail — a running Zotero owns that port — and the
+    // server carries on. Reporting the *request* would tell somebody saving
+    // from their browser works at the one moment it does not.
+    let (c, app) = Client::new().await;
+    app.config.write().connector_port = Some(23119);
+
+    let body = c.get("/ping").await;
+    assert_eq!(body["connector"]["state"], "unavailable", "asked for, never bound");
+    assert_eq!(body["connector"]["port"], 23119);
+
+    app.connector_bound.store(true, std::sync::atomic::Ordering::Relaxed);
+    let body = c.get("/ping").await;
+    assert_eq!(body["connector"]["state"], "listening");
+    assert_eq!(body["connector"]["port"], 23119);
 }
 
 #[tokio::test]

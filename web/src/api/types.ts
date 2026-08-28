@@ -208,6 +208,11 @@ export interface SourceInfo {
   supports: string[]
 }
 
+export type ConnectorStatus =
+  | { state: 'off' }
+  | { state: 'listening'; port: number }
+  | { state: 'unavailable'; port: number }
+
 export interface ServerInfo {
   ok: boolean
   service: string
@@ -219,6 +224,8 @@ export interface ServerInfo {
   dataDir: string
   pluginDirs: string[]
   bind: string
+  /** What browser saving is doing — asked for is not the same as working. */
+  connector: ConnectorStatus
 }
 
 export interface SmartCollection {

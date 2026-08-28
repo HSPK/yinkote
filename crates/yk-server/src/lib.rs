@@ -99,6 +99,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         tasks: Default::default(),
         smart_counts: Default::default(),
         stats: Default::default(),
+        connector_bound: Default::default(),
     }))
 }
 
@@ -265,6 +266,7 @@ async fn serve_connector(app: &App) {
     match tokio::net::TcpListener::bind(&addr).await {
         Ok(listener) => {
             tracing::info!(%addr, "browser connector listening");
+            app.connector_bound.store(true, std::sync::atomic::Ordering::Relaxed);
             let router = router(app.clone());
             tokio::spawn(async move {
                 if let Err(e) = axum::serve(listener, router).await {
@@ -272,6 +274,9 @@ async fn serve_connector(app: &App) {
                 }
             });
         }
+        // Left false, which is what the settings page reports. A warning in a
+        // log nobody is reading is not how somebody finds out that saving from
+        // their browser is not going to work.
         Err(e) => tracing::warn!(
             %addr,
             error = %e,

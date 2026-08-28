@@ -46,6 +46,9 @@ async fn ping(State(app): State<App>) -> Json<Value> {
             .map(|d| d.display().to_string())
             .collect::<Vec<_>>(),
         "bind": app.config().bind_addr(),
+        // Saving from the browser is a headline feature that is off by default
+        // and was, until now, mentioned nowhere the user could see it.
+        "connector": app.connector_status(),
     }))
 }
 

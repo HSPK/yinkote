@@ -65,6 +65,28 @@ pub struct AppState {
     /// are exact counts of the whole library, recomputed inside the same
     /// first-paint burst that the item list is already counting in.
     pub stats: Arc<yk_store::counts::Versioned<serde_json::Value>>,
+    /// Whether the browser-connector port was actually bound.
+    ///
+    /// Separate from `config.connector_port`, which only records that it was
+    /// *asked for*. The bind is allowed to fail — a running Zotero already owns
+    /// that port — and the server carries on, so the request and the outcome
+    /// are genuinely different facts. Reporting the request would tell somebody
+    /// browser saving is on at the exact moment it is not.
+    pub connector_bound: Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// What browser saving is doing, for the settings page to explain.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub enum ConnectorStatus {
+    /// Not asked for. The default, and deliberately so: the port belongs to
+    /// Zotero, and taking it would break a Zotero the user is still migrating
+    /// from.
+    Off,
+    /// Listening, so the browser extension can save to this library.
+    Listening { port: u16 },
+    /// Asked for and refused — almost always because Zotero has it.
+    Unavailable { port: u16 },
 }
 
 impl AppState {
@@ -88,6 +110,17 @@ impl AppState {
     }
     pub fn tasks(&self) -> &crate::tasks::Tasks {
         &self.tasks
+    }
+
+    /// What browser saving is doing, as opposed to what was asked of it.
+    pub fn connector_status(&self) -> ConnectorStatus {
+        match self.config().connector_port {
+            None => ConnectorStatus::Off,
+            Some(port) if self.connector_bound.load(std::sync::atomic::Ordering::Relaxed) => {
+                ConnectorStatus::Listening { port }
+            }
+            Some(port) => ConnectorStatus::Unavailable { port },
+        }
     }
     /// The agent as it is right now.
     ///

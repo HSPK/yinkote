@@ -54,6 +54,10 @@ await_task() { # await_task <task-id>
 
 echo "▸ system"
 check "ping"             "$(j "$BASE/ping" | jq -r .ok)"
+# Browser saving is off unless asked for, so the settings page can only tell
+# somebody it exists if the server reports it. "Requested" and "working" are
+# different facts here — the bind is allowed to fail and the server carries on.
+check "connector status" "$(j "$BASE/ping" | jq -r '.connector.state | select(. == "off" or . == "listening" or . == "unavailable")')"
 check "schema types"     "$(j "$BASE/schema" | jq -r '.itemTypes | length')"
 LIB=$(j "$BASE/libraries" | jq -r '.[0].id')
 check "library id"       "$LIB"
