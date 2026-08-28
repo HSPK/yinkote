@@ -45,13 +45,28 @@ struct Entry {
     took: Duration,
 }
 
-/// Entries for one library at one version. Replaced wholesale when the library
-/// changes, which also bounds memory without an eviction policy.
+/// Entries for one library, each remembering the version it was computed at.
+///
+/// Per entry, not per library. A single shared version replaced the whole map
+/// whenever any key was written at a newer one — so asking for a facet list
+/// under one filter threw away the previous answers for every *other* filter,
+/// and those turned from "serve the old one and refresh" into "compute and
+/// wait". The sidebar hits this by switching between the library and a
+/// collection, and the benchmark caught it because discovering a rare tag asks
+/// for a different limit.
+///
+/// Memory is bounded by [`MAX_ENTRIES`] instead.
 #[derive(Default)]
 struct Generation {
-    version: i64,
-    entries: HashMap<String, Entry>,
+    entries: HashMap<String, (i64, Entry)>,
 }
+
+/// How many answers to keep per library.
+///
+/// Each is a tag list, and the keys are the filters somebody is actually
+/// browsing. When it fills it is cleared: keeping a least-recently-used order
+/// costs more than recomputing the few that were about to be asked for.
+const MAX_ENTRIES: usize = 64;
 
 /// What the cache had to say about a key.
 enum Cached {
@@ -116,23 +131,23 @@ impl CacheState {
         let Some(generation) = entries.get(&library_id) else { return Cached::Missing };
         match generation.entries.get(key) {
             None => Cached::Missing,
-            Some(entry) if generation.version == version => Cached::Fresh(entry.tags.clone()),
-            Some(entry) => Cached::Stale(entry.clone()),
+            Some((at, entry)) if *at == version => Cached::Fresh(entry.tags.clone()),
+            Some((_, entry)) => Cached::Stale(entry.clone()),
         }
     }
 
     fn put(&self, library_id: i64, version: i64, key: String, value: Entry) {
         let mut entries = self.entries.lock();
         let generation = entries.entry(library_id).or_default();
-        // A refresh that finishes after a newer write must not resurrect the
-        // generation it was computed for.
-        if generation.version > version {
+        // A refresh that finishes after a newer write must not overwrite the
+        // newer answer with the one it was computing.
+        if generation.entries.get(&key).is_some_and(|(at, _)| *at > version) {
             return;
         }
-        if generation.version != version {
-            *generation = Generation { version, entries: HashMap::new() };
+        if generation.entries.len() >= MAX_ENTRIES {
+            generation.entries.clear();
         }
-        generation.entries.insert(key, value);
+        generation.entries.insert(key, (version, value));
     }
 
     /// Claim the right to refresh a key, or find that someone already has it.
@@ -446,5 +461,67 @@ mod tests {
         cache.list(1, None, 10).await.unwrap();
         cache.list(1, None, 20).await.unwrap();
         assert_eq!(tags.list_calls.load(Ordering::SeqCst), 2);
+    }
+}
+
+#[cfg(test)]
+mod generation_tests {
+    use super::*;
+
+    fn entry(name: &str, took_ms: u64) -> Entry {
+        Entry {
+            tags: vec![Tag { name: name.to_string(), count: 1, color: None, r#type: 0 }],
+            took: Duration::from_millis(took_ms),
+        }
+    }
+
+    fn name_of(cached: &Cached) -> Option<String> {
+        match cached {
+            Cached::Fresh(tags) => tags.first().map(|t| t.name.clone()),
+            Cached::Stale(e) => e.tags.first().map(|t| t.name.clone()),
+            Cached::Missing => None,
+        }
+    }
+
+    #[test]
+    fn one_key_moving_on_does_not_forget_the_others() {
+        // The bug this exists for: a single version per library meant writing
+        // any key at a newer version dropped every other key's previous answer,
+        // turning "serve the old one and refresh" into "compute and wait" —
+        // 245ms, on the request after any edit, for the sidebar's own filter.
+        let state = CacheState::default();
+        state.put(1, 10, "library".into(), entry("old", 200));
+        state.put(1, 11, "collection".into(), entry("other", 200));
+
+        assert!(
+            matches!(state.get(1, 11, "library"), Cached::Stale(_)),
+            "the library's answer is behind, not gone"
+        );
+        assert_eq!(name_of(&state.get(1, 11, "library")), Some("old".to_string()));
+        assert!(matches!(state.get(1, 11, "collection"), Cached::Fresh(_)));
+    }
+
+    #[test]
+    fn a_refresh_that_finishes_late_does_not_overwrite_a_newer_answer() {
+        let state = CacheState::default();
+        state.put(1, 12, "k".into(), entry("new", 200));
+        // A background refresh started at version 11 lands after the write to
+        // 12 has already been recorded.
+        state.put(1, 11, "k".into(), entry("stale", 200));
+        assert_eq!(name_of(&state.get(1, 12, "k")), Some("new".to_string()));
+    }
+
+    #[test]
+    fn filling_up_costs_a_recompute_and_never_a_wrong_answer() {
+        let state = CacheState::default();
+        state.put(1, 1, "kept".into(), entry("kept", 200));
+        for i in 0..MAX_ENTRIES {
+            state.put(1, 1, format!("filler-{i}"), entry("filler", 200));
+        }
+        // Whatever survived, nothing came back under the wrong name.
+        match state.get(1, 1, "kept") {
+            Cached::Missing => {}
+            other => assert_eq!(name_of(&other), Some("kept".to_string())),
+        }
     }
 }

@@ -13,6 +13,7 @@ use serde_json::json;
 use yk_core::event::DomainEvent;
 use yk_core::model::*;
 use yk_core::query::{ItemFilter, SearchMode, SearchRequest};
+use yk_store::counts::Answer;
 
 use super::{announce, key, ListParams};
 use crate::error::ApiResult;
@@ -95,40 +96,69 @@ async fn list(
     Path(lib): Path<i64>,
     Query(p): Query<ListParamsWithCounts>,
 ) -> ApiResult<Json<Vec<SmartCollection>>> {
-    let mut collections = app.store().smart.list(lib).await?;
-    if p.counts {
-        // Remembered against the library version: a saved search's count can
-        // only change when the library does, and the sidebar asks for every
-        // one of them on every navigation.
-        let version = app.store().libraries.version(lib).await.unwrap_or(-1);
-        let cache_key = format!("smart:{lib}");
-        if let Some(cached) = app.smart_counts.get(&cache_key, version) {
-            return Ok(Json(cached));
-        }
-
-        // Counted together rather than one after another. Each is a full search
-        // — 21ms — so awaiting them in turn made the sidebar wait for the sum
-        // of every saved search the user has ever kept.
-        //
-        // A broken query must not break the sidebar; it reports as empty.
-        let running: Vec<_> = collections
-            .iter()
-            .cloned()
-            .map(|smart| {
-                let app = app.clone();
-                tokio::spawn(async move { count_of(&app, lib, &smart).await.unwrap_or((0, false)) })
-            })
-            .collect();
-        for (smart, handle) in collections.iter_mut().zip(running) {
-            let (count, approximate) = handle.await.unwrap_or((0, false));
-            smart.item_count = Some(count);
-            smart.item_count_approximate = approximate;
-        }
-        if version >= 0 {
-            app.smart_counts.put(cache_key, version, collections.clone());
-        }
+    if !p.counts {
+        return Ok(Json(app.store().smart.list(lib).await?));
     }
-    Ok(Json(collections))
+
+    // A saved search's count can only change when the library does, so the
+    // library version is the key.
+    let version = app.store().libraries.version(lib).await.unwrap_or(-1);
+    let cache_key = format!("smart:{lib}");
+    match app.smart_counts.look_up(&cache_key, version) {
+        Answer::Fresh(cached) => Ok(Json(cached)),
+        // The previous numbers, while fresh ones are worked out behind this
+        // request. Counting a saved search means *running* it, so any edit
+        // anywhere would otherwise put the sidebar behind a full search per
+        // saved query — 85ms on the first navigation after every change, for
+        // labels beside names. Several of them already read "734+".
+        Answer::Stale(cached) => {
+            if app.smart_counts.claim(&cache_key) {
+                let app = app.clone();
+                let key = cache_key.clone();
+                tokio::spawn(async move {
+                    let _ = recount(&app, lib, key.clone(), version).await;
+                    app.smart_counts.release(&key);
+                });
+            }
+            Ok(Json(cached))
+        }
+        // Nothing to show: a cold cache must be correct, not merely quick.
+        Answer::Missing => Ok(Json(recount(&app, lib, cache_key, version).await?)),
+    }
+}
+
+/// Count every saved search, and remember the answer with what it cost.
+///
+/// Counted together rather than one after another: each is a full search, so
+/// awaiting them in turn made the sidebar wait for the sum of every saved
+/// search the user has ever kept. A broken query must not break the sidebar,
+/// so it reports as empty.
+async fn recount(
+    app: &App,
+    lib: i64,
+    cache_key: String,
+    version: i64,
+) -> ApiResult<Vec<SmartCollection>> {
+    let started = std::time::Instant::now();
+    let mut collections = app.store().smart.list(lib).await?;
+
+    let running: Vec<_> = collections
+        .iter()
+        .cloned()
+        .map(|smart| {
+            let app = app.clone();
+            tokio::spawn(async move { count_of(&app, lib, &smart).await.unwrap_or((0, false)) })
+        })
+        .collect();
+    for (smart, handle) in collections.iter_mut().zip(running) {
+        let (count, approximate) = handle.await.unwrap_or((0, false));
+        smart.item_count = Some(count);
+        smart.item_count_approximate = approximate;
+    }
+    if version >= 0 {
+        app.smart_counts.put_timed(cache_key, version, collections.clone(), started.elapsed());
+    }
+    Ok(collections)
 }
 
 async fn get_one(

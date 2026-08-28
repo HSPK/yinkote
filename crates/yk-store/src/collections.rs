@@ -5,6 +5,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use yk_core::model::*;
 use yk_core::ports::*;
 use yk_core::query::ItemFilter;
+use crate::counts::Answer;
 use yk_core::{Error, Key, Result};
 
 use crate::db::{sql_err, write_tx, Db};
@@ -127,6 +128,49 @@ impl SqliteCollectionRepository {
     }
 }
 
+impl SqliteCollectionRepository {
+    async fn library_version(&self, library_id: i64) -> i64 {
+        self.db
+            .call(move |c| {
+                Ok(c.query_row(
+                    "SELECT version FROM libraries WHERE id = ?1",
+                    params![library_id],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap_or(-1))
+            })
+            .await
+            .unwrap_or(-1)
+    }
+
+    /// Read the list and remember it, with what it cost.
+    async fn recompute(
+        &self,
+        library_id: i64,
+        key: String,
+        version: i64,
+    ) -> Result<Vec<Collection>> {
+        let listing = self.listing.clone();
+        self.db
+            .call(move |c| {
+                let started = std::time::Instant::now();
+                let sql = format!("{C_SELECT} WHERE c.library_id=?1 ORDER BY c.sort_index, c.name");
+                let rows: Vec<Collection> = c
+                    .prepare_cached(&sql)
+                    .map_err(sql_err)?
+                    .query_map(params![library_id], map_collection)
+                    .map_err(sql_err)?
+                    .collect::<rusqlite::Result<_>>()
+                    .map_err(sql_err)?;
+                if version >= 0 {
+                    listing.put_timed(key, version, rows.clone(), started.elapsed());
+                }
+                Ok(rows)
+            })
+            .await
+    }
+}
+
 const C_SELECT: &str = "SELECT c.id, c.key, c.library_id, c.name, p.key, c.sort_index, \
      c.color, c.icon, c.version, \
      (SELECT count(*) FROM collection_items ci JOIN items i ON i.id = ci.item_id \
@@ -172,35 +216,29 @@ fn would_cycle(tx: &Connection, id: i64, new_parent: i64) -> Result<bool> {
 #[async_trait]
 impl CollectionRepository for SqliteCollectionRepository {
     async fn list(&self, library_id: i64) -> Result<Vec<Collection>> {
-        let listing = self.listing.clone();
-        self.db
-            .call(move |c| {
-                let version: i64 = c
-                    .query_row(
-                        "SELECT version FROM libraries WHERE id = ?1",
-                        params![library_id],
-                        |r| r.get(0),
-                    )
-                    .unwrap_or(-1);
-                let key = format!("collections:{library_id}");
-                if let Some(cached) = listing.get(&key, version) {
-                    return Ok(cached);
-                }
+        let key = format!("collections:{library_id}");
+        let version = self.library_version(library_id).await;
 
-                let sql = format!("{C_SELECT} WHERE c.library_id=?1 ORDER BY c.sort_index, c.name");
-                let rows: Vec<Collection> = c
-                    .prepare_cached(&sql)
-                    .map_err(sql_err)?
-                    .query_map(params![library_id], map_collection)
-                    .map_err(sql_err)?
-                    .collect::<rusqlite::Result<_>>()
-                    .map_err(sql_err)?;
-                if version >= 0 {
-                    listing.put(key, version, rows.clone());
+        match self.listing.look_up(&key, version) {
+            Answer::Fresh(rows) => return Ok(rows),
+            // Handed back as it stands while a fresh one is computed behind
+            // this request. Every edit anywhere in the library retires this
+            // list — each row carries a live-item count — so waiting for it
+            // would put 30ms on the first navigation after every change, for a
+            // number that is a label beside a name.
+            Answer::Stale(rows) => {
+                if self.listing.claim(&key) {
+                    let this = self.clone();
+                    tokio::spawn(async move {
+                        let _ = this.recompute(library_id, key.clone(), version).await;
+                        this.listing.release(&key);
+                    });
                 }
-                Ok(rows)
-            })
-            .await
+                return Ok(rows);
+            }
+            Answer::Missing => {}
+        }
+        self.recompute(library_id, key, version).await
     }
 
     async fn count(&self, library_id: i64) -> Result<i64> {

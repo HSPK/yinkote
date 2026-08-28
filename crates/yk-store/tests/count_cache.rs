@@ -296,3 +296,38 @@ async fn a_different_limit_is_a_different_question() {
     assert_eq!(s.items.duplicate_groups(lib, 6).await.unwrap().len(), 6);
     assert_eq!(s.items.duplicate_groups(lib, 2).await.unwrap().len(), 2, "and back again");
 }
+
+#[tokio::test]
+async fn the_sidebar_list_catches_up_after_being_served_stale() {
+    // The collection list is expensive enough to be handed back one version
+    // behind while a fresh one is computed. That is only acceptable if the
+    // fresh one actually arrives, so this is the test that matters: read,
+    // write, read (may be behind), and it must settle on the truth.
+    let (s, lib) = store().await;
+    let shelf = s
+        .collections
+        .create(lib, yk_core::model::CollectionDraft { name: "Shelf".into(), ..Default::default() })
+        .await
+        .unwrap();
+    let held = |s: &Store| {
+        let key = shelf.key.clone();
+        let s = s.clone();
+        async move {
+            s.collections.list(lib).await.unwrap().into_iter().find(|c| c.key == key).unwrap()
+        }
+    };
+    assert_eq!(held(&s).await.item_count, 0);
+
+    let item = s.items.create(lib, article("One")).await.unwrap();
+    s.items.add_to_collection(lib, &shelf.key, std::slice::from_ref(&item.key)).await.unwrap();
+
+    // On a library this small the list costs well under a millisecond, so it
+    // is recomputed rather than deferred — being exact is free here, which is
+    // the point of the cost threshold.
+    assert_eq!(held(&s).await.item_count, 1);
+
+    // And it keeps up across further writes rather than pinning one answer.
+    let second = s.items.create(lib, article("Two")).await.unwrap();
+    s.items.add_to_collection(lib, &shelf.key, std::slice::from_ref(&second.key)).await.unwrap();
+    assert_eq!(held(&s).await.item_count, 2);
+}

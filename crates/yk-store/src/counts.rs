@@ -16,7 +16,8 @@
 //! Reading the version costs 0.0072ms, so a miss pays essentially nothing for
 //! having looked.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::time::Duration;
 
 use parking_lot::Mutex;
 use rusqlite::types::Value as SqlValue;
@@ -41,14 +42,42 @@ const CAPACITY: usize = 256;
 /// however they are spelled.
 pub struct Versioned<T> {
     entries: Mutex<HashMap<String, (i64, T)>>,
+    /// What the last computation of each key cost, and who is redoing it.
+    ///
+    /// Only used by [`Versioned::look_up`]; a plain [`Versioned::get`] does not
+    /// care how the answer was reached.
+    costs: Mutex<HashMap<String, Duration>>,
+    refreshing: Mutex<HashSet<String>>,
 }
+
+/// What the cache has for a question that was asked before.
+pub enum Answer<T> {
+    /// Computed at the version being asked about.
+    Fresh(T),
+    /// Computed at an older version, and expensive enough that recomputing it
+    /// inside this request is worse than being a moment behind.
+    Stale(T),
+    /// Nothing to show. A cold cache must be correct, not merely quick.
+    Missing,
+}
+
+/// Below this, recomputing is cheaper than reasoning about staleness.
+///
+/// The same threshold `cache.rs` reached for tag facets, for the same reason: a
+/// small library recomputes in a millisecond, and trading exactness for nothing
+/// is a bad trade.
+const SLOW_ENOUGH_TO_DEFER: Duration = Duration::from_millis(20);
 
 /// The original use, and the common one.
 pub type CountCache = Versioned<i64>;
 
 impl<T> Default for Versioned<T> {
     fn default() -> Self {
-        Self { entries: Mutex::new(HashMap::new()) }
+        Self {
+            entries: Mutex::new(HashMap::new()),
+            costs: Mutex::new(HashMap::new()),
+            refreshing: Mutex::new(HashSet::new()),
+        }
     }
 }
 
@@ -81,10 +110,57 @@ impl<T: Clone> Versioned<T> {
         }
     }
 
+    /// The best answer available, and whether it is current.
+    ///
+    /// For values a *label* is drawn from — a count beside a shelf's name —
+    /// rather than values a contract depends on. A listing's total decides how
+    /// many pages the client thinks exist and must never be behind; a sidebar
+    /// number being one out for a moment is invisible, while recomputing it
+    /// inside every request after every edit is not.
+    pub fn look_up(&self, key: &str, version: i64) -> Answer<T> {
+        let entries = self.entries.lock();
+        match entries.get(key) {
+            None => Answer::Missing,
+            Some((at, value)) if *at == version => Answer::Fresh(value.clone()),
+            Some((_, value)) => {
+                let cheap = self
+                    .costs
+                    .lock()
+                    .get(key)
+                    .is_none_or(|took| *took < SLOW_ENOUGH_TO_DEFER);
+                if cheap {
+                    Answer::Missing
+                } else {
+                    Answer::Stale(value.clone())
+                }
+            }
+        }
+    }
+
+    /// Take responsibility for refreshing a key, or find that someone has it.
+    ///
+    /// Without this, a burst of requests against a stale entry would each start
+    /// their own recomputation of the same thing.
+    pub fn claim(&self, key: &str) -> bool {
+        self.refreshing.lock().insert(key.to_string())
+    }
+
+    pub fn release(&self, key: &str) {
+        self.refreshing.lock().remove(key);
+    }
+
+    /// Store a value along with what it cost, which is what decides whether a
+    /// later reader waits for it or is handed the previous one.
+    pub fn put_timed(&self, key: String, version: i64, value: T, took: Duration) {
+        self.costs.lock().insert(key.clone(), took);
+        self.put(key, version, value);
+    }
+
     pub fn put(&self, key: String, version: i64, count: T) {
         let mut entries = self.entries.lock();
         if entries.len() >= CAPACITY {
             entries.clear();
+            self.costs.lock().clear();
         }
         entries.insert(key, (version, count));
     }
