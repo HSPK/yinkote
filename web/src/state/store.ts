@@ -304,7 +304,11 @@ export const useStore = create<State>((set, get, store) => ({
       // "no results" for text the user knows they marked. Measured: 302 hits
       // became 300, and the two that went were the ones actually containing
       // the phrase.
-      topLevel: s.query ? undefined : true,
+      // ...but not in the trash, which is the one browse with no parent to
+      // show a child under. Trashing an attachment on its own leaves a paper
+      // that is not deleted, so a top-level trash listed nothing at all: the
+      // file could not be restored and could not be emptied, only orphaned.
+      topLevel: s.query || s.view === 'trash' ? undefined : true,
       sort: s.sort,
       direction: s.direction,
       limit: PAGE,

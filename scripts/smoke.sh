@@ -149,6 +149,19 @@ check "browse is top level" "$(j "$BASE/libraries/$LIB/items?limit=60&topLevel=t
 # is what would break highlight search.
 check "search reaches kids" "$(j "$BASE/libraries/$LIB/items?limit=60" \
                                 | jq -r '[.items[] | select(.parentKey)] | length | select(. > 0)')"
+# The trash is a browse with no parent to show a child under: trashing an
+# attachment on its own leaves a paper that is not deleted. Filtering it to top
+# level made the file unreachable — neither restorable nor emptiable, only
+# orphaned. This is reachability, not presentation, so it is checked here too.
+TRPAP=$(j -X POST "$BASE/libraries/$LIB/items" \
+          -d '{"itemType":"journalArticle","title":"Trash reach probe"}' | jq -r '.created[0].key')
+TRKID=$(j -X POST "$BASE/libraries/$LIB/items" \
+          -d "{\"itemType\":\"attachment\",\"parentKey\":\"$TRPAP\",\"title\":\"reach.pdf\"}" \
+          | jq -r '.created[0].key')
+j -X DELETE "$BASE/libraries/$LIB/items" -d "{\"keys\":[\"$TRKID\"]}" > /dev/null
+check "trashed child shows" "$(j "$BASE/libraries/$LIB/items?trash=only&limit=100" \
+                                | jq -r --arg k "$TRKID" '[.items[]|select(.key==$k)]|length|select(.==1)')"
+j -X DELETE "$BASE/libraries/$LIB/items" -d "{\"keys\":[\"$TRPAP\"]}" > /dev/null
 # A word query cannot honour a column sort: it scores a bounded pool and
 # returns it best-first. That was true and unsaid, so the table drew an arrow
 # on a column it was not sorted by and took clicks that changed nothing.
