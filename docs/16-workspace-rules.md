@@ -1683,3 +1683,35 @@ SELECT count(*) FROM (SELECT 1 FROM item_tags WHERE tag_id = ? LIMIT ?)
 
 顺带把 `estimated_items` 从 `items.rs` 挪进 `filter.rs`——规则和它需要的输入
 应该在同一个地方，否则第二个调用方只会再抄一份。
+
+### 3.122 我自己两轮前埋的：`tags_only` 不等于"正在探测"
+
+§3.117 加计划选择时，我顺手把 `page_sql` 的索引提示条件从 `base_only` 扩成
+`base_only || tags_only`——理由写得也像那么回事："探测形式也要靠这个索引才能
+够一页就停"。
+
+错在 `tags_only` 描述的是**过滤器的形状**，而提示要匹配的是**这次实际选了哪种
+写法**。稀有标签会选物化写法，却照样被按上 `INDEXED BY idx_items_modified`，
+于是 SQLite 不再从标签驱动、改为扫整条索引：
+
+```
+materialise, no hint            0.1ms
+materialise + INDEXED BY       13.1ms      ← 131 倍
+```
+
+修法是让谓词自己记住 `probing: bool`，`index_hint()` 只在 `base_only || probing`
+时给出提示。同时把"选哪种写法"收进 `Predicate::for_page()` ——
+**两个调用方各自做同一个决定，长出了两个略有差异的版本，而第二个是错的。**
+
+### 3.123 一个二选一的决定，两侧都要有人看着
+
+基准里只有 `tag=survey`（28,727 条）。整个 §3.122 的劣化就发生在另一侧，
+所以三轮之内没人发现——**基准盯着的是这个决定的一半**。
+
+现在加了 `list filtered by rare tag`。第一版写死 `tag=project-1`，结果 `n=0`：
+那个标签在这个语料里根本不存在，这条测量量的是空结果——**一条为了错误的理由
+而通过的检查**（同 §3.55 的老毛病）。改成从 `facets` 里挑出计数最小的标签，
+并把选中的名字和计数打印出来。
+
+规律：**凡是"根据 X 选 A 或 B"的代码，基准里必须同时有会选 A 的用例和会选 B 的
+用例**，否则被优化的那一侧越快，另一侧越没人管。

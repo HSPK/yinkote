@@ -12,7 +12,7 @@ use yk_core::schema::schema;
 use yk_core::{text, Error, Key, Result};
 
 use crate::db::{sql_err, write_tx, Db};
-use crate::filter::{estimated_items, order_by, placeholders, Predicate, TagForm};
+use crate::filter::{order_by, placeholders, Predicate};
 use crate::index;
 
 const COLS: &str = "i.id, i.key, i.library_id, i.item_type, p.key, i.fields, i.creators, \
@@ -99,14 +99,7 @@ fn page_sql(p: &Predicate, sort: SortField, direction: Direction) -> String {
     // Name the index for a plain browse. See `filter::sort_index`: one unrelated
     // index with the same leading columns was enough to make the planner throw
     // the order away and re-sort the library — 9ms to 69ms, same results.
-    // Also named for the probe form, and for the same reason: its whole point
-    // is to read the sort order and stop at a full page, which it can only do
-    // if the walk is the index that already holds that order.
-    let hint = if p.base_only || p.tags_only {
-        format!("INDEXED BY {}", crate::filter::sort_index(sort))
-    } else {
-        String::new()
-    };
+    let hint = p.index_hint(sort);
     format!(
         "SELECT {COLS} {FROM} WHERE i.id IN ( \
            SELECT i.id FROM items i {hint} WHERE {} {order} LIMIT ? OFFSET ?) {order}",
@@ -830,17 +823,14 @@ impl ItemRepository for SqliteItemRepository {
 
                 // Which way to write the tag filter is a cost decision, and
                 // `total` is the number it turns on — which is why the count
-                // runs first. See `filter::should_walk`.
-                let p = if p.tags_only
-                    && crate::filter::should_walk(
-                        total,
-                        (query.offset + query.limit) as i64,
-                        estimated_items(c),
-                    ) {
-                    Predicate::build_with(&query.filter, cols.as_deref(), TagForm::Probe)
-                } else {
-                    p
-                };
+                // runs first. See `Predicate::for_page`.
+                let p = Predicate::for_page(
+                    c,
+                    &query.filter,
+                    cols.as_deref(),
+                    (query.offset + query.limit) as i64,
+                    Some(total),
+                );
 
                 // A deferred join: pick the page's ids from the index alone,
                 // then fetch the columns for those rows only.
@@ -1767,6 +1757,7 @@ mod plan_tests {
 #[cfg(test)]
 mod tag_form_equivalence {
     use super::*;
+    use crate::filter::TagForm;
     use yk_core::model::ItemTag;
     use yk_core::query::{Direction, ItemFilter, ItemQuery, SortField};
 

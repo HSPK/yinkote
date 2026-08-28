@@ -23,6 +23,13 @@ pub struct Predicate {
     /// The one shape where [`TagForm::Probe`] is available, because it is the
     /// one shape whose only narrowing clause is the tag. See [`should_walk`].
     pub tags_only: bool,
+    /// Whether a tag was actually written as a correlated probe.
+    ///
+    /// Not the same as `tags_only`, and the difference is expensive. Naming the
+    /// sort index is what lets a probe stop at a full page; forcing it on a
+    /// *materialised* tag filter makes SQLite scan the whole index instead of
+    /// driving from the tag — 0.1ms to 13.1ms for a tag on five items.
+    pub probing: bool,
 }
 
 /// How a tag filter is written, which decides the plan SQLite picks.
@@ -155,8 +162,55 @@ impl Predicate {
             tags_only: positive_tags > 0
                 && clauses.len() == base_clauses + positive_tags
                 && filter.tags.len() == positive_tags,
+            probing: form == TagForm::Probe && positive_tags > 0,
             sql: clauses.join(" AND "),
             params,
+        }
+    }
+
+    /// Build with whichever tag form is cheaper for this query.
+    ///
+    /// The single owner of that choice. Two callers each making it grew two
+    /// subtly different versions, and the second one forced the sort index onto
+    /// a materialised filter — see [`Predicate::probing`].
+    ///
+    /// `total` is the exact number of matching rows when the caller already has
+    /// it (a listing counts anyway); `None` makes the decision by counting the
+    /// tag as far as the crossover and no further.
+    pub fn for_page(
+        conn: &Connection,
+        filter: &ItemFilter,
+        collection_ids: Option<&[i64]>,
+        window: i64,
+        total: Option<i64>,
+    ) -> Self {
+        let plain = Self::build(filter, collection_ids);
+        if !plain.tags_only {
+            return plain;
+        }
+        let rows = estimated_items(conn);
+        let walk = match total {
+            Some(total) => should_walk(total, window, rows),
+            None => should_walk_probed(conn, filter, window, rows),
+        };
+        if walk {
+            Self::build_with(filter, collection_ids, TagForm::Probe)
+        } else {
+            plain
+        }
+    }
+
+    /// `INDEXED BY` for the sort, when naming it is what makes the plan work.
+    ///
+    /// A plain browse is driven straight down the index that holds the order,
+    /// and so is a probe. Anything else — including a *materialised* tag
+    /// filter — is better off letting the planner drive from whichever clause
+    /// is selective.
+    pub fn index_hint(&self, sort: SortField) -> String {
+        if self.base_only || self.probing {
+            format!("INDEXED BY {}", sort_index(sort))
+        } else {
+            String::new()
         }
     }
 }
@@ -450,5 +504,53 @@ mod tag_plan_tests {
         // And the degenerate inputs a clamped query could still produce.
         assert!(!should_walk(0, 100, 131_026));
         assert!(!should_walk(28_709, 0, 131_026));
+    }
+}
+
+#[cfg(test)]
+mod hint_tests {
+    use super::*;
+
+    fn filter(tags: &[&str]) -> ItemFilter {
+        ItemFilter {
+            library_id: 1,
+            tags: tags.iter().map(|t| t.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_plain_browse_names_its_index() {
+        let p = Predicate::build(&ItemFilter { library_id: 1, ..Default::default() }, None);
+        assert!(p.base_only);
+        assert_eq!(p.index_hint(SortField::Title), "INDEXED BY idx_items_title");
+    }
+
+    #[test]
+    fn a_probe_names_its_index_because_that_is_how_it_stops_early() {
+        let p = Predicate::build_with(&filter(&["survey"]), None, TagForm::Probe);
+        assert!(p.probing);
+        assert_eq!(p.index_hint(SortField::DateModified), "INDEXED BY idx_items_modified");
+    }
+
+    #[test]
+    fn a_materialised_tag_filter_names_nothing() {
+        // The regression this exists for: naming the sort index here stops
+        // SQLite driving from the tag and makes it scan the whole index
+        // instead. Measured at 0.1ms without and 13.1ms with, for a tag on
+        // five items in a 131k library.
+        let p = Predicate::build(&filter(&["survey"]), None);
+        assert!(p.tags_only, "it is a tag-only filter");
+        assert!(!p.probing, "but it is not probing");
+        assert_eq!(p.index_hint(SortField::DateModified), "", "so it must not name an index");
+    }
+
+    #[test]
+    fn a_negated_tag_is_not_probing_even_when_asked() {
+        // `build_with(Probe)` writes a negated tag as `NOT IN` regardless, so
+        // the predicate must not claim to be probing and must not be hinted.
+        let p = Predicate::build_with(&filter(&["-obsolete"]), None, TagForm::Probe);
+        assert!(!p.probing);
+        assert_eq!(p.index_hint(SortField::DateModified), "");
     }
 }

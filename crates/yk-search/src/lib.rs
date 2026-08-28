@@ -28,7 +28,7 @@ use yk_ai::EmbeddingProvider;
 use yk_core::ports::SearchIndex;
 use yk_core::query::*;
 use yk_core::{text, Error, Key, Result};
-use yk_store::filter::{self, Predicate, TagForm};
+use yk_store::filter::Predicate;
 use yk_store::{sql_err, write_tx, Db, Store};
 
 pub use yk_ai::{LocalEmbedder, OpenAiEmbedder};
@@ -160,22 +160,11 @@ impl SearchEngine {
             None => None,
         };
 
-        // The same choice `items::list` makes, from the same rule — but there
-        // the exact total is already in hand, and here it is not, so the tag is
-        // counted only as far as the crossover. See `filter::should_walk_probed`.
-        let mut p = Predicate::build(filter, collections.as_deref());
-        let mut hint = String::new();
-        if p.tags_only
-            && filter::should_walk_probed(
-                conn,
-                filter,
-                limit as i64,
-                filter::estimated_items(conn),
-            )
-        {
-            p = Predicate::build_with(filter, collections.as_deref(), TagForm::Probe);
-            hint = format!("INDEXED BY {}", filter::sort_index(SortField::DateModified));
-        }
+        // The same choice `items::list` makes, through the same function — but
+        // there the exact total is already in hand and here it is not, so the
+        // tag is counted only as far as the crossover.
+        let p = Predicate::for_page(conn, filter, collections.as_deref(), limit as i64, None);
+        let hint = p.index_hint(SortField::DateModified);
 
         let sql = format!(
             "SELECT i.id FROM items i {hint} WHERE {} ORDER BY i.date_modified DESC LIMIT {limit}",

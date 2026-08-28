@@ -133,6 +133,7 @@ const BUDGET = {
   // 32.5ms while a pure filter query read 20,000 ids to return 50, and while
   // it materialised the tag set instead of walking the sort order. 2.5ms once
   // it read what it needed and chose its plan.
+  'list filtered by rare tag': 8,
   'tag operator': 10,
   'list one collection': 25,
   'list collection + children': 25,
@@ -305,6 +306,23 @@ async function main() {
   await measure('list deep page (offset=50000)', `/libraries/${lib}/items?limit=100&offset=50000`)
   await measure('list sorted by title', `/libraries/${lib}/items?limit=100&sort=title`)
   await measure('list filtered by tag', `/libraries/${lib}/items?limit=100&tag=survey`)
+  // The other side of the same decision. Which SQL a tag filter becomes turns
+  // on how common the tag is, so measuring only a common one leaves half the
+  // choice unwatched — and that half is where forcing the sort index onto a
+  // materialised filter cost 131x (see docs/16 3.122).
+  //
+  // Discovered rather than named: a hard-coded tag matched nothing on this
+  // corpus and the line measured an empty result set, which is the shape of a
+  // check that passes for the wrong reason.
+  const facets = await get(`/libraries/${lib}/facets?limit=2000`)
+  const rare = [...facets].sort((a, b) => a.count - b.count).find((t) => t.count > 0)
+  if (rare) {
+    console.log(`  (rarest tag: ${rare.name}, ${rare.count} items)`)
+    await measure(
+      'list filtered by rare tag',
+      `/libraries/${lib}/items?limit=100&tag=${encodeURIComponent(rare.name)}`,
+    )
+  }
   await measure('facets', `/libraries/${lib}/facets?limit=60`)
   // Browsing a shelf, which is how most people navigate a library and which
   // went entirely unmeasured while the corpus had no collections in it.
