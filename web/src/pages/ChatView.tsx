@@ -205,6 +205,7 @@ type Entry =
   | { kind: 'older'; id: string }
 
 export function ChatView() {
+  const agent = useStore((s) => s.agent)
   const t = useT()
   const conversation = useStore((s) => s.conversation)
   const conversations = useStore((s) => s.conversations)
@@ -453,6 +454,17 @@ export function ChatView() {
             </label>
 
             <span className="spacer" />
+
+            {/* Without a model the turn is still recorded — a thread against a
+                paper is worth keeping — but nothing will ever answer it. Saying
+                so beside the button is the difference between a feature that is
+                off and one that looks broken; `chat.ts` claimed the box
+                "explains itself if not", and it did not. */}
+            {agent && !agent.configured && (
+              <span className="chat-nomodel" title={t('chat.noModelHint')}>
+                {t('chat.noModel')}
+              </span>
+            )}
 
             <button
               className="primary"

@@ -255,6 +255,8 @@ export const zhCN = {
   'sidebar.chat': '对话',
   'chat.new': '新建对话',
   'chat.empty': '暂无对话',
+  'chat.noModel': '未配置模型，不会有回答',
+  'chat.noModelHint': '消息会被保存，但在设置里配置模型之前不会有任何回复。',
   'chat.none': '从左侧选择或新建一个对话',
   'chat.start': '输入问题开始对话',
   'chat.rename': '重命名对话',

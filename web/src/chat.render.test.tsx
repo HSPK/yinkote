@@ -672,3 +672,18 @@ describe('a long conversation', () => {
     expect(container.querySelector('.jump-preview')?.textContent).toContain('Message 1')
   })
 })
+
+it('says answers are off when no model is configured', async () => {
+  // A fresh install has no model. The turn is still recorded — a thread
+  // against a paper is worth keeping — but nothing will ever reply, and
+  // saying nothing makes an unconfigured feature look like a broken one.
+  useStore.setState({ agent: { configured: false } as never })
+  await render()
+  expect(container.textContent ?? '').toContain('answers are off')
+})
+
+it('says nothing about models once one is configured', async () => {
+  useStore.setState({ agent: { configured: true } as never })
+  await render()
+  expect(container.textContent ?? '').not.toContain('answers are off')
+})

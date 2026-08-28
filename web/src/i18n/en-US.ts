@@ -258,6 +258,8 @@ export const enUS: Record<MessageKey, string> = {
   'sidebar.chat': 'Chat',
   'chat.new': 'New conversation',
   'chat.empty': 'No conversations',
+  'chat.noModel': 'No model — answers are off',
+  'chat.noModelHint': 'Your message is kept, but nothing will reply until a model is set in Settings.',
   'chat.none': 'Select or start a conversation',
   'chat.start': 'Ask something to begin',
   'chat.rename': 'Rename conversation',

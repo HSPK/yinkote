@@ -2835,3 +2835,6 @@ option {
 .gate-card p { margin: 0; font-size: 12px; line-height: 1.6; }
 .gate-card input { padding: 7px 9px; font: 12px/1.4 var(--mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); }
 .gate-card input:focus { outline: none; border-color: var(--accent); }
+
+/* A model that is not configured: stated beside the send button, not shouted. */
+.chat-nomodel { font-size: 11px; color: var(--warn); align-self: center; padding-right: 8px; }
