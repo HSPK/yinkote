@@ -114,7 +114,7 @@ impl Predicate {
                 // collection's members once and probes `items`. Identical
                 // results, 41.8ms against 2.0ms on a hundred-thousand-item
                 // library. Same shape as the tag clause below, and the same
-                // reason `graph::TAG_SQL` spells out `CROSS JOIN`.
+                // reason `graph::COLLECTION_SQL` spells out `CROSS JOIN`.
                 clauses.push(format!(
                     "i.id IN (SELECT ci.item_id FROM collection_items ci \
                      WHERE ci.collection_id IN ({}))",

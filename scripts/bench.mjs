@@ -168,11 +168,11 @@ const BUDGET = {
   // Was 47.7ms while the common-tag ceiling recounted the library on every
   // view and the five queries ran in turn.
   //
-  // Now deliberately close to the measured cost rather than to the worst it
-  // has ever been: a budget of 45 let it slide from 7ms to 32ms without ever
-  // going red. It is 32ms today for a reason nobody has found yet (§3.194),
-  // so this holds the line where it stands instead of pretending otherwise.
-  'graph neighbourhood': 38,
+  // Held close to the measured cost, not to the worst it has ever been: a
+  // budget of 45 let it slide from 7ms to 32ms without ever going red. Back
+  // to 7ms now that the tag query counts before it fetches (§3.195), and the
+  // budget is tight enough to notice the next slide.
+  'graph neighbourhood': 14,
   'tag operator': 10,
   'list one collection': 25,
   'list collection + children': 25,

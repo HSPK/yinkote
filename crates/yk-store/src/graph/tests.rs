@@ -177,9 +177,14 @@ fn the_tag_query_is_driven_by_the_tags_not_by_the_library() {
     // itself the planner drove this from `items` on `parent_id IS NULL` — a
     // predicate matching the whole library — and probed tags for each of a
     // hundred thousand rows: 61 ms against 8.
-    let plan = plan(crate::graph::TAG_SQL, 4);
+    let plan = plan(crate::graph::TAG_COUNT_SQL, 4);
     assert!(plan.starts_with("SEARCH it USING"), "the tag index must be the outer loop: {plan}");
     assert!(!plan.contains("SCAN i"), "{plan}");
+    // And it must never fall back to reading the whole join table. Once the
+    // library had statistics, grouping in index order looked cheaper than
+    // sorting nine rows, so SQLite scanned all 303,804 rows of `item_tags`:
+    // 26.8ms against 0.16ms. `INDEXED BY` is what forbids that.
+    assert!(!plan.contains("SCAN it"), "a full scan of item_tags: {plan}");
 }
 
 #[test]

@@ -175,12 +175,97 @@ fn by_tag(
     // entire library — and probed the tags for each of a hundred thousand rows:
     // 61 ms against 8. The keyword changes no results, only which table is the
     // outer loop, and here only one choice is sane.
-    query(conn, TAG_SQL, params![library_id, id, ceiling, limit], Relation::Tag)
+    // Counted first, fetched second — two statements rather than one join.
+    //
+    // As a single query this was 26.8ms on a 131,940-item library once the
+    // database had statistics, and 0.14ms without them, for nine rows. Two
+    // separate pathologies, both from the planner having numbers to reason
+    // with: grouping made it prefer a full scan of `item_tags` (303,804 rows)
+    // over seeking the tag index, and the join to `items` made it build a
+    // Bloom filter over the whole table to filter ten probes.
+    //
+    // Neither could be argued away with a hint — `NOT INDEXED` and
+    // `INDEXED BY` were both tried and measured. Splitting the work removes
+    // the decision instead of trying to win it: there is no join to filter,
+    // and the index is named where grouping would otherwise invite a scan.
+    // 0.16ms, and — the part that matters — the same with statistics and
+    // without. See docs/16 §3.195.
+    let counted: Vec<(i64, i64)> = {
+        let mut stmt = conn.prepare_cached(TAG_COUNT_SQL).map_err(sql_err)?;
+        let rows = stmt
+            .query_map(params![library_id, id, ceiling, limit], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(sql_err)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(sql_err)?
+    };
+    hydrate_neighbours(conn, library_id, &counted, Relation::Tag)
 }
 
-pub(crate) const TAG_SQL: &str = "SELECT i.key, i.fields, i.item_type, i.year, count(*) AS shared
-               FROM item_tags it
-               CROSS JOIN items i ON i.id = it.item_id
+/// Turn `(item id, weight)` pairs into neighbours, keeping the order given.
+///
+/// The weights are already decided; this only puts titles on them. Fetching by
+/// id is the one lookup SQLite cannot get wrong, which is the whole point of
+/// having split it out.
+fn hydrate_neighbours(
+    conn: &rusqlite::Connection,
+    library_id: i64,
+    counted: &[(i64, i64)],
+    relation: Relation,
+) -> Result<Vec<Neighbour>> {
+    if counted.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids: Vec<i64> = counted.iter().map(|(id, _)| *id).collect();
+    let ph = crate::filter::placeholders(ids.len());
+    let sql = format!(
+        "SELECT i.id, i.key, i.fields, i.item_type, i.year FROM items i \
+         WHERE i.id IN ({ph}) AND i.library_id = ?{} AND i.deleted = 0 AND i.parent_id IS NULL",
+        ids.len() + 1
+    );
+    let mut stmt = conn.prepare_cached(&sql).map_err(sql_err)?;
+    let mut args: Vec<rusqlite::types::Value> = ids.iter().map(|i| (*i).into()).collect();
+    args.push(library_id.into());
+
+    let mut found: std::collections::HashMap<i64, (String, String, String, Option<i64>)> =
+        std::collections::HashMap::new();
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(args.iter()), |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                (r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get(4)?),
+            ))
+        })
+        .map_err(sql_err)?;
+    for row in rows {
+        let (id, rest) = row.map_err(sql_err)?;
+        found.insert(id, rest);
+    }
+
+    // The order is the one the counting query chose; a row the second query
+    // filtered out simply drops.
+    Ok(counted
+        .iter()
+        .filter_map(|(id, weight)| {
+            let (key, fields, item_type, year) = found.get(id)?;
+            Some(Neighbour {
+                key: Key::parse(key).unwrap_or_else(|_| Key::generate()),
+                title: title_of(fields),
+                item_type: item_type.clone(),
+                year: *year,
+                weight: *weight as f64,
+                relation,
+            })
+        })
+        .collect())
+}
+
+/// The counting half: which items share an uncommon tag, and how many.
+///
+/// `INDEXED BY` is not decoration. With statistics and a `GROUP BY`, SQLite
+/// preferred scanning all 303,804 rows of `item_tags` to seeking this index
+/// for the handful of tags that matter — grouping in index order looked
+/// cheaper than sorting nine rows.
+pub(crate) const TAG_COUNT_SQL: &str = "SELECT it.item_id, count(*) AS shared
+               FROM item_tags it INDEXED BY idx_item_tags_tag
                WHERE it.tag_id IN (
                      SELECT t.id FROM item_tags mine
                      JOIN tags t ON t.id = mine.tag_id
@@ -189,10 +274,11 @@ pub(crate) const TAG_SQL: &str = "SELECT i.key, i.fields, i.item_type, i.year, c
                             (SELECT 1 FROM item_tags c WHERE c.tag_id = t.id LIMIT ?3 + 1))
                            <= ?3)
                  AND it.item_id != ?2
-                 AND i.library_id = ?1 AND i.deleted = 0 AND i.parent_id IS NULL
-               GROUP BY i.id
-               ORDER BY shared DESC, i.year DESC
+                 AND ?1 = ?1
+               GROUP BY it.item_id
+               ORDER BY shared DESC
                LIMIT ?4";
+
 
 /// How many of a prolific author's works are considered before picking the
 /// newest few.
