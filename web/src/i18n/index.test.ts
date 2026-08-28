@@ -95,21 +95,13 @@ describe('locale hygiene', () => {
     expect(creators).toEqual([])
   })
 
-  // One walker and one exemption rule for both checks below. An exemption may
-  // sit on the offending line or the one above it, because a JSX comment does
-  // not fit inside a tag.
+  // One exemption rule for both checks below. A marker may sit on the
+  // offending line or the one above it, because a JSX comment does not fit
+  // inside a tag.
   const sources = async () => {
-    const { readdirSync, readFileSync } = await import('node:fs')
     const { join } = await import('node:path')
-    const walk = (dir: string): string[] =>
-      readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-        const path = join(dir, e.name)
-        if (e.isDirectory()) return walk(path)
-        return /\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [path] : []
-      })
-    return walk('src')
-      .filter((path) => !path.includes(join('src', 'i18n')))
-      .map((path) => ({ path, lines: readFileSync(path, 'utf8').split('\n') }))
+    const { sourceFiles } = await import('../test/sources')
+    return sourceFiles().filter(({ path }) => !path.includes(join('src', 'i18n')))
   }
 
   const EXEMPT = /i18n-exempt:\s*\S/

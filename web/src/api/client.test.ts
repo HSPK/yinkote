@@ -134,27 +134,22 @@ it('has no method nothing calls', async () => {
   // reference this route" by searching all of `src`, which includes the client
   // itself — so every endpoint looked reached, by its own wrapper. The
   // question has to be asked one layer up.
-  const { readdirSync, readFileSync } = await import('node:fs')
   const { join } = await import('node:path')
-
-  const walk = (dir: string): string[] =>
-    readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-      const path = join(dir, e.name)
-      if (e.isDirectory()) return walk(path)
-      return /\.tsx?$/.test(e.name) ? [path] : []
-    })
+  const { sourceFiles } = await import('../test/sources')
 
   const clientPath = join('src', 'api', 'client.ts')
+  const files = sourceFiles()
+  const client = files.find(({ path }) => path === clientPath)?.text ?? ''
   const names = [
     ...new Set(
-      [...readFileSync(clientPath, 'utf8').matchAll(/^\s{2,}([a-zA-Z][a-zA-Z0-9_]*):\s*(?:\(|async\s*\()/gm)].map(
+      [...client.matchAll(/^\s{2,}([a-zA-Z][a-zA-Z0-9_]*):\s*(?:\(|async\s*\()/gm)].map(
         (m) => m[1] ?? '',
       ),
     ),
   ]
-  const callers = walk('src')
-    .filter((p) => p !== clientPath)
-    .map((p) => readFileSync(p, 'utf8'))
+  const callers = files
+    .filter(({ path }) => path !== clientPath)
+    .map(({ text }) => text)
     .join('\n')
 
   const uncalled = names.filter((n) => !new RegExp(`\\.${n}\\s*\\(`).test(callers))
