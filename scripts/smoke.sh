@@ -99,8 +99,11 @@ check "stale patch -> 412" "$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
                              "$BASE/libraries/$LIB/items/$KEY" \
                              -H 'Content-Type: application/json' \
                              -H "If-Unmodified-Since-Version: $VER" \
-                             -d '{"fields":{"volume":"31"}}')"
-check "bad key -> 422"   "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/libraries/$LIB/items/not%20a%20key")"
+                             -d '{"fields":{"volume":"31"}}' | grep -x 412)"
+# The name says 412 and the check has to as well: `check` passes any non-empty
+# value, so printing the status without comparing it accepts 200 just as
+# happily — a check that cannot fail for the reason it is named after.
+check "bad key -> 422"   "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/libraries/$LIB/items/not%20a%20key" | grep -x 422)"
 # Every error in one shape. Rejections that never reach a handler — a bad path
 # segment, a malformed body, a missing content type — used to answer in plain
 # text, so a client had two formats to parse depending on how wrong it was.

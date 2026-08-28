@@ -32,8 +32,14 @@ pub static APA: Style = Style {
         separator: ", ",
         last_separator: ", & ",
     },
+    no_date: "n.d.",
     segments: &[
-        Segment::new(Authors, "", " "),
+        // A full stop, not a bare space. The stop used to arrive by accident
+        // from the last initial — `E, V.` — so an author with no initial to
+        // give one, which is every organisation, lost it:
+        // `World Health Organization (2022).` `tidy` swallows the double stop
+        // for the ordinary case.
+        Segment::new(Authors, "", ". "),
         Segment::new(Year, "(", "). "),
         Segment::new(Title, "", ". "),
         Segment::italic(Container, "", ""),
@@ -63,6 +69,7 @@ pub static MLA: Style = Style {
         separator: ", ",
         last_separator: ", and ",
     },
+    no_date: "",
     segments: &[
         Segment::new(Authors, "", ". "),
         Segment::new(Title, "\u{201c}", ".\u{201d} "),
@@ -92,6 +99,7 @@ pub static CHICAGO: Style = Style {
         separator: ", ",
         last_separator: ", and ",
     },
+    no_date: "n.d.",
     segments: &[
         Segment::new(Authors, "", ". "),
         Segment::new(Year, "", ". "),
@@ -121,6 +129,7 @@ pub static IEEE: Style = Style {
         separator: ", ",
         last_separator: ", and ",
     },
+    no_date: "",
     segments: &[
         Segment::new(Authors, "", ", "),
         Segment::new(Title, "\u{201c}", ",\u{201d} "),
@@ -154,6 +163,7 @@ pub static GB_T_7714: Style = Style {
         separator: ", ",
         last_separator: ", ",
     },
+    no_date: "",
     segments: &[
         Segment::new(Authors, "", ""),
         Segment::new(Title, ". ", ""),

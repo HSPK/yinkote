@@ -5,7 +5,7 @@
 //! that asserts the current output is a test that will agree with any bug.
 
 use super::*;
-use yk_core::model::Item;
+use yk_core::model::{Creator, Item};
 
 fn article() -> Item {
     let json = serde_json::json!({
@@ -224,4 +224,51 @@ fn every_style_renders_every_item_type_without_panicking() {
 fn a_style_can_be_found_by_id() {
     assert_eq!(find("gb7714").map(|s| s.id), Some("gb7714"));
     assert!(find("nonesuch").is_none());
+}
+
+#[test]
+fn a_dateless_work_says_so_rather_than_leaving_a_gap() {
+    // Preprints, web pages and working papers routinely have no year. Printing
+    // nothing where it belongs gives "Zhang, W. Undated Work.", which reads as
+    // a rendering fault rather than as a fact about the source.
+    let mut item = article();
+    item.fields.remove("date");
+    item.fields.insert("title".into(), serde_json::json!("Undated Work"));
+    item.creators = vec![Creator::author("Wei", "Zhang")];
+
+    let apa = reference(&item, styles::find("apa").unwrap(), Format::Text);
+    assert!(apa.contains("(n.d.)"), "{apa}");
+
+    // A style that prefers to omit it still omits it — this is described per
+    // style, not imposed on all of them.
+    let mla = reference(&item, styles::find("mla").unwrap(), Format::Text);
+    assert!(!mla.contains("n.d."), "{mla}");
+}
+
+#[test]
+fn an_organisation_author_gets_its_full_stop() {
+    // The stop after an APA author list used to arrive by accident, from the
+    // dot on the last initial. An author with no initial — every company,
+    // agency and university press — silently lost it.
+    let mut item = article();
+    item.fields.insert("date".into(), serde_json::json!("2022"));
+    item.fields.insert("title".into(), serde_json::json!("Standards Report"));
+    item.creators = vec![Creator::single("World Health Organization")];
+
+    let apa = reference(&item, styles::find("apa").unwrap(), Format::Text);
+    assert!(apa.starts_with("World Health Organization. (2022)."), "{apa}");
+}
+
+#[test]
+fn a_personal_author_does_not_get_two_stops() {
+    // The other half of the same change: the initial already ends in a stop,
+    // and the style now adds one too.
+    let mut item = article();
+    item.fields.insert("date".into(), serde_json::json!("2019"));
+    item.fields.insert("title".into(), serde_json::json!("Many Hands"));
+    item.creators = vec![Creator::author("Ada", "Lovelace")];
+
+    let apa = reference(&item, styles::find("apa").unwrap(), Format::Text);
+    assert!(apa.starts_with("Lovelace, A. (2019)."), "{apa}");
+    assert!(!apa.contains(".."), "{apa}");
 }

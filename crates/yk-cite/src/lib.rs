@@ -126,6 +126,14 @@ pub struct Style {
     /// Numeric styles cite `[1]`; the rest cite `(Author, year)`.
     pub numeric: bool,
     pub names: Names,
+    /// What stands in for a year the item does not have.
+    ///
+    /// A dateless work is ordinary — a preprint, a web page, a working paper —
+    /// and rendering nothing where the year belongs quietly produces
+    /// `Zhang, W. Undated Work.`, which reads as a mistake rather than as a
+    /// statement about the source. Empty means the style prefers to omit it,
+    /// which is what every style did before this existed.
+    pub no_date: &'static str,
     pub segments: &'static [Segment],
 }
 
@@ -212,7 +220,10 @@ fn piece(item: &Item, piece: Piece, style: &Style) -> String {
     let field = |name: &str| item.field(name).unwrap_or_default().to_string();
     match piece {
         Piece::Authors => names(item, &style.names),
-        Piece::Year => year(item),
+        Piece::Year => {
+            let printed = year(item);
+            if printed.is_empty() { style.no_date.to_string() } else { printed }
+        }
         Piece::Title => field("title"),
         // A book has no container of its own; a chapter's is its book. Falling
         // back keeps one segment list working for both.
