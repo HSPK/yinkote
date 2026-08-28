@@ -37,6 +37,9 @@ async fn main() -> anyhow::Result<()> {
     if let Some(command) = &args.service {
         return run_service(command, &config);
     }
+    if args.open {
+        return run_open(&config);
+    }
     if let Some(p) = args.connector_port {
         config.connector_port = Some(p);
     }
@@ -67,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
     // Bound to a name that lives as long as `main`: an advisory lock is
     // released when the file is dropped, and `let _ = …` would drop it on this
     // very line, leaving the directory unlocked and the check pointless.
-    let _claim = match yk_server::lock::acquire(&config.data_dir(), config.port) {
+    let _claim = match yk_server::lock::acquire(&config.data_dir(), config.port, &config.host) {
         Ok(lock) => lock,
         Err(denied) => {
             eprintln!("{denied}");
@@ -113,12 +116,51 @@ fn run_service(command: &str, config: &Config) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `yinkote open` — reach the workbench of the server that is already running.
+///
+/// For the user who installed the service and has never typed a URL for it. It
+/// deliberately does not *start* a server: "open my library" and "launch a
+/// background service" are different intentions, and only one of them is
+/// written on the command.
+fn run_open(config: &Config) -> anyhow::Result<()> {
+    let dir = config.data_dir();
+    let Some(holder) = yk_server::lock::holder(&dir) else {
+        // The lock is the liveness test, so this is not a guess: nothing holds
+        // this directory. Say how to change that, since somebody typing `open`
+        // wants their library, not a diagnosis.
+        anyhow::bail!(
+            "no Yinkote is running for {}.\n\
+             Start one with:\n    yinkote --data-dir {}\n\
+             or arrange for it to start at login with:\n    yinkote service install",
+            dir.display(),
+            dir.display()
+        );
+    };
+
+    let url = holder.url();
+    match yk_server::browser::open(&url)? {
+        yk_server::browser::Opened::With(program) => println!("opened {url} with {program}"),
+        // Printing the address is the whole value of the command here, so it
+        // is a success and not an error.
+        yk_server::browser::Opened::Headless => {
+            println!("{url}");
+            println!("(no desktop session here — open that address yourself)");
+        }
+    }
+    Ok(())
+}
+
 const USAGE: &str = "\
 yinkote — local-first reference manager
 
 USAGE:
     yinkote [OPTIONS]
+    yinkote open
     yinkote service install|uninstall|status
+
+    `open` points your browser at the workbench of the server already running
+    for this --data-dir, finding its address from the directory's lock rather
+    than assuming one. It does not start a server.
 
     `service install` writes an autostart file for the current user — a
     systemd user unit, a launchd agent, or a Startup-folder script — using
@@ -155,6 +197,8 @@ struct Args {
     plugin_dirs: Vec<PathBuf>,
     /// `install`, `uninstall` or `status`; `None` means "be the server".
     service: Option<String>,
+    /// Point a browser at the server that is already running.
+    open: bool,
     help: bool,
     version: bool,
 }
@@ -166,6 +210,7 @@ impl Args {
         while let Some(arg) = it.next() {
             match arg.as_str() {
                 "service" => args.service = Some(it.next().unwrap_or_else(|| "status".into())),
+                "open" => args.open = true,
                 "-h" | "--help" => args.help = true,
                 "-V" | "--version" => args.version = true,
                 "-p" | "--port" => args.port = it.next().and_then(|v| v.parse().ok()),

@@ -613,6 +613,29 @@ else
   skip "second is refused" "no release binary to try it with"
 fi
 
+echo "▸ open"
+# `yinkote open` is for the person who installed the service and never types a
+# URL for it. It finds the address from the directory's lock, so it is also the
+# proof that the lock is readable as a registry and not only as a refusal.
+if [[ -x ./target/release/yinkote && -n "$DATA_OF" ]]; then
+  # Forced headless so nothing actually launches: the address is the part
+  # worth checking, and on a machine with no desktop it is also the answer.
+  FOUND=$(env -u DISPLAY -u WAYLAND_DISPLAY ./target/release/yinkote open --data-dir "$DATA_OF" 2>&1 || true)
+  # Not a shape check — it must be *this* server, the one every check above ran
+  # against. A URL assembled from defaults would pass a looser test.
+  check "open finds this server" "$(printf '%s' "$FOUND" | grep -xF "${BASE%/api/v1}")"
+  # And it must leave the lock alone: a probe that claimed the directory would
+  # lock out the very server it was asked to find.
+  check "server survives open"   "$(j "$BASE/ping" | jq -r .ok)"
+
+  NOBODY=$(./target/release/yinkote open --data-dir /tmp/yk-open-nobody-$$ 2>&1 || true)
+  check "open says when nothing runs" "$(printf '%s' "$NOBODY" | grep -o 'no Yinkote is running')"
+  # Same standard as the refusal above: say what to do, not just what is wrong.
+  check "open names a way to start"   "$(printf '%s' "$NOBODY" | grep -o 'service install')"
+else
+  skip "open finds this server" "no release binary to try it with"
+fi
+
 echo "▸ single binary"
 # The premise is that somebody installs this and starts it, and that only holds
 # if "install" means one file. The workbench is compiled in; a directory named

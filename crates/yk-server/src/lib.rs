@@ -8,6 +8,7 @@ pub mod addin;
 pub mod workbench;
 pub mod agent;
 pub mod badges;
+pub mod browser;
 pub mod config;
 mod error;
 pub mod hostapi;
