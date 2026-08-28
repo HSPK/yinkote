@@ -380,7 +380,14 @@ pub struct CollectionDraft {
     pub key: Option<Key>,
 }
 
+/// Unknown keys are refused rather than ignored.
+///
+/// Every field here is optional, so a patch that matches nothing is a patch
+/// that does nothing — and it answers 200, having done it. `{"colour": ...}`
+/// is not a hypothetical slip either: this codebase writes British English
+/// everywhere except in its field names.
 #[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CollectionPatch {
     pub name: Option<String>,
     /// `Some(None)` clears the colour; absent leaves it alone.
@@ -466,7 +473,14 @@ pub struct SmartCollectionDraft {
     pub key: Option<Key>,
 }
 
+/// Unknown keys are refused rather than ignored.
+///
+/// Every field here is optional, so a patch that matches nothing is a patch
+/// that does nothing — and it answers 200, having done it. `{"colour": ...}`
+/// is not a hypothetical slip either: this codebase writes British English
+/// everywhere except in its field names.
 #[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SmartCollectionPatch {
     pub name: Option<String>,
     pub query: Option<String>,
@@ -541,7 +555,14 @@ pub struct MessagePage {
 /// `scope` is doubly optional on purpose: absent means "leave it", and
 /// `Some(None)` means "clear it" — the difference between not mentioning the
 /// collection and detaching from it.
+/// Unknown keys are refused rather than ignored.
+///
+/// Every field here is optional, so a patch that matches nothing is a patch
+/// that does nothing — and it answers 200, having done it. `{"colour": ...}`
+/// is not a hypothetical slip either: this codebase writes British English
+/// everywhere except in its field names.
 #[derive(Clone, Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConversationPatch {
     #[serde(default)]
     pub title: Option<String>,
@@ -722,5 +743,62 @@ mod search_text_tests {
             .search_text();
         assert!(text.contains("Diffusion"));
         assert!(text.contains("We review"));
+    }
+}
+
+#[cfg(test)]
+mod patch_strictness_tests {
+    use super::*;
+
+    /// A patch whose keys match nothing is a patch that does nothing, and it
+    /// used to answer 200 having done it.
+    ///
+    /// This is not a style point. `ItemPatch` keeps its fields in a nested
+    /// object, and one caller built `{"note": ...}` at the top level: asking
+    /// to regenerate a summary ran the model, reported success and left the
+    /// note untouched, for as long as the feature had existed. Every layer
+    /// above the deserialiser looked like it had worked.
+    ///
+    /// Refusing unknown keys is what makes that mistake audible. The table is
+    /// deliberately one case per patch type, because the guard is per type and
+    /// a new patch type will not inherit it.
+    #[test]
+    fn a_patch_that_matches_nothing_is_refused() {
+        assert!(
+            serde_json::from_value::<ItemPatch>(serde_json::json!({ "title": "flattened" }))
+                .is_err(),
+            "fields is nested, so this changed nothing and said it had"
+        );
+        // British spelling, which this codebase uses everywhere but the field.
+        assert!(
+            serde_json::from_value::<CollectionPatch>(serde_json::json!({ "colour": "red" }))
+                .is_err()
+        );
+        assert!(
+            serde_json::from_value::<SmartCollectionPatch>(serde_json::json!({ "quer": "x" }))
+                .is_err()
+        );
+        assert!(
+            serde_json::from_value::<ConversationPatch>(serde_json::json!({ "name": "x" }))
+                .is_err(),
+            "the field is `title`; `name` is the obvious wrong guess"
+        );
+    }
+
+    /// And the shapes that are right still work, including the ones that mean
+    /// "clear this" rather than "leave it alone".
+    #[test]
+    fn the_correct_shapes_still_deserialise() {
+        let item: ItemPatch =
+            serde_json::from_value(serde_json::json!({ "fields": { "title": "Real" } })).unwrap();
+        assert_eq!(item.fields.unwrap().get("title").unwrap(), "Real");
+
+        let coll: CollectionPatch =
+            serde_json::from_value(serde_json::json!({ "color": null })).unwrap();
+        assert_eq!(coll.color, Some(None), "an explicit null must still clear the colour");
+
+        let convo: ConversationPatch =
+            serde_json::from_value(serde_json::json!({ "scope": null })).unwrap();
+        assert_eq!(convo.scope, Some(None));
     }
 }

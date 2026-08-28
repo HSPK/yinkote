@@ -188,6 +188,14 @@ check "colour saved"     "$(j "$BASE/libraries/$LIB/collections" \
                             | jq -r --arg k "$APPK" '.[] | select(.key==$k) | .color')"
 check "colour cleared"   "$(j -X PATCH "$BASE/libraries/$LIB/collections/$APPK" -d '{"color":null}' \
                             | jq -r 'if .color then "kept" else .icon end')"
+# Every field on a patch is optional, so a key that matches nothing produces a
+# patch that does nothing — and answers 200 having done it. `colour` is the
+# spelling this codebase uses in every comment, tag and check name except the
+# field itself, so it is the mistake most likely to be made here.
+check "colour is refused" "$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
+                              "$BASE/libraries/$LIB/collections/$APPK" \
+                              -H 'Content-Type: application/json' \
+                              -d '{"colour":"violet"}' | grep -x 422)"
 
 echo "▸ zotero import"
 ZDB=$(mktemp -d)/zotero.sqlite
