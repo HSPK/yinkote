@@ -134,6 +134,14 @@ pub struct Style {
     /// statement about the source. Empty means the style prefers to omit it,
     /// which is what every style did before this existed.
     pub no_date: &'static str,
+    /// Whether an anonymous work is alphabetised, and read, by its title.
+    ///
+    /// Only the author–date styles need this. Where the year is written before
+    /// the title, dropping an empty author list leaves the entry starting
+    /// `(2020). Title` — a stray parenthesis where a reader expects a name. The
+    /// rest already begin with the title once the empty author segment falls
+    /// away, so for them this is a no-op and is set false to say so.
+    pub title_leads_when_authorless: bool,
     pub segments: &'static [Segment],
 }
 
@@ -146,14 +154,35 @@ pub enum Format {
 
 /// Render one bibliography entry.
 pub fn reference(item: &Item, style: &Style, format: Format) -> String {
+    // An anonymous work is filed under its title, so the title is what stands
+    // in the author's place. Only matters where the year is written first;
+    // elsewhere the empty author segment simply falls away and the title is
+    // already leading.
+    let promote = style.title_leads_when_authorless
+        && piece(item, Piece::Authors, style).trim().is_empty()
+        && !piece(item, Piece::Title, style).trim().is_empty();
+    // Carried across so a promoted book title keeps the italics it would have
+    // had further down the line.
+    let title_emphasis = style
+        .segments
+        .iter()
+        .find(|s| s.piece == Piece::Title)
+        .map(|s| s.emphasis)
+        .unwrap_or(Emphasis::None);
+
     let mut out = String::new();
     for segment in style.segments {
-        let text = piece(item, segment.piece, style);
+        let (text, emphasis) = match segment.piece {
+            Piece::Authors if promote => (piece(item, Piece::Title, style), title_emphasis),
+            // Already printed, in the author's place.
+            Piece::Title if promote => (String::new(), segment.emphasis),
+            other => (piece(item, other, style), segment.emphasis),
+        };
         if text.trim().is_empty() {
             continue;
         }
         out.push_str(segment.prefix);
-        out.push_str(&emphasise(&escape(&text, format), segment.emphasis, format));
+        out.push_str(&emphasise(&escape(&text, format), emphasis, format));
         out.push_str(segment.suffix);
     }
     tidy(&out)

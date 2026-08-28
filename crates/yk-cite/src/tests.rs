@@ -272,3 +272,57 @@ fn a_personal_author_does_not_get_two_stops() {
     assert!(apa.starts_with("Lovelace, A. (2019)."), "{apa}");
     assert!(!apa.contains(".."), "{apa}");
 }
+
+#[test]
+fn an_anonymous_work_is_filed_under_its_title() {
+    // Where the year is written before the title, dropping an empty author
+    // list left the entry starting "(2020). A Paper…" — a stray parenthesis
+    // where a reader expects a name. An anonymous work is alphabetised, and
+    // read, by its title.
+    let mut item = article();
+    item.creators.clear();
+    item.fields.insert("title".into(), serde_json::json!("A Paper With No Author"));
+    item.fields.insert("date".into(), serde_json::json!("2020"));
+
+    let apa = reference(&item, styles::find("apa").unwrap(), Format::Text);
+    assert!(apa.starts_with("A Paper With No Author. (2020)."), "{apa}");
+    // And it is not printed twice.
+    assert_eq!(apa.matches("A Paper With No Author").count(), 1, "{apa}");
+
+    let chicago = reference(&item, styles::find("chicago").unwrap(), Format::Text);
+    assert!(chicago.starts_with("A Paper With No Author. 2020."), "{chicago}");
+}
+
+#[test]
+fn a_style_that_already_leads_with_the_title_is_untouched() {
+    // MLA and IEEE write the title straight after the author, so an empty
+    // author segment already falls away and leaves the title leading. The flag
+    // says so rather than being applied everywhere and hoping.
+    let mut item = article();
+    item.creators.clear();
+    item.fields.insert("title".into(), serde_json::json!("Anonymous Work"));
+
+    for id in ["mla", "ieee"] {
+        let out = reference(&item, styles::find(id).unwrap(), Format::Text);
+        assert_eq!(out.matches("Anonymous Work").count(), 1, "{id}: {out}");
+    }
+}
+
+#[test]
+fn a_promoted_title_keeps_the_emphasis_it_would_have_had() {
+    // A book's title is italic wherever it appears, including in the author's
+    // place. Rendering it through the author segment must not quietly drop
+    // that.
+    let mut item = article();
+    item.creators.clear();
+    item.item_type = "book".into();
+    item.fields.remove("publicationTitle");
+    item.fields.insert("title".into(), serde_json::json!("An Anonymous Book"));
+
+    let chicago = styles::find("chicago").unwrap();
+    let italic = chicago.segments.iter().any(|s| s.piece == Piece::Title && s.emphasis != Emphasis::None);
+    let html = reference(&item, chicago, Format::Html);
+    if italic {
+        assert!(html.contains("<i>An Anonymous Book</i>"), "{html}");
+    }
+}

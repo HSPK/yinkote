@@ -33,6 +33,7 @@ pub static APA: Style = Style {
         last_separator: ", & ",
     },
     no_date: "n.d.",
+    title_leads_when_authorless: true,
     segments: &[
         // A full stop, not a bare space. The stop used to arrive by accident
         // from the last initial — `E, V.` — so an author with no initial to
@@ -70,6 +71,7 @@ pub static MLA: Style = Style {
         last_separator: ", and ",
     },
     no_date: "",
+    title_leads_when_authorless: false,
     segments: &[
         Segment::new(Authors, "", ". "),
         Segment::new(Title, "\u{201c}", ".\u{201d} "),
@@ -100,6 +102,7 @@ pub static CHICAGO: Style = Style {
         last_separator: ", and ",
     },
     no_date: "n.d.",
+    title_leads_when_authorless: true,
     segments: &[
         Segment::new(Authors, "", ". "),
         Segment::new(Year, "", ". "),
@@ -130,6 +133,7 @@ pub static IEEE: Style = Style {
         last_separator: ", and ",
     },
     no_date: "",
+    title_leads_when_authorless: false,
     segments: &[
         Segment::new(Authors, "", ", "),
         Segment::new(Title, "\u{201c}", ",\u{201d} "),
@@ -164,6 +168,7 @@ pub static GB_T_7714: Style = Style {
         last_separator: ", ",
     },
     no_date: "",
+    title_leads_when_authorless: false,
     segments: &[
         Segment::new(Authors, "", ""),
         Segment::new(Title, ". ", ""),

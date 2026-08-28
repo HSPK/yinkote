@@ -825,6 +825,19 @@ check "in-text citation"  "$(j -X POST "$BASE/libraries/$LIB/citations" \
 check "html italics"      "$(j -X POST "$BASE/libraries/$LIB/citations" \
                              -d "{\"keys\":[\"$CK\"],\"style\":\"apa\",\"format\":\"html\"}" \
                              | jq -r '.bibliography[0] | select(contains("<i>Journal of Smoke</i>"))')"
+# Two things a reader sees immediately when they are wrong, and which used to
+# be: an anonymous work is filed under its title rather than opening with a
+# stray "(2020).", and an undated one says so rather than leaving a gap.
+ANON=$(j -X POST "$BASE/libraries/$LIB/items" \
+         -d '{"itemType":"journalArticle","title":"Nobody Wrote This","publicationTitle":"J. Anon"}' \
+         | jq -r '.created[0].key')
+check "anonymous by title" "$(j -X POST "$BASE/libraries/$LIB/citations" \
+                               -d "{\"keys\":[\"$ANON\"],\"style\":\"apa\"}" \
+                               | jq -r '.bibliography[0] | select(startswith("Nobody Wrote This."))')"
+check "undated says n.d."  "$(j -X POST "$BASE/libraries/$LIB/citations" \
+                               -d "{\"keys\":[\"$ANON\"],\"style\":\"apa\"}" \
+                               | jq -r '.bibliography[0] | select(contains("(n.d.)"))')"
+j -X POST "$BASE/libraries/$LIB/items/delete" -d "$(jq -nc --arg k "$ANON" '{keys:[$k]}')" > /dev/null
 check "unknown style"     "$(j -X POST "$BASE/libraries/$LIB/citations" \
                              -d "{\"keys\":[\"$CK\"],\"style\":\"nonesuch\"}" \
                              | jq -r '.title // empty | select(contains("nonesuch"))')"
