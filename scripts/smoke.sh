@@ -763,9 +763,20 @@ echo "▸ file browser"
 check "files listed"      "$(j "$BASE/libraries/$LIB/files" \
                              | jq -r 'select((.files | type) == "array") | "listed"')"
 # A file's address is what a file browser is opened to find out.
+#
+# Its own fixture, deliberately. This used to ask whether *any* file in the
+# first page had a URL, which was true only because 186 connector snapshots had
+# piled up over previous runs — the accumulation §3.197 cleared away was
+# propping up a page-order-dependent check. The listing is newest first, so a
+# file created here is on the first page by construction.
+FILEFIX=$(j -X POST "$BASE/libraries/$LIB/items" \
+            -d '{"itemType":"journalArticle","title":"Linked file smoke"}' | jq -r '.created[0].key')
+j -X POST "$BASE/libraries/$LIB/items" \
+  -d "$(jq -nc --arg p "$FILEFIX" '{itemType:"attachment",parentKey:$p,title:"Linked file smoke",
+        linkMode:"linked_url",url:"https://example.org/smoke.pdf",contentType:"text/html"}')" > /dev/null
 check "files keep source" "$(j "$BASE/libraries/$LIB/files" \
-                             | jq -r '[.files[] | select(.url != "")] | length | tostring
-                                      | select(. != "0")' 2>/dev/null || echo "none stored yet")"
+                             | jq -r '[.files[] | select(.url == "https://example.org/smoke.pdf")]
+                                      | length | select(. > 0) | "kept"')"
 # Preview must change nothing, which is the whole reason it exists.
 BEFORE=$(j "$BASE/libraries/$LIB/files" | jq -r '[.files[].filename] | @csv')
 check "preview is silent" "$(j -X POST "$BASE/libraries/$LIB/files/preview" \
@@ -1059,7 +1070,8 @@ for tag in colour-smoke smoke-connector; do
 done
 
 # And by exact title for the fixtures that carry no tag of their own.
-for title in "Graph neighbour" "Citation smoke" "Archive Marker" "Cover page" "Nobody Wrote This"; do
+for title in "Graph neighbour" "Citation smoke" "Archive Marker" "Cover page" \
+             "Nobody Wrote This" "Linked file smoke"; do
   for _ in $(seq 1 20); do
     KEYS=$(j "$BASE/libraries/$LIB/items?q=$(printf '%s' "$title" | jq -sRr @uri)&limit=100&trash=include" \
              | jq -r --arg t "$title" '[.items[] | select(.title == $t) | .key] | @tsv' 2>/dev/null)

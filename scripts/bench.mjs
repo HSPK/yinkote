@@ -161,6 +161,11 @@ const BUDGET = {
   // 313.7ms before a selection was fetched by key instead of filtered out of
   // the whole library, 1.5ms after. This is the path the UI uses.
   'rename preview (selection)': 15,
+  // Planning every attachment in the library so the confirmation can say how
+  // many files it would touch. 323ms is honest for 30,000 of them — the count
+  // has to be exact or the sentence is a guess — but it went unbudgeted, and
+  // therefore unwatched, until §3.184's audit. The `(n=…)` beside it is KB.
+  'rename preview': 420,
   // 32.5ms while a pure filter query read 20,000 ids to return 50, and while
   // it materialised the tag set instead of walking the sort order. 2.5ms once
   // it read what it needed and chose its plan.
@@ -472,10 +477,13 @@ async function main() {
       body: JSON.stringify({ template: '{author} {year} - {title}' }),
     })
     const text = await response.text()
-    console.log(
-      `  ${'rename preview'.padEnd(34)} ${(performance.now() - t).toFixed(1).padStart(6)}ms  ` +
-        `${(text.length / 1024).toFixed(1)} KB`,
-    )
+    const took = performance.now() - t
+    // Through `report`, not a `console.log` of its own. Printing through a
+    // private format string is how a measurement ends up with nothing checking
+    // it — this one sat at 323ms, unbudgeted, for as long as it has existed
+    // (§3.184). One sample, so every percentile is the same number; the point
+    // is the ceiling, not the distribution.
+    report('rename preview', { p50: took, p95: took, p99: took }, Math.round(text.length / 1024))
   }
   {
     // The case the UI actually uses: pick a few files and preview those. It
