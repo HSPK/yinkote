@@ -110,10 +110,27 @@ POST   /libraries/{lib}/items/{key}/file            上传（支持 Content-Rang
        Headers: If-None-Match: <blake3>  → 已存在则 204，实现秒传/去重
 GET    /libraries/{lib}/items/{key}/file            下载（支持 Range，供 pdf.js 按需取页）
 GET    /libraries/{lib}/items/{key}/file/view       内联查看（Content-Disposition: inline）
-GET    /libraries/{lib}/items/{key}/thumbnail?page=1&w=240
+GET    /libraries/{lib}/items/{key}/thumbnail?page=1&w=240   命中返回图片，未命中 404
+PUT    /libraries/{lib}/items/{key}/thumbnail?page=1&w=240   客户端把画好的页面交回来
 DELETE /libraries/{lib}/items/{key}/file
 POST   /libraries/{lib}/items/{key}/reveal          在系统文件管理器中显示
 ```
+
+> **缩略图由浏览器渲染、服务端只负责缓存。** server 里没有栅格化器，也不该长出来：
+> 在 Rust 里渲染 PDF 页意味着 pdfium 或 mupdf——一个按平台分别构建的大型原生依赖，
+> 而这个程序的全部前提是"用户装得上"。与此同时工作台已经有了 pdf.js，而且刚刚
+> 就把那一页画出来过。**GET 未命中时的 404 不是错误，而是协议本身**：它就是在
+> 告诉客户端"去画一张，然后 PUT 回来"。之后每个标签页、每次会话都只是取一个静态文件。
+>
+> 两条限制让缓存保持是缓存：**宽度取自固定集合**（96/240/480），不接受区间——
+> 每个不同宽度都是磁盘上一个文件，区间等于让一个调用者从 240 往上数着把缓存塞满；
+> **字节按魔数校验是不是图片**，因为"客户端上传文件、我们存下来再从用户自己的
+> 源上发回去"否则就是一条在用户源上托管任意内容的路径。`Content-Type` 是调用者的
+> 断言，不值钱。
+>
+> 缓存落在 `cache/`（可随时删除）而非 `storage/`：丢一个 `storage/` 里的文件是丢
+> 用户的 PDF，丢掉整个 `cache/` 只是多花一次重画的时间。条目被永久删除时，
+> 对应的缓存页一并清掉——比 PDF 活得久的缩略图，是一张库里已经没有的东西的照片。
 
 > **`reveal` 不需要 Tauri 壳**：server 本来就跑在用户自己的机器上，直接起
 > 文件管理器即可。两条规则撑起这个端点的全部安全性：

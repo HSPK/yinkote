@@ -401,6 +401,29 @@ export const api = {
       }),
   },
 
+  /**
+   * Cached page images.
+   *
+   * The server keeps no rasteriser: a 404 here is the instruction to draw the
+   * page in the browser and PUT it back, not a failure.
+   */
+  thumbnails: {
+    get: async (lib: number, key: string, page: number, w: number): Promise<Blob | null> => {
+      // Not through `request`: the answer is an image, and a 404 is the
+      // protocol rather than an error worth throwing.
+      const response = await fetch(
+        `${BASE}/libraries/${lib}/items/${key}/thumbnail?page=${page}&w=${w}`,
+      )
+      return response.ok ? await response.blob() : null
+    },
+    put: async (lib: number, key: string, page: number, w: number, image: Blob) => {
+      await fetch(`${BASE}/libraries/${lib}/items/${key}/thumbnail?page=${page}&w=${w}`, {
+        method: 'PUT',
+        body: image,
+      })
+    },
+  },
+
   smart: {
     list: (lib: number, counts = false) =>
       request<SmartCollection[]>(`/libraries/${lib}/smart-collections${counts ? '?counts=true' : ''}`),

@@ -547,6 +547,27 @@ check "session closed"    "$(j -X POST "$BASE/integration/session/$SID/close" | 
 check "closed stays shut" "$(j -X POST "$BASE/integration/session/$SID/refresh" -d "$SNAP" \
                               | jq -r '.error.kind // .error // "rejected"' | head -c 20)"
 
+echo "▸ thumbnails"
+# The server keeps no rasteriser: a 404 is the instruction to draw the page in
+# the browser and PUT it back, not a failure.
+THUMBED=$(j -X POST "$BASE/libraries/$LIB/items" \
+            -d '{"itemType":"journalArticle","title":"Cover page"}' | jq -r '.created[0].key')
+check "cache starts empty" "$(curl -sS -o /dev/null -w '%{http_code}' \
+                               "$BASE/libraries/$LIB/items/$THUMBED/thumbnail?page=1&w=240" \
+                               | grep -x 404)"
+printf '\211PNG\r\n\032\n\001\002\003' > /tmp/yk-thumb.png
+check "thumbnail stored"   "$(curl -sS -o /dev/null -w '%{http_code}' -X PUT --data-binary @/tmp/yk-thumb.png \
+                               "$BASE/libraries/$LIB/items/$THUMBED/thumbnail?page=1&w=240" | grep -x 201)"
+check "served as an image" "$(curl -sS -o /dev/null -w '%{content_type}' \
+                               "$BASE/libraries/$LIB/items/$THUMBED/thumbnail?page=1&w=240" | grep -x image/png)"
+# These bytes come back from the user's own origin, so what the caller claims
+# they are is worth nothing; only the magic number counts.
+check "html is refused"    "$(curl -sS -o /dev/null -w '%{http_code}' -X PUT --data-binary '<svg onload=alert(1)>' \
+                               "$BASE/libraries/$LIB/items/$THUMBED/thumbnail?page=1&w=240" | grep -x 422)"
+check "odd width refused"  "$(curl -sS -o /dev/null -w '%{http_code}' --data-binary @/tmp/yk-thumb.png -X PUT \
+                               "$BASE/libraries/$LIB/items/$THUMBED/thumbnail?page=1&w=241" | grep -x 422)"
+rm -f /tmp/yk-thumb.png
+
 echo "▸ reveal"
 # Takes a key and never a path: the server resolves the location from its own
 # storage, so there is no parameter here a page could use to name a file.

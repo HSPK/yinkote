@@ -269,6 +269,16 @@ impl Config {
         self.data_dir().join("storage")
     }
 
+    /// Derived bytes that can always be made again: page thumbnails today.
+    ///
+    /// Separate from `storage/` because the two have opposite value. Losing a
+    /// file in `storage/` loses the user's PDF; losing everything here costs
+    /// the time to re-render it. Anything that has to decide whether to back a
+    /// directory up needs that distinction spelled out in the layout.
+    pub fn cache_dir(&self) -> PathBuf {
+        self.data_dir().join("cache")
+    }
+
     /// Built-in plugin directory plus any configured extras.
     pub fn all_plugin_dirs(&self) -> Vec<PathBuf> {
         let mut dirs = vec![self.data_dir().join("plugins")];

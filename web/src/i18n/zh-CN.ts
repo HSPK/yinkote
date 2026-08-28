@@ -407,6 +407,7 @@ export const zhCN = {
   'summary.none': '尚未生成摘要',
   'summary.working': '生成中…',
   'summary.needsModel': '未配置模型，无法生成摘要',
+  'detail.thumbnailAlt': '第 {page} 页',
   'detail.notes': '笔记',
   'detail.files': '附件',
   'reader.loading': '加载中…',

@@ -107,6 +107,36 @@ impl Client {
         (status, content_type, bytes.to_vec())
     }
 
+    /// PUT raw bytes to an API path, for endpoints whose body is not JSON.
+    async fn put_bytes(&self, path: &str, body: &[u8]) -> (StatusCode, Value) {
+        let request = Request::builder()
+            .method("PUT")
+            .uri(format!("/api/v1{path}"))
+            .header("host", "127.0.0.1:23130")
+            .header("content-type", "application/octet-stream")
+            .body(Body::from(body.to_vec()))
+            .unwrap();
+        let response = self.router.clone().oneshot(request).await.unwrap();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    /// GET an API path whose answer is not JSON.
+    async fn get_bytes(&self, path: &str) -> (StatusCode, String, Vec<u8>) {
+        let response =
+            self.router.clone().oneshot(self.request("GET", path, None)).await.unwrap();
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        let bytes = axum::body::to_bytes(response.into_body(), 4 * 1024 * 1024).await.unwrap();
+        (status, content_type, bytes.to_vec())
+    }
+
     async fn post(&self, path: &str, body: Value) -> Value {
         let (status, body) = self.send("POST", path, Some(body)).await;
         assert!(status.is_success(), "POST {path} -> {status}: {body}");
@@ -1353,4 +1383,94 @@ async fn reveal_takes_a_key_and_never_a_path() {
         .send("POST", &format!("/libraries/{lib}/items/..%2f..%2fetc%2fpasswd/reveal"), None)
         .await;
     assert!(status.is_client_error(), "{status}");
+}
+
+#[tokio::test]
+async fn a_thumbnail_round_trips_through_the_cache() {
+    // The server has no rasteriser and should not grow one: the workbench
+    // already has pdf.js and has already drawn the page. So the protocol is
+    // "404 means render it and send it back".
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+
+    let key = c.post(&format!("/libraries/{lib}/items"), json!([article("Has pages")])).await
+        ["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let path = format!("/libraries/{lib}/items/{key}/thumbnail?page=1&w=240");
+
+    let (status, _) = c.send("GET", &path, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "nothing cached yet, and that is the signal");
+
+    let png = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3];
+    let stored = c.put_bytes(&path, &png).await;
+    assert_eq!(stored.0, StatusCode::CREATED);
+
+    let (status, content_type, body) = c.get_bytes(&path).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(content_type, "image/png");
+    assert_eq!(body, png, "the same bytes back, not a re-encode");
+
+    // A different page and a different width are different images, which is
+    // what lets the response be marked immutable.
+    let (status, _) = c.send("GET", &format!("/libraries/{lib}/items/{key}/thumbnail?page=2&w=240"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = c.send("GET", &format!("/libraries/{lib}/items/{key}/thumbnail?page=1&w=480"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn the_thumbnail_cache_refuses_to_host_arbitrary_files() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let key = c.post(&format!("/libraries/{lib}/items"), json!([article("Guarded")])).await
+        ["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // These bytes would be served back from the user's own origin, so what the
+    // caller claims they are is worth nothing; only the magic number counts.
+    let (status, _) = c
+        .put_bytes(&format!("/libraries/{lib}/items/{key}/thumbnail?page=1&w=240"), b"<svg onload=alert(1)>")
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // Every distinct width is a file on disk, so a range would let one caller
+    // fill the cache by counting upwards.
+    let (status, _) = c
+        .put_bytes(&format!("/libraries/{lib}/items/{key}/thumbnail?page=1&w=241"), &[0xff, 0xd8, 0xff])
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // And the cache is not a place to park bytes under a name no item owns.
+    let (status, _) = c
+        .put_bytes(&format!("/libraries/{lib}/items/ZZZZZZZZ/thumbnail?page=1&w=240"), &[0xff, 0xd8, 0xff])
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn cached_pages_go_when_the_item_does() {
+    let (c, app) = Client::new().await;
+    let lib = app.services.default_library;
+    let key = c.post(&format!("/libraries/{lib}/items"), json!([article("Doomed")])).await
+        ["created"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let path = format!("/libraries/{lib}/items/{key}/thumbnail?page=1&w=96");
+    c.put_bytes(&path, &[0xff, 0xd8, 0xff, 0xe0]).await;
+    assert_eq!(c.get_bytes(&path).await.0, StatusCode::OK);
+
+    c.post(&format!("/libraries/{lib}/items/delete"), json!({ "keys": [key] })).await;
+
+    // A cached page that outlives its item is a picture of something the
+    // library no longer has.
+    let dir = app.config().cache_dir().join("thumbnails");
+    let left: Vec<_> = std::fs::read_dir(&dir)
+        .map(|d| d.filter_map(|e| e.ok()).map(|e| e.file_name()).collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "left behind: {left:?}");
 }

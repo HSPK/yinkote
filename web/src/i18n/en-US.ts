@@ -411,6 +411,7 @@ export const enUS: Record<MessageKey, string> = {
   'summary.none': 'No summary yet',
   'summary.working': 'Writing…',
   'summary.needsModel': 'No model configured',
+  'detail.thumbnailAlt': 'Page {page}',
   'detail.notes': 'Notes',
   'detail.files': 'Files',
   'reader.loading': 'Loading…',

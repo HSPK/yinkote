@@ -367,6 +367,9 @@ pub async fn forget_files(app: &App, lib: i64, keys: &[Key]) {
     let mut all: Vec<Key> = children.into_iter().map(|c| c.key).collect();
     all.extend_from_slice(keys);
     app.storage().remove_many(&all).await;
+    // Derived from those bytes, so it goes with them: a cached page that
+    // outlives its PDF is a picture of something the library no longer has.
+    super::thumbnails::forget(app, &all).await;
 }
 
 #[cfg(test)]

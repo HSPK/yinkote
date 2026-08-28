@@ -139,7 +139,7 @@ plugins/       示例插件（见 plugins/README.md）
 
 ## 路线（尚未实现）
 
-设计已完成、代码待补：**多端同步、PDF 缩略图**。
+设计已完成、代码待补：**多端同步**。
 
 Word / WPS / LibreOffice 共用的**服务端协议 `/api/v1/integration/*`** 与
 **Office.js 任务窗格**均已实现：会话按文档 id 建立、快照上传、全量重排

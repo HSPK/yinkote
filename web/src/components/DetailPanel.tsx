@@ -8,6 +8,7 @@ import { useStore } from '../state/store'
 import { useSchemaLabel, useT } from '../i18n'
 import { useDebounced } from '../lib/useDebounced'
 import { toast } from '../ui'
+import { Thumbnail } from './Thumbnail'
 
 /** Fields worth a multi-line editor. */
 const LONG_FIELDS = new Set(['abstractNote', 'extra', 'note'])
@@ -249,6 +250,7 @@ export function DetailPanel() {
             </div>
           </dd>
 
+          <ItemCover itemKey={item.key} />
           <ItemNotes itemKey={item.key} />
           <ItemReferences itemKey={item.key} />
           <ItemConversations itemKey={item.key} />
@@ -396,6 +398,45 @@ function ItemReferences({ itemKey: selected }: { itemKey: string }) {
         )}
       </dd>
     </>
+  )
+}
+
+/** The first page of the paper's PDF, if it has one.
+ *
+ *  A cover is the fastest way to recognise a paper you have read — faster than
+ *  the title, which is why every reference manager grew one. It costs a cache
+ *  hit after the first view; see `lib/thumbnails.ts`.
+ */
+function ItemCover({ itemKey: selected }: { itemKey: string }) {
+  const itemKey = useDebounced(selected)
+  const library = useStore((s) => s.library)
+  const openReader = useStore((s) => s.openReader)
+  const [pdf, setPdf] = useState<string | null>(null)
+
+  useEffect(() => {
+    let live = true
+    void api.items
+      .children(library, itemKey)
+      .then((kids) => {
+        const found = kids.find(
+          (k) => k.itemType === 'attachment' && String(k.contentType ?? '').includes('pdf'),
+        )
+        if (live) setPdf(found?.key ?? null)
+      })
+      .catch(() => {
+        if (live) setPdf(null)
+      })
+    return () => {
+      live = false
+    }
+  }, [library, itemKey])
+
+  if (!pdf) return null
+
+  return (
+    <button className="cover" onClick={() => openReader(pdf)}>
+      <Thumbnail library={library} attachmentKey={pdf} width={240} />
+    </button>
   )
 }
 

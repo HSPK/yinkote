@@ -2664,3 +2664,22 @@ option {
   font: 9px var(--mono);
   text-transform: uppercase;
 }
+
+/* A cover is recognised before it is read, so it goes at the top of the panel
+   and is sized by the panel rather than by the page: PDFs come in letter, A4
+   and whatever a conference template did, and a column of covers that each set
+   their own width reads as a mistake. */
+.cover {
+  display: block;
+  width: 100%;
+  padding: 0;
+  margin: 0 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  cursor: pointer;
+  overflow: hidden;
+  grid-column: 1 / -1;
+}
+.cover:hover { border-color: var(--accent); }
+.cover img { display: block; width: 100%; height: auto; }
