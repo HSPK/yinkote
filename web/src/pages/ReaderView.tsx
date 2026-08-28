@@ -49,6 +49,11 @@ export function ReaderView({ target }: { target?: string }) {
   const [page, setPage] = useState(1)
   const citationStyle = useStore((s) => s.citationStyle)
   const [outline, setOutline] = useState<OutlineNode[]>([])
+  /** Pages near enough the viewport to draw. See the observer below. */
+  const [near, setNear] = useState<Set<number>>(() => new Set([1, 2, 3]))
+  /** Page one's size, which is every page's size in all but a handful of
+   *  documents, and the only honest thing to reserve before measuring. */
+  const [reserve, setReserve] = useState({ width: 0, height: 0 })
   /** A selection waiting for the reader to say what it is for. */
   const [pending, setPending] = useState<
     { page: number; rects: ReturnType<typeof rectsFromSelection>; text: string; at: { x: number; y: number } } | null
@@ -61,7 +66,15 @@ export function ReaderView({ target }: { target?: string }) {
 
   // The toolbar's search box is find-in-document while a reader is in front.
   const filter = useStore((s) => s.filter)
-  const find = useFind(scrollRef, filter, `${doc?.fingerprints?.[0] ?? ''}:${zoom}`)
+  // The third argument is what tells find to look again. Text layers arrive as
+  // pages are built, so the count of built pages belongs in it: a search run
+  // while the document was still coming together would otherwise report only
+  // what happened to exist at that moment.
+  const find = useFind(
+    scrollRef,
+    filter,
+    `${doc?.fingerprints?.[0] ?? ''}:${zoom}:${near.size}`,
+  )
 
   useEffect(() => {
     if (!target) return
@@ -164,6 +177,59 @@ export function ReaderView({ target }: { target?: string }) {
     await api.items.destroy(library, [key])
     await reload()
   }
+
+  /** How tall a page is, so an undrawn one can still hold its place.
+   *
+   *  Taken from page one at the current zoom. Without it every page would be
+   *  zero-height until drawn, the scrollbar would be a lie, and scrolling to a
+   *  page near the end would land somewhere else entirely.
+   */
+  useEffect(() => {
+    if (!doc) return
+    let live = true
+    void doc.getPage(1).then((page) => {
+      if (!live) return
+      const viewport = page.getViewport({ scale: zoom })
+      setReserve({ width: viewport.width, height: viewport.height })
+    })
+    return () => {
+      live = false
+    }
+  }, [doc, zoom])
+
+  /**
+   * Draw only what is nearly on screen.
+   *
+   * One observer over all the pages rather than one per page, and a margin of
+   * two viewports either way — the "±2 pages" the design asks for, expressed in
+   * the units the browser actually measures in.
+   *
+   * Pages are forgotten once they leave, which is the point: a canvas at device
+   * resolution is several megabytes, and a three-hundred-page thesis used to
+   * render all three hundred before showing the first.
+   */
+  useEffect(() => {
+    const root = scrollRef.current
+    if (!root || !doc) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setNear((was) => {
+          const now = new Set(was)
+          for (const entry of entries) {
+            const page = Number((entry.target as HTMLElement).dataset.page)
+            if (entry.isIntersecting) now.add(page)
+            else now.delete(page)
+          }
+          return now
+        })
+      },
+      { root, rootMargin: '200% 0px' },
+    )
+    root.querySelectorAll('[data-page]').forEach((el) => observer.observe(el))
+    return () => observer.disconnect()
+    // `reserve.height` is in here because the pages do not exist until it is
+    // known — observing before they are in the DOM observes nothing, silently.
+  }, [doc, pages.length, reserve.height])
 
   /** The document's own table of contents, when it has one. */
   useEffect(() => {
@@ -360,7 +426,7 @@ export function ReaderView({ target }: { target?: string }) {
         <div className="reader-pages" ref={scrollRef} onMouseDown={() => setPending(null)}>
           {error && <Empty>{t('reader.unsupported')}</Empty>}
           {!doc && !error && <Empty>{t('reader.loading')}</Empty>}
-          {doc &&
+          {doc && reserve.height > 0 &&
             pages.map((n) => (
               <PdfPage
                 key={n}
@@ -370,6 +436,12 @@ export function ReaderView({ target }: { target?: string }) {
                 annotations={annotations.filter((a) => a.page === n)}
                 onSelect={select}
                 onRemove={remove}
+                // Searching asks about the whole document, and find works
+                // over rendered spans — so a search brings every text layer
+                // into being, without the canvases that make virtualising
+                // worth doing.
+                detail={near.has(n) ? 'full' : filter.trim() ? 'text' : 'none'}
+                reserve={reserve}
               />
             ))}
         </div>

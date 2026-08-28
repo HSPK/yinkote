@@ -14,13 +14,7 @@ import type { Stats } from './api/types'
 import { emptyScope } from './state/scope'
 import { useStore } from './state/store'
 
-vi.mock('./api/client', () => {
-  const idle: unknown = new Proxy(function () {} as object, {
-    get: (_t, key) => (key === 'then' ? undefined : idle),
-    apply: () => new Promise(() => {}),
-  })
-  return { api: idle, connectEvents: () => () => {} }
-})
+vi.mock('./api/client', async () => (await import('./test/idleApi')).idleClient())
 
 beforeAll(() => {
   globalThis.ResizeObserver ??= class {

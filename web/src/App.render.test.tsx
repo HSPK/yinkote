@@ -16,10 +16,10 @@ import { TABS } from './workspace/registry'
 import { libraryTab, tabId, type TabKind } from './lib/tabs'
 
 // The workbench must not reach the network to draw itself.
-vi.mock('./api/client', () => ({
-  api: new Proxy({}, { get: () => () => new Promise(() => {}) }),
-  connectEvents: () => () => {},
-}))
+// A client that never answers, shared so every page test agrees what that
+// means. This file used to build its own a level too shallow — see
+// `src/test/idleApi.ts`.
+vi.mock('./api/client', async () => (await import('./test/idleApi')).idleClient())
 
 let container: HTMLElement
 let root: Root

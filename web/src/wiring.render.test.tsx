@@ -18,13 +18,7 @@ import { useStore } from './state/store'
 /** Never resolves, so bootstrap cannot overwrite the state a test set up. A
  *  mock that resolves with a placeholder is worse than one that does not
  *  answer: it replaces real data with a shape nothing expects. */
-vi.mock('./api/client', () => {
-  const idle: unknown = new Proxy(function () {} as object, {
-    get: (_t, key) => (key === 'then' ? undefined : idle),
-    apply: () => new Promise(() => {}),
-  })
-  return { api: idle, connectEvents: () => () => {} }
-})
+vi.mock('./api/client', async () => (await import('./test/idleApi')).idleClient())
 
 beforeAll(() => {
   globalThis.ResizeObserver ??= class {
