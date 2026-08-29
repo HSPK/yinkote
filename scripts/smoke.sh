@@ -352,6 +352,33 @@ check "a typo is refused"  "$(c -o /dev/null -w '%{http_code}' \
                                "$BASE/libraries/$LIB/items?tags=survey" | grep -x 400)"
 check "typo names itself"  "$(j "$BASE/libraries/$LIB/items?collcetion=X" \
                                | jq -r '.title | select(contains("collcetion")) | "named"')"
+
+# The sequence every user hits before seeing anything: `bootstrap` asks for
+# these ten, and the workbench is empty until they answer. Two of them are
+# wrapped in `.catch` on the client, so a failure there would be silent -- the
+# app would open with no citation styles and no settings and say nothing.
+#
+# Checked as a sequence rather than one by one because that is how it breaks:
+# making the query structs strict could have refused any of them, and neither
+# the item tests nor the benchmark covers this order.
+BOOT_FAILED=""
+while IFS= read -r path; do
+  [[ -z "$path" ]] && continue
+  code=$(c -o /dev/null -w '%{http_code}' "$BASE$path")
+  [[ "$code" == "200" ]] || BOOT_FAILED="$BOOT_FAILED $path->$code"
+done <<BOOT
+/ping
+/schema
+/settings
+/citation-styles
+/libraries/$LIB/items?topLevel=true&sort=dateModified&direction=desc&limit=100&offset=0
+/libraries/$LIB/collections
+/libraries/$LIB/smart-collections?counts=true
+/libraries/$LIB/tags
+/libraries/$LIB/facets
+/libraries/$LIB/conversations
+BOOT
+check "the app can start" "$(test -z "$BOOT_FAILED" && echo "all ten answered")"
 j -X DELETE "$BASE/libraries/$LIB/collections/$FCOL" > /dev/null
 
 echo "▸ tags & facets"

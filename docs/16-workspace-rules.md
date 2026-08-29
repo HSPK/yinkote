@@ -5023,3 +5023,44 @@ Worth recording, because next time the temptation will be to re-derive it:
   ten-row page costs the same as fifty because the retrievers always produce
   300 candidates. The cost is bm25 over the ~20,000 documents a common word
   matches, which §3.254 already took as far as an index can.
+
+### 3.278 The sequence before anything is on screen
+
+Four rounds of inspection had exercised the API and never the order the
+workbench asks things in. `bootstrap` makes ten requests before the window
+shows anything, and two of them — settings and citation styles — are wrapped in
+`.catch(() => …)` on the client, so a failure in either opens the app with no
+styles, no settings, and nothing said.
+
+Two rounds ago I made all nine query structs strict, which could have refused
+any of them. Smoke passed and the benchmark passed, because neither asks in
+this order or for this set. It needed asking directly, and it now lives in the
+suite as one check over all ten: **the app can start.**
+
+Nothing was broken. The value is that next time something is made strict, this
+is the check that notices — and it was written after §3.276 said that a check
+re-derived by hand every thirty minutes is a check with no tests of its own.
+
+### 3.279 The chain, end to end, without the model
+
+`quick-add` on an arXiv address, verified all the way through rather than at
+its first hop: one item created (not two), one download queued, 6,768,044 bytes
+fetched, an attachment with the right filename and content type, and 236,819
+characters extracted from it in 270ms.
+
+The model was throttled for six attempts across two and a half minutes, so the
+summary itself is a skip — but everything the summary depends on was confirmed
+without it. A feature that needs a shared, rate-limited service can still have
+all of its own work checked; only the last hop is somebody else's.
+
+That paper is longer than `MAX_CHARS`, so it is truncated and says so. Worth
+noticing rather than acting on: a *summary* does not need a hundred pages, and
+sending 200,000 characters to summarise one is generous where close reading
+genuinely wants them. Not changed, because the model has been throttled all
+round and a size decision made without measuring the latency it is supposed to
+improve is a guess. Written down so it is measured rather than re-argued.
+
+My probe was wrong a fourth time — I guessed `/citations/styles` where the
+route is `/citation-styles` — but caught in the same minute, because this time
+the probe printed the status of every request rather than only the answer to
+the one I cared about.
