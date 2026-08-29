@@ -197,7 +197,16 @@ echo "▸ quick add"
 # opposite responses from the user, so the reason has to survive to the client.
 QA_NOPE="$(j -X POST "$BASE/libraries/$LIB/quick-add" -d '{"text":"10.9999/definitely-not-a-real-doi"}')"
 check "unresolved kept"  "$(echo "$QA_NOPE" | jq -r '.unresolved | length | select(. > 0)')"
-check "absence is notFound" "$(echo "$QA_NOPE" | jq -r '[.unresolved[].problem] | select(index("notFound")) | "notFound"')"
+# A DOI that certainly does not exist should come back "notFound" — but only
+# if Crossref answered. When it is unreachable the engine ranks "unavailable"
+# higher, which is the whole point of the ranking, so this is a skip and not a
+# failure: a check that goes red for somebody else's outage gets switched off.
+QA_PROBLEM="$(echo "$QA_NOPE" | jq -r '[.unresolved[].problem] | if index("notFound") then "notFound" else .[0] // "none" end')"
+if [[ "$QA_PROBLEM" == "unavailable" ]]; then
+  skip "absence is notFound" "no source answered; cannot tell absence from an outage"
+else
+  check "absence is notFound" "$([[ "$QA_PROBLEM" == "notFound" ]] && echo notFound)"
+fi
 check "nothing created"  "$(echo "$QA_NOPE" | jq -r '.created | length | select(. == 0) | "none"')"
 # A well-formed request that resolves nothing is an outcome, not a failure.
 check "outcome not error" "$(curl -sf -o /dev/null -w '%{http_code}' -X POST \

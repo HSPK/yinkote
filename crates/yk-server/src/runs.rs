@@ -149,14 +149,20 @@ impl Run {
 
     /// Tell everyone watching what the turn looks like now.
     ///
-    /// The whole state rather than a delta. It is small — a few steps and a
-    /// line of text — and a client that missed one delta while switching tabs
-    /// would otherwise be permanently out of step with no way to notice.
+    /// The whole state rather than a delta, so a client that missed one while
+    /// switching tabs is not permanently out of step with no way to notice.
+    ///
+    /// This used to say the state was small. It was not: one `library_overview`
+    /// result made a snapshot 23KB, and a snapshot goes out after *every* step,
+    /// so a five-step turn broadcast that five times over — to draw header
+    /// lines that show a tool's name and its arguments. The results carry the
+    /// same cap as the persisted trace, which is what makes the sentence above
+    /// true rather than hopeful.
     fn announce(&self) {
         self.events.publish(DomainEvent::AgentProgress {
             library_id: self.library_id,
             conversation: self.conversation.clone(),
-            state: serde_json::to_value(self.snapshot()).unwrap_or_default(),
+            state: state_json(&self.snapshot()),
         });
     }
 
@@ -265,9 +271,55 @@ impl Progress for RunProgress {
     }
 }
 
+/// How much of a tool's answer is kept in the persisted trace.
+///
+/// A step is drawn collapsed: a header line with the tool's name and the
+/// arguments it was called with. The result is rendered only if somebody
+/// expands it, and most never do. Meanwhile one ordinary turn — a 204-byte
+/// answer to "how many papers about attention?" — carried 48KB of tool output,
+/// 19.7KB of it a single `library_overview` blob, and every later load of that
+/// conversation carried it again, for ever.
+///
+/// The model has already read the full result; this is the human's record of
+/// what happened. Enough of it to recognise the answer is what that needs.
+const TRACE_RESULT_CHARS: usize = 2000;
+
+/// A whole run state as any client should receive it.
+///
+/// One function for all three ways it leaves the server — the progress
+/// broadcast, the `/run` poll and the persisted trace — because they were
+/// three serialisations of the same value and only one of them was capped.
+pub fn state_json(state: &RunState) -> Value {
+    let mut value = json!(state);
+    if let Some(object) = value.as_object_mut() {
+        object.insert("steps".into(), steps_json(state));
+    }
+    value
+}
+
 /// The steps as they should be persisted with the finished answer.
+///
+/// Capped rather than complete. The cut is marked, so a reader is never left
+/// believing a tool returned less than it did.
 pub fn steps_json(state: &RunState) -> Value {
-    json!(state.steps)
+    let steps: Vec<Value> = state
+        .steps
+        .iter()
+        .map(|step| match step {
+            Step::Tool { name, arguments, result, writes } if result.chars().count() > TRACE_RESULT_CHARS => {
+                json!({
+                    "kind": "tool",
+                    "name": name,
+                    "arguments": arguments,
+                    "result": crate::agent::reading::truncate(result, TRACE_RESULT_CHARS),
+                    "writes": writes,
+                    "clipped": true,
+                })
+            }
+            other => json!(other),
+        })
+        .collect();
+    json!(steps)
 }
 
 #[cfg(test)]
@@ -347,5 +399,58 @@ mod tests {
         // The same words must not be on screen twice: once as what is arriving
         // and once as the step it arrived as.
         assert!(p.run.snapshot().partial.is_empty());
+    }
+
+    /// A turn's record must not grow without bound.
+    ///
+    /// One ordinary exchange — a 204-byte answer — persisted 48KB of tool
+    /// output, and a conversation is fetched whole every time it is opened.
+    /// The step is drawn collapsed, so none of that is even on screen unless
+    /// somebody expands it.
+    #[test]
+    fn a_long_tool_result_is_kept_in_part_and_says_so() {
+        let mut state = RunState::default();
+        state.steps.push(Step::Tool {
+            name: "library_overview".into(),
+            arguments: json!({}),
+            result: "x".repeat(20_000),
+            writes: false,
+        });
+
+        let steps = steps_json(&state);
+        let step = &steps[0];
+        assert_eq!(step["clipped"], json!(true), "a cut answer must say it was cut");
+        let kept = step["result"].as_str().unwrap().chars().count();
+        assert!(kept <= TRACE_RESULT_CHARS + 1, "kept {kept} characters");
+        // The header line is what the step is for, so it survives intact.
+        assert_eq!(step["name"], "library_overview");
+        assert_eq!(step["writes"], json!(false));
+    }
+
+    /// And a short one is untouched — including the absence of the marker,
+    /// since a note on every step would tell the reader nothing.
+    #[test]
+    fn a_short_tool_result_is_left_alone() {
+        let mut state = RunState::default();
+        state.steps.push(Step::Tool {
+            name: "search_library".into(),
+            arguments: json!({ "query": "attention" }),
+            result: "three hits".into(),
+            writes: false,
+        });
+
+        let step = &steps_json(&state)[0];
+        assert_eq!(step["result"], "three hits");
+        assert!(step.get("clipped").is_none(), "an intact result was marked as cut");
+    }
+
+    /// Prose and reasoning are the model's own words and are short; cutting
+    /// them would lose the part a reader actually reads.
+    #[test]
+    fn only_tool_results_are_cut() {
+        let mut state = RunState::default();
+        state.steps.push(Step::Text { content: "y".repeat(9_000) });
+        let step = &steps_json(&state)[0];
+        assert_eq!(step["content"].as_str().unwrap().chars().count(), 9_000);
     }
 }

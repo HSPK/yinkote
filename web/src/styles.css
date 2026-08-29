@@ -2843,3 +2843,5 @@ option {
    process is up and answering. This figure is the only sign, so it must not
    be drawn like the figure beside it. */
 .kv .warn { color: var(--warn); font-weight: 600; }
+
+.step-clipped { font-size: 10px; color: var(--muted); padding: 2px 0 4px 18px; }

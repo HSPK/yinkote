@@ -488,6 +488,7 @@ export const enUS: Record<MessageKey, string> = {
   'chat.thinkingNow': 'Thinking…',
   'chat.stop': 'Stop',
   'chat.stopped': 'Stopped by you',
+  'chat.clipped': 'Only the start of this result is kept',
   'chat.truncated': 'Stopped at the step limit; this answer may be incomplete',
   'chat.askAbout': 'Ask about this',
   'error.surface': 'This panel failed to draw',

@@ -485,6 +485,7 @@ export const zhCN = {
   'chat.thinkingNow': '正在思考…',
   'chat.stop': '停止',
   'chat.stopped': '已被你中断',
+  'chat.clipped': '此结果仅保留了开头部分',
   'chat.truncated': '已达步数上限，回答可能不完整',
   'chat.askAbout': '就这篇提问',
   'error.surface': '这个面板出错了',

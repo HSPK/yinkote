@@ -446,7 +446,16 @@ export interface Harvest {
 export type RunStep =
   | { kind: 'text'; content: string }
   | { kind: 'thinking'; content: string }
-  | { kind: 'tool'; name: string; arguments: unknown; result: string; writes: boolean }
+  | {
+      kind: 'tool'
+      name: string
+      arguments: unknown
+      result: string
+      writes: boolean
+      /** The stored result was cut: a tool's whole answer is not kept for ever
+       *  in a conversation that is reloaded every time it is opened. */
+      clipped?: boolean
+    }
 
 /** What a conversation's turn is doing. */
 export interface RunState {

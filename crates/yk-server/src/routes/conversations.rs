@@ -393,8 +393,8 @@ async fn run_state(
     // type with holes in it, and the client that trusted the type crashed on
     // the first missing field — a half-shaped object is a lie told in JSON.
     Ok(Json(match app.runs.get(key.as_str()) {
-        Some(run) => json!(run.snapshot()),
-        None => json!(crate::runs::RunState::default()),
+        Some(run) => crate::runs::state_json(&run.snapshot()),
+        None => crate::runs::state_json(&crate::runs::RunState::default()),
     }))
 }
 

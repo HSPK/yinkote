@@ -47,7 +47,7 @@ should outlive a message. Use write_file when a result is a table or a list \
 worth keeping, and say where you put it.";
 
 /// Cut a string without splitting a character in half.
-fn truncate(text: &str, limit: usize) -> String {
+pub fn truncate(text: &str, limit: usize) -> String {
     match text.char_indices().nth(limit) {
         Some((cut, _)) => format!("{}…", &text[..cut]),
         None => text.to_string(),

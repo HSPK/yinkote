@@ -50,7 +50,14 @@ function Step({ step }: { step: RunStep }) {
           <span className="step-writes">{t('chat.changed')}</span>
         )}
       </button>
-      {open && body && <pre className="step-body">{body}</pre>}
+      {open && body && (
+        <>
+          <pre className="step-body">{body}</pre>
+          {/* Said out loud: a reader must not take a cut answer for the whole
+              of what a tool returned. */}
+          {!thinking && step.clipped && <div className="step-clipped">{t('chat.clipped')}</div>}
+        </>
+      )}
     </div>
   )
 }
