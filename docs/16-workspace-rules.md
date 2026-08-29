@@ -5147,3 +5147,58 @@ Nothing else was broken. Recorded so it is not re-derived:
 - The scraper's three input kinds, the nested collection counts, filing and
   unfiling, the close-reading refusal and the four external search sources all
   behave as the previous rounds left them.
+
+### 3.284 "Semantic" search that is not semantic
+
+The check was `.hits|length` — rows came back. An embedder returning random
+vectors would satisfy it with three hundred arbitrary papers, so I went to
+strengthen it and found something worse than a weak check.
+
+Measured on the real library, semantic mode against a paper called *Attention
+Is All You Need*:
+
+| query | finds it? |
+| --- | --- |
+| `attention is all you need` | yes |
+| `attention mechanism` | **no**, not in twenty |
+| `attention` | **no**, not in twenty |
+
+And `a model with no recurrence` returned three unrelated synthetic papers with
+nothing to indicate it had not understood the question.
+
+The cause is not a defect: `LocalEmbedder` is a hashed n-gram projection and
+its own doc comment says it "captures lexical and morphological similarity
+rather than true semantics". It exists so the feature works offline, which is a
+good reason — a feature that only works after signing up for an API key is one
+most people never see. The problem is that **nobody told the reader.** The mode
+is called Semantic, its hint says "nearest neighbours in vector space", and the
+provider appeared in two places as the bare token `local-hash`.
+
+A name is a promise. This one is kept by the remote embedder and half-kept by
+the default, so the interface now says which: what it will find (papers sharing
+wording), what it will not (the same idea phrased differently), and what to do
+about it (set an embeddings endpoint). A limitation nobody can act on is only
+an apology.
+
+The check now asserts what the shipped default actually guarantees — near-exact
+wording reaches its paper — because writing down the stronger promise would
+make the suite assert something the product does not do. It still catches the
+failure that matters: vectors that mean nothing at all.
+
+### 3.285 Two ways to write the same check wrong, in five minutes
+
+Strengthening one check took three attempts, and each failure was a different
+lesson already in this file:
+
+- `.hits[].snippet // ""` — the self-lint refused it before it ran (§3.240,
+  fourth time it has caught me).
+- Then `select(has("snippet"))` — which reads only the hits that were *also*
+  lexical, because **a purely semantic hit has no snippet**: there is no
+  matched term to mark. I wrote the comment explaining that and then filtered
+  by the very field it says is absent.
+- Then the right shape, by key, asserting a claim the default embedder does not
+  keep — which is how I found §3.284 rather than shipping a check that fails
+  for everybody who has not configured an embedding model.
+
+Each attempt failed loudly and immediately. That is the argument for the
+self-lint and for running smoke rather than reasoning about it.

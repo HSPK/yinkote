@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { embedderMeaning } from '../lib/format'
 
 import { api } from '../api/client'
 import type { AgentStatus, SourceInfo } from '../api/types'
@@ -358,7 +359,12 @@ runOptimize()
                 <dt>Yinkote</dt>
                 <dd>{server?.version ?? '—'}</dd>
                 <dt>{t('statusPage.provider')}</dt>
-                <dd>{stats?.search.provider ?? '—'}</dd>
+                <dd>
+                  {stats?.search.provider ?? '—'}
+                  {/* What it means for results, because the name says nothing
+                      to anybody who has not read the source. */}
+                  <div className="dim">{embedderMeaning(t, stats?.search.provider)}</div>
+                </dd>
                 <dt>{t('settings.license')}</dt>
                 {/* i18n-exempt: an SPDX identifier is machine-readable metadata, not prose */}
                 <dd>AGPL-3.0-or-later</dd>

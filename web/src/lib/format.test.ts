@@ -9,6 +9,7 @@ import {
   creatorName,
   creatorSummary,
   taskMessage,
+  embedderMeaning,
   displayTitle,
   elapsed,
   shortDate,
@@ -254,5 +255,40 @@ describe('a task’s progress line', () => {
       expect(enUS[key as keyof typeof enUS], `${key} is missing`).toBeTruthy()
       expect(zhCN[key as keyof typeof zhCN], `${key} is missing from zh-CN`).toBeTruthy()
     }
+  })
+})
+
+describe('what the embedder means for results', () => {
+  const t = ((key: string) => enUS[key as keyof typeof enUS] ?? key) as never
+  const zh = ((key: string) => zhCN[key as keyof typeof zhCN] ?? key) as never
+
+  it('says what the offline default will and will not find', () => {
+    // `local-hash` was shown as a bare token in two places and explained
+    // nowhere. It has no semantic content: measured, "a model with no
+    // recurrence" returned three unrelated papers with nothing to say it had
+    // not understood the question.
+    const said = embedderMeaning(t, 'local-hash')
+    expect(said).toContain('share wording')
+    expect(said).toContain('phrased differently')
+    // And what to do about it, because a limitation nobody can act on is only
+    // an apology.
+    expect(said).toContain('embeddings endpoint')
+  })
+
+  it('says the difference when a real model is configured', () => {
+    expect(embedderMeaning(t, 'openai')).toContain('meaning')
+    expect(embedderMeaning(t, 'openai')).not.toEqual(embedderMeaning(t, 'local-hash'))
+  })
+
+  it('says nothing when there is nothing to say', () => {
+    expect(embedderMeaning(t, undefined)).toBe('')
+    expect(embedderMeaning(t, '')).toBe('')
+  })
+
+  it('is said in the reader’s language', () => {
+    expect(embedderMeaning(zh, 'local-hash')).toContain('离线词形匹配')
+    // `embeddings` survives on purpose: it is the name of the configuration
+    // key the reader has to type, not prose to be translated.
+    expect(embedderMeaning(zh, 'local-hash')).not.toContain('share wording')
   })
 })

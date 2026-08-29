@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { embedderMeaning } from '../lib/format'
 
 import { compact } from '../lib/format'
 import { useStore } from '../state/store'
@@ -106,7 +107,11 @@ runReindex()
             hint={`${compact(embedded)} / ${compact(documents)}`}
           />
           <Metric label={t('statusPage.dimensions')} value={String(stats?.search?.dimensions ?? 0)} />
-          <Metric label={t('statusPage.provider')} value={stats?.search?.provider ?? '—'} />
+          <Metric
+            label={t('statusPage.provider')}
+            value={stats?.search?.provider ?? '—'}
+            hint={embedderMeaning(t, stats?.search?.provider)}
+          />
           <Metric label={t('statusPage.lastQuery')} value={`${tookMs}ms`} />
         </div>
         <div

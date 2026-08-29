@@ -192,7 +192,28 @@ echo "▸ search"
 sleep 1.5   # let the embedding worker drain the queue
 check "keyword"          "$(j "$BASE/libraries/$LIB/search?q=attention&mode=keyword" | jq -r '.hits|length')"
 check "fuzzy (typo)"     "$(j "$BASE/libraries/$LIB/search?q=attension&mode=fuzzy" | jq -r '.hits|length')"
+# Rows came back is not the same as the right rows came back: an embedder
+# returning random vectors would satisfy a length check with three hundred
+# arbitrary papers. The seeded corpus has a paper about attention, and a query
+# about attention must reach it.
 check "semantic"         "$(j "$BASE/libraries/$LIB/search?q=neural%20sequence%20model&mode=semantic" | jq -r '.hits|length')"
+# By key, not by snippet: a purely semantic hit *has* no snippet -- there is no
+# matched term to mark -- so a check reading snippets tests only the hits that
+# were also lexical, which is the opposite of the thing being tested.
+#
+# The query is close to the title on purpose. The default embedder is a hashed
+# n-gram projection, and near-exact wording is the most it guarantees: measured
+# on a real library, `attention mechanism` and `attention` both fail to reach a
+# paper called "Attention Is All You Need" (docs/16 §3.284). Asserting more
+# would be writing down a promise the shipped default does not keep -- and this
+# still catches the failure that matters, an index of vectors that means
+# nothing at all.
+check "semantic is apt"  "$(j "$BASE/libraries/$LIB/search?q=attention%20is%20all%20you%20need&mode=semantic&limit=20" \
+                             | jq -r --arg k "$KEY" '[.hits[].key] | index($k) | select(. != null) | "found it"')"
+# What the vectors are made of decides what "semantic" can mean, and the
+# default is lexical rather than semantic -- said in the interface now, and
+# reported here so a change of provider is visible in the run.
+check "embedder named"   "$(j "$BASE/stats" | jq -r '.search.provider | select(length > 0)')"
 check "chinese"          "$(j "$BASE/libraries/$LIB/search?q=%E6%89%A9%E6%95%A3%E6%A8%A1%E5%9E%8B" | jq -r '.hits|length')"
 check "tag operator"     "$(j "$BASE/libraries/$LIB/search?q=tag:nlp" | jq -r '.hits|length')"
 check "snippet mark"     "$(j "$BASE/libraries/$LIB/search?q=transformer" | jq -r '.hits[0].snippet' | grep -c '<mark>')"

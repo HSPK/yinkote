@@ -12,6 +12,8 @@ export const zhCN = {
   'agent.unreachable': '无法连接到模型',
   'app.connecting': '正在连接 Yinkote 服务…',
 
+  'embedder.localHash': '离线词形匹配。能找到用词相近的论文，找不到换一种说法表达的同一件事。要真正的语义检索，请配置 embeddings 端点。',
+  'embedder.remote': '真正的向量模型：按语义查找，而不只是共同用词。',
   'failure.not_found': '未找到',
   'failure.invalid_input': '请求无效',
   'failure.conflict': '与现有内容冲突',

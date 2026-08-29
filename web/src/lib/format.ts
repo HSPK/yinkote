@@ -181,3 +181,22 @@ const AGENT_PROBLEMS = new Set([
   'refused',
   'failed',
 ])
+
+/**
+ *  What an embedding provider means for the results, not just its name.
+ *
+ *  `local-hash` was shown as a bare token in two places and nowhere explained.
+ *  It is a hashed n-gram projection: it matches lexical and morphological
+ *  similarity and has no semantic content at all, so a query sharing no words
+ *  with a paper does not find it — measured, on "a model with no recurrence",
+ *  which returned three unrelated papers with no indication that it had failed
+ *  to understand the question.
+ *
+ *  That is a reasonable default — a feature that only works after signing up
+ *  for an API key is a feature most people never see — but it has to be said,
+ *  because "semantic" is a promise and this does not keep all of it.
+ */
+export function embedderMeaning(t: Translate, provider?: string): string {
+  if (!provider) return ''
+  return provider === 'local-hash' ? t('embedder.localHash') : t('embedder.remote')
+}
