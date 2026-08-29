@@ -44,6 +44,21 @@ fn clean_name(name: &str) -> Result<String> {
     Ok(name.to_string())
 }
 
+/// A saved search with no search is not one.
+///
+/// It was accepted, and matched everything: a second copy of the library that
+/// also listed attachments and notes, sitting in the sidebar under whatever
+/// name was typed. Refused for the same reason a blank name is — somebody
+/// pressed save before they finished, and telling them is kinder than filing
+/// 99,955 rows under "untitled idea".
+fn clean_query(query: &str) -> Result<String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err(Error::invalid("smart collection query must not be empty"));
+    }
+    Ok(query.to_string())
+}
+
 #[derive(Clone)]
 pub struct SqliteSmartCollectionRepository {
     db: Db,
@@ -95,6 +110,7 @@ impl SmartCollectionRepository for SqliteSmartCollectionRepository {
         self.db
             .call(move |c| {
                 let name = clean_name(&draft.name)?;
+                let query = clean_query(&draft.query)?;
                 let key = draft.key.clone().unwrap_or_else(Key::generate);
                 let tx = write_tx(c)?;
                 let version = bump(&tx, library_id)?;
@@ -116,7 +132,7 @@ impl SmartCollectionRepository for SqliteSmartCollectionRepository {
                         library_id,
                         key.as_str(),
                         name,
-                        draft.query.trim(),
+                        query.as_str(),
                         draft.mode.as_deref().unwrap_or("hybrid"),
                         draft.sort.as_deref().unwrap_or("dateModified"),
                         draft.direction.as_deref().unwrap_or("desc"),
@@ -169,8 +185,14 @@ impl SmartCollectionRepository for SqliteSmartCollectionRepository {
                     )
                     .map_err(sql_err)?;
                 }
+                // Editing a saved search down to nothing is the same mistake
+                // as creating one that way, and would leave it matching the
+                // whole library under its old name.
+                if let Some(query) = &patch.query {
+                    clean_query(query)?;
+                }
                 for (column, value) in [
-                    ("query", patch.query.as_deref()),
+                    ("query", patch.query.as_deref().map(str::trim)),
                     ("mode", patch.mode.as_deref()),
                     ("sort", patch.sort.as_deref()),
                     ("direction", patch.direction.as_deref()),
@@ -234,5 +256,31 @@ impl SmartCollectionRepository for SqliteSmartCollectionRepository {
                 Ok(n)
             })
             .await
+    }
+}
+
+#[cfg(test)]
+mod query_validation_tests {
+    use super::*;
+
+    /// A saved search with no search is not one.
+    ///
+    /// It used to be accepted and matched everything — a second copy of the
+    /// library, attachments and notes included, sitting in the sidebar under
+    /// whatever name had been typed. The name was already refused when blank;
+    /// the query was not.
+    #[test]
+    fn a_blank_query_is_refused() {
+        for text in ["", "   ", "\t\n"] {
+            assert!(clean_query(text).is_err(), "accepted {text:?}");
+        }
+    }
+
+    /// And a real one is kept, trimmed but otherwise untouched — the operators
+    /// inside it are the user's.
+    #[test]
+    fn a_real_query_survives() {
+        assert_eq!(clean_query("  tag:survey  ").unwrap(), "tag:survey");
+        assert_eq!(clean_query("attention is all you need").unwrap(), "attention is all you need");
     }
 }

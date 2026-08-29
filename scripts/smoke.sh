@@ -291,6 +291,16 @@ check "colour is refused" "$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
                               "$BASE/libraries/$LIB/collections/$APPK" \
                               -H 'Content-Type: application/json' \
                               -d '{"colour":"violet"}' | grep -x 422)"
+# A saved search with no search is not one: it was accepted and matched the
+# whole library, attachments and notes included, under whatever name was typed.
+# The name was already refused when blank; the query was not.
+check "blank query refused" "$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+                                -H 'Content-Type: application/json' \
+                                -d '{"name":"No query","query":"   "}' \
+                                "$BASE/libraries/$LIB/smart-collections" | grep -x 422)"
+check "real query accepted" "$(j -X POST "$BASE/libraries/$LIB/smart-collections" \
+                                -d '{"name":"Smoke saved search","query":"tag:nlp"}' \
+                                | jq -r '.key | select(length > 0)')"
 
 echo "▸ zotero import"
 ZDB=$(mktemp -d)/zotero.sqlite
