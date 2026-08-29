@@ -620,6 +620,24 @@ describe('a long conversation', () => {
     expect(container.querySelector('.chat-older')).toBeNull()
   })
 
+  it('puts the earlier page before what was held, once each', async () => {
+    // Prepending is where a cursor goes wrong: appending instead, or fetching
+    // the same page twice, both leave the count looking right. Order and
+    // uniqueness are what actually say the history is intact — verified
+    // against a real 250-message thread, which pages exactly.
+    const older = many(20)
+    olderPage = { messages: older, hasMore: false }
+    useStore.setState({ messages: many(40).map((m) => ({ ...m, id: m.id + 100 })), hasOlder: true })
+    await render()
+
+    await act(async () => (container.querySelector('.chat-older') as HTMLButtonElement).click())
+
+    const ids = useStore.getState().messages.map((m) => m.id)
+    expect(new Set(ids).size, 'a message was loaded twice').toBe(ids.length)
+    expect([...ids], 'the earlier page did not land above').toEqual([...ids].sort((a, b) => a - b))
+    expect(ids[0]).toBe(older[0]!.id)
+  })
+
   it('says nothing about earlier messages when there are none', async () => {
     useStore.setState({ messages: many(40), hasOlder: false })
     await render()
