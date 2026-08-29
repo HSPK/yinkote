@@ -217,10 +217,16 @@ impl ScrapeEngine {
         for hit in resolved {
             match hit {
                 // Never return the same work twice under two identifiers.
+                //
+                // Merged rather than dropped, because the two sources rarely
+                // know the same things: an arXiv record carries the categories
+                // as tags, the abstract page carries the date and the venue.
+                // Discarding either loses something the reader can see is
+                // missing.
                 Ok(hit) => {
-                    let seen = fingerprint(&hit.draft);
-                    if !out.resolutions.iter().any(|r| fingerprint(&r.draft) == seen) {
-                        out.resolutions.push(hit);
+                    match out.resolutions.iter_mut().find(|r| same_work(&r.draft, &hit.draft)) {
+                        Some(existing) => absorb(existing, hit),
+                        None => out.resolutions.push(hit),
                     }
                 }
                 Err(why) => out.unresolved.push(why),
@@ -249,20 +255,71 @@ impl Default for ScrapeEngine {
     }
 }
 
-/// Cheap duplicate check between drafts from different sources.
-fn fingerprint(draft: &ItemDraft) -> String {
-    for key in ["DOI", "arXiv", "ISBN", "PMID"] {
-        if let Some(v) = draft.fields.get(key).and_then(|v| v.as_str()) {
-            return format!("{key}:{}", v.to_lowercase());
+/// The identifiers two drafts can be compared on, strongest first.
+const STRONG_IDS: [&str; 4] = ["DOI", "arXiv", "ISBN", "PMID"];
+
+fn ident(draft: &ItemDraft, key: &str) -> Option<String> {
+    let raw = draft.fields.get(key)?.as_str()?.trim().to_lowercase();
+    if raw.is_empty() {
+        return None;
+    }
+    // arXiv numbers carry a version: 2608.27441 and 2608.27441v1 are the same
+    // paper, and the abstract page and the API disagree about which to give.
+    let trimmed = match key {
+        "arXiv" => raw.rsplit_once('v').filter(|(_, v)| v.chars().all(|c| c.is_ascii_digit())),
+        _ => None,
+    };
+    Some(trimmed.map(|(head, _)| head.to_string()).unwrap_or(raw))
+}
+
+/// Whether two drafts from different sources describe the same work.
+///
+/// The comparison must be *like with like*. An earlier version returned one
+/// fingerprint per draft, taking the first strong identifier it happened to
+/// have and otherwise the title -- so an arXiv record (`arXiv:2608.27441v1`)
+/// and the same paper scraped from its abstract page (no identifier, so the
+/// title) compared an identifier against a title and could never match. One
+/// URL produced two items with identical titles and identical abstracts.
+///
+/// So: the strongest evidence *both* drafts carry decides, and only if neither
+/// carries any does this fall back to the title.
+fn same_work(a: &ItemDraft, b: &ItemDraft) -> bool {
+    for key in STRONG_IDS {
+        if let (Some(x), Some(y)) = (ident(a, key), ident(b, key)) {
+            return x == y;
         }
     }
-    yk_core::text::normalize(draft.fields.get("title").and_then(|v| v.as_str()).unwrap_or_default())
+    let title = |d: &ItemDraft| {
+        yk_core::text::normalize(d.fields.get("title").and_then(|v| v.as_str()).unwrap_or_default())
+    };
+    let (x, y) = (title(a), title(b));
+    !x.is_empty() && x == y
+}
+
+/// Fold a duplicate resolution into the one already kept.
+///
+/// The keeper wins every field it already has; the duplicate contributes only
+/// what is missing. Tags are a union, because the two sources classify along
+/// different axes and neither list is wrong.
+fn absorb(keeper: &mut Resolution, other: Resolution) {
+    for (field, value) in other.draft.fields {
+        keeper.draft.fields.entry(field).or_insert(value);
+    }
+    for tag in other.draft.tags {
+        if !keeper.draft.tags.iter().any(|t| t.tag == tag.tag) {
+            keeper.draft.tags.push(tag);
+        }
+    }
+    if keeper.draft.creators.is_empty() {
+        keeper.draft.creators = other.draft.creators;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use async_trait::async_trait;
+    use yk_core::model::ItemTag;
     use yk_core::Result;
 
     /// A resolver that answers from a canned value, so engine behaviour can be
@@ -309,6 +366,69 @@ mod tests {
 
     fn draft(title: &str) -> ItemDraft {
         ItemDraft::new("journalArticle").with_field("title", title)
+    }
+
+    /// Pasting one arXiv address produced two items: the arXiv record, which
+    /// has the categories as tags, and the abstract page, which has the date
+    /// and the venue. They have the same title and the same abstract, and the
+    /// old check compared the first's identifier against the second's title.
+    #[test]
+    fn one_paper_from_two_sources_is_one_work() {
+        let from_api = draft("Towards the Global Torelli Theorem")
+            .with_field("arXiv", "2608.27441v1");
+        let from_page = draft("Towards the Global Torelli Theorem")
+            .with_field("publicationTitle", "arXiv.org");
+        assert!(same_work(&from_api, &from_page), "the same paper read twice");
+    }
+
+    /// The version suffix is not part of the paper's identity, and the two
+    /// sources disagree about whether to include it.
+    #[test]
+    fn an_arxiv_version_is_not_a_different_paper() {
+        let a = draft("x").with_field("arXiv", "2608.27441");
+        let b = draft("y").with_field("arXiv", "2608.27441v3");
+        assert!(same_work(&a, &b));
+    }
+
+    /// The other half: two genuinely different papers must stay two. Sharing
+    /// a title is not enough when both carry an identifier that disagrees.
+    #[test]
+    fn different_identifiers_stay_different_works() {
+        let a = draft("A Survey").with_field("DOI", "10.1/aaa");
+        let b = draft("A Survey").with_field("DOI", "10.1/bbb");
+        assert!(!same_work(&a, &b), "two DOIs, two papers, however alike the titles");
+        let untitled_a = ItemDraft::new("journalArticle");
+        let untitled_b = ItemDraft::new("journalArticle");
+        assert!(!same_work(&untitled_a, &untitled_b), "nothing in common is not a match");
+    }
+
+    /// Merging is the point: neither source is complete, and the reader can
+    /// see which fields are missing.
+    #[test]
+    fn merging_keeps_what_each_source_knew() {
+        let mut keeper = Resolution {
+            source: "arxiv",
+            kind: "arxiv".into(),
+            identifier: "2608.27441".into(),
+            draft: draft("T").with_field("arXiv", "2608.27441v1"),
+        };
+        keeper.draft.tags.push(ItemTag::manual("math.AG"));
+
+        let mut other = Resolution {
+            source: "webpage",
+            kind: "url".into(),
+            identifier: "https://arxiv.org/abs/2608.27441".into(),
+            draft: draft("T").with_field("publicationTitle", "arXiv.org").with_field("date", "2026"),
+        };
+        other.draft.tags.push(ItemTag::manual("preprint"));
+
+        absorb(&mut keeper, other);
+        let f = &keeper.draft.fields;
+        assert_eq!(f.get("publicationTitle").and_then(|v| v.as_str()), Some("arXiv.org"));
+        assert_eq!(f.get("date").and_then(|v| v.as_str()), Some("2026"));
+        assert_eq!(f.get("arXiv").and_then(|v| v.as_str()), Some("2608.27441v1"), "the keeper wins");
+        let tags: Vec<&str> = keeper.draft.tags.iter().map(|t| t.tag.as_str()).collect();
+        assert_eq!(tags, vec!["math.AG", "preprint"], "both sources' tags");
     }
 
     #[tokio::test]

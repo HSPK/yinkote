@@ -5,11 +5,21 @@ set -uo pipefail
 
 BASE="${1:-http://127.0.0.1:23130}/api/v1"
 
+# A server may be protected -- binding past loopback requires a key -- and the
+# suite must be able to test that configuration and not only the open one.
+# Every request goes through `c`, so there is one place that knows about the
+# key. Unset, nothing is sent and this behaves exactly as before.
+AUTH=()
+if [[ -n "${YK_API_KEY:-}" ]]; then
+  AUTH=(-H "Authorization: Bearer $YK_API_KEY")
+fi
+c() { curl -sS "${AUTH[@]}" "$@"; }
+
 # Which database is behind that address. A server that failed to start leaves
 # the previous one holding the port, and a smoke run against the wrong library —
 # or against a binary built before the change under test — reports failures that
 # have nothing to do with the code. Set `YK_DATA` to refuse rather than guess.
-SERVING=$(curl -sS "${BASE}/ping" 2>/dev/null | jq -r '.dataDir // empty')
+SERVING=$(c "${BASE}/ping" 2>/dev/null | jq -r '.dataDir // empty')
 if [[ -z "$SERVING" ]]; then
   echo "nothing is answering at ${BASE} — start one with scripts/serve.sh" >&2
   exit 1
@@ -55,7 +65,7 @@ check() { # check <name> <value>
 
 skip() { printf '  \033[33mskip\033[0m %-44s %s\n' "$1" "$2"; SKIP=$((SKIP + 1)); }
 
-j() { curl -sS -H 'Content-Type: application/json' "$@"; }
+j() { c -H 'Content-Type: application/json' "$@"; }
 
 # Long jobs hand back a task; this waits for one to stop and says how it went.
 await_task() { # await_task <task-id>
@@ -104,8 +114,12 @@ check "ping"             "$(j "$BASE/ping" | jq -r .ok)"
 # different facts here — the bind is allowed to fail and the server carries on.
 check "connector status" "$(j "$BASE/ping" | jq -r '.connector.state | select(. == "off" or . == "listening" or . == "unavailable")')"
 # The state that carries the risk looks like every other state unless the
-# server says so. This one is bound to loopback, which is the safe answer.
-check "access reported"  "$(j "$BASE/ping" | jq -r '.access.state | select(. == "private")')"
+# server says so. Two answers are safe -- `private` is loopback and `protected`
+# is reachable but keyed -- and `open` is the one that means anybody who can
+# route here owns the library. Naming only `private` made this fail the moment
+# a server was configured the other safe way, which is not the fact it is for.
+check "access reported"  "$(j "$BASE/ping" | jq -r '.access.state | select(. == "private" or . == "protected")')"
+check "openness named"   "$(j "$BASE/ping" | jq -r '.access.state | select(. != "open") | "not open"')"
 check "schema types"     "$(j "$BASE/schema" | jq -r '.itemTypes | length')"
 LIB=$(j "$BASE/libraries" | jq -r '.[0].id')
 check "library id"       "$LIB"
@@ -143,7 +157,7 @@ check "collection scope" "$(j "$BASE/libraries/$LIB/items?collection=$COLL" | jq
 check "patch"            "$(j -X PATCH "$BASE/libraries/$LIB/items/$KEY" \
                              -H "If-Unmodified-Since-Version: $VER" \
                              -d '{"fields":{"volume":"30"}}' | jq -r .volume)"
-check "stale patch -> 412" "$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
+check "stale patch -> 412" "$(c -o /dev/null -w '%{http_code}' -X PATCH \
                              "$BASE/libraries/$LIB/items/$KEY" \
                              -H 'Content-Type: application/json' \
                              -H "If-Unmodified-Since-Version: $VER" \
@@ -151,28 +165,28 @@ check "stale patch -> 412" "$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
 # `ItemPatch` keeps its fields in a nested object, so a flattened patch matched
 # nothing and produced a patch that was None throughout: 200, and no change.
 # Regenerating a summary had been doing exactly that for as long as it existed.
-check "flat patch -> 422" "$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
+check "flat patch -> 422" "$(c -o /dev/null -w '%{http_code}' -X PATCH \
                              "$BASE/libraries/$LIB/items/$KEY" \
                              -H 'Content-Type: application/json' \
                              -d '{"title":"flattened"}' | grep -x 422)"
 # The name says 412 and the check has to as well: `check` passes any non-empty
 # value, so printing the status without comparing it accepts 200 just as
 # happily — a check that cannot fail for the reason it is named after.
-check "bad key -> 422"   "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/libraries/$LIB/items/not%20a%20key" | grep -x 422)"
+check "bad key -> 422"   "$(c -o /dev/null -w '%{http_code}' "$BASE/libraries/$LIB/items/not%20a%20key" | grep -x 422)"
 # Every error in one shape. Rejections that never reach a handler — a bad path
 # segment, a malformed body, a missing content type — used to answer in plain
 # text, so a client had two formats to parse depending on how wrong it was.
-check "rejects in envelope" "$(curl -sS -X POST -H 'Content-Type: application/json' \
+check "rejects in envelope" "$(c -X POST -H 'Content-Type: application/json' \
                                 "$BASE/libraries/$LIB/items" -d '{"itemType":"journalArticle","tags":["not an object"]}' \
                                 | jq -r '.code | select(. == "invalid_input")')"
 # And it must not name the Rust type it failed to build.
-check "no internals leak" "$(curl -sS -X POST -H 'Content-Type: application/json' \
+check "no internals leak" "$(c -X POST -H 'Content-Type: application/json' \
                               "$BASE/libraries/$LIB/items" -d '{"itemType":"journalArticle","tags":["x"]}' \
                               | jq -r '.title | select(test("enum|CreateBody") | not) | "clean"')"
 # A mistyped endpoint is nested inside a server that serves the workbench on
 # every other path, so it used to answer 200 and a page of HTML — success, as
 # far as any client could tell.
-check "unknown endpoint 404" "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/libraries/$LIB/no-such-thing" | grep -x 404)"
+check "unknown endpoint 404" "$(c -o /dev/null -w '%{http_code}' "$BASE/libraries/$LIB/no-such-thing" | grep -x 404)"
 
 echo "▸ search"
 sleep 1.5   # let the embedding worker drain the queue
@@ -262,6 +276,28 @@ check "outcome not error" "$(curl -sf -o /dev/null -w '%{http_code}' -X POST \
 check "problem is a code" "$(echo "$QA_NOPE" \
                                | jq -r '[.unresolved[].problem] | map(select(. == "notFound" or . == "blocked" or . == "unavailable")) | length | select(. > 0)')"
 
+# One address is one paper. An arXiv link is detected twice -- as the arXiv
+# number and as the URL -- and both resolve, from two sources that know
+# different things. They must come back as one merged work: the old check
+# compared the first's identifier against the second's title, so pasting one
+# link filed two items with the same title, one carrying the tags and the
+# other the venue.
+QA_ARXIV="$(j -X POST "$BASE/resolve" -d '{"text":"https://arxiv.org/abs/2608.27441"}')"
+if [[ "$(echo "$QA_ARXIV" | jq -r '.resolutions | length')" == "0" ]]; then
+  skip "one link, one paper" "arxiv did not answer"
+  skip "merged from both"    "arxiv did not answer"
+else
+  check "one link, one paper" "$(echo "$QA_ARXIV" | jq -r '.resolutions | length | select(. == 1)')"
+  # And the survivor carries what each source contributed, rather than the
+  # first one to arrive winning and the rest being dropped.
+  # `has`, not `// ""`: a fallback inside the program turns a missing field
+  # into a value and the check into one that cannot fail (3.240).
+  check "merged from both"    "$(echo "$QA_ARXIV" | jq -r '
+    .resolutions[0].draft
+    | select((.tags | length) > 0 and has("publicationTitle"))
+    | "tags and venue"')"
+fi
+
 echo "▸ tags & facets"
 check "tags"             "$(j "$BASE/libraries/$LIB/tags" | jq -r 'length')"
 check "facets"           "$(j "$BASE/libraries/$LIB/facets" | jq -r 'length')"
@@ -287,14 +323,14 @@ check "colour cleared"   "$(j -X PATCH "$BASE/libraries/$LIB/collections/$APPK" 
 # patch that does nothing — and answers 200 having done it. `colour` is the
 # spelling this codebase uses in every comment, tag and check name except the
 # field itself, so it is the mistake most likely to be made here.
-check "colour is refused" "$(curl -sS -o /dev/null -w '%{http_code}' -X PATCH \
+check "colour is refused" "$(c -o /dev/null -w '%{http_code}' -X PATCH \
                               "$BASE/libraries/$LIB/collections/$APPK" \
                               -H 'Content-Type: application/json' \
                               -d '{"colour":"violet"}' | grep -x 422)"
 # A saved search with no search is not one: it was accepted and matched the
 # whole library, attachments and notes included, under whatever name was typed.
 # The name was already refused when blank; the query was not.
-check "blank query refused" "$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+check "blank query refused" "$(c -o /dev/null -w '%{http_code}' -X POST \
                                 -H 'Content-Type: application/json' \
                                 -d '{"name":"No query","query":"   "}' \
                                 "$BASE/libraries/$LIB/smart-collections" | grep -x 422)"
@@ -405,7 +441,7 @@ CONN="${1:-http://127.0.0.1:23130}"
 check "connector ping"    "$(j -X POST "$CONN/connector/ping" -d '{}' | jq -r '.prefs.downloadAssociatedFiles')"
 check "connector library" "$(j -X POST "$CONN/connector/getSelectedCollection" -d '{}' | jq -r '.libraryEditable')"
 # The connector treats anything but 201 as a save worth retrying.
-check "connector saves"   "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$CONN/connector/saveItems" \
+check "connector saves"   "$(c -o /dev/null -w '%{http_code}' -X POST "$CONN/connector/saveItems" \
                              -H 'Content-Type: application/json' \
                              -d '{"sessionID":"smoke","items":[{"itemType":"journalArticle","title":"Connector smoke","tags":[{"tag":"smoke-connector"}]}]}' \
                              | grep -x 201)"
@@ -415,7 +451,7 @@ check "connector stored"  "$(j "$BASE/libraries/$LIB/items?q=Connector%20smoke&l
 # A translator's tags are automatic, not the user's own.
 check "connector tags"    "$(j "$BASE/libraries/$LIB/items?q=Connector%20smoke&limit=1" \
                              | jq -r '.items[0].tags[0] | select(.type == 1) | .tag')"
-check "connector session" "$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$CONN/connector/updateSession" \
+check "connector session" "$(c -o /dev/null -w '%{http_code}' -X POST "$CONN/connector/updateSession" \
                              -H 'Content-Type: application/json' -d '{"sessionID":"smoke"}' | grep -x 200)"
 
 echo "▸ connector switch"
@@ -443,7 +479,7 @@ check "port closed"      "$(curl -s -o /dev/null -m 3 -w '%{http_code}' \
 # Asking for a port something else owns is a conflict, and the status must not
 # claim success: the whole point of reporting the bind is that it can fail.
 SELF_PORT="$(echo "$BASE" | sed -E 's#.*:([0-9]+)/api.*#\1#')"
-check "taken is 409"     "$(curl -sS -o /dev/null -w '%{http_code}' -X PUT \
+check "taken is 409"     "$(c -o /dev/null -w '%{http_code}' -X PUT \
                              -H 'Content-Type: application/json' \
                              -d "{\"port\":$SELF_PORT}" "$BASE/connector" | grep -x 409)"
 check "still honest"     "$(j "$BASE/ping" | jq -r '.connector.state | select(. == "off")')"
@@ -517,7 +553,7 @@ echo "▸ export"
 EXKEY=$(j -X POST "$BASE/libraries/$LIB/items" \
           -d '{"itemType":"journalArticle","title":"Exported 100% {Braced} Paper","date":"2018","publicationTitle":"Journal of Tests","pages":"10-20","DOI":"10.1/exp","creators":[{"creatorType":"author","lastName":"Ito","firstName":"Ken"}]}' \
           | jq -r '.created[0].key')
-BIB=$(curl -sS -H 'Content-Type: application/json' -X POST "$BASE/libraries/$LIB/export" \
+BIB=$(c -H 'Content-Type: application/json' -X POST "$BASE/libraries/$LIB/export" \
         -d "$(jq -nc --arg k "$EXKEY" '{itemKeys:[$k],format:"bibtex"}')")
 check "bibtex entry"      "$(echo "$BIB" | grep -o '^@article{ito2018exported,' | head -1)"
 check "bibtex pages"      "$(echo "$BIB" | grep -o 'pages = {10--20}')"
@@ -530,14 +566,14 @@ text = sys.stdin.read()
 stripped = text.replace('\\\\{', '').replace('\\\\}', '')
 print('balanced' if stripped.count('{') == stripped.count('}') else '')
 ")"
-RIS=$(curl -sS -H 'Content-Type: application/json' -X POST "$BASE/libraries/$LIB/export" \
+RIS=$(c -H 'Content-Type: application/json' -X POST "$BASE/libraries/$LIB/export" \
         -d "$(jq -nc --arg k "$EXKEY" '{itemKeys:[$k],format:"ris"}')")
 check "ris terminated"    "$(echo "$RIS" | grep -q '^TY  - JOUR$' && echo "$RIS" | grep -q '^ER  - *$' && echo "well formed")"
-CSL=$(curl -sS -H 'Content-Type: application/json' -X POST "$BASE/libraries/$LIB/export" \
+CSL=$(c -H 'Content-Type: application/json' -X POST "$BASE/libraries/$LIB/export" \
         -d "$(jq -nc --arg k "$EXKEY" '{itemKeys:[$k],format:"csljson"}')")
 check "csl json parses"   "$(echo "$CSL" | jq -r '.[0] | select(.type == "article-journal") | .author[0].family')"
 check "csl json year"     "$(echo "$CSL" | jq -r '.[0].issued["date-parts"][0][0] | select(. == 2018)')"
-check "export refuses"    "$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+check "export refuses"    "$(c -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
                               -X POST "$BASE/libraries/$LIB/export" \
                               -d "$(jq -nc --arg k "$EXKEY" '{itemKeys:[$k],format:"zotero-rdf"}')" \
                               | grep -q '^4' && echo "rejected")"
@@ -599,7 +635,7 @@ check "keeps the comment" "$(echo "$NBODY" | grep -o '<p>a thought</p>')"
 # rejections were given one — so there is no `.error` to find and the literal
 # was printed every time, whether the server refused or happily obliged. A
 # fallback in a check is a way of never asking the question.
-check "refuses an empty"  "$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+check "refuses an empty"  "$(c -o /dev/null -w '%{http_code}' -X POST \
                              -H 'Content-Type: application/json' -d '{}' \
                              "$BASE/libraries/$LIB/items/$KEY/notes/from-annotations" | grep -x 422)"
 
@@ -764,7 +800,7 @@ SEEN=""
 while IFS= read -r probe; do
   # Bare curl, not `j`: `j` always sends a JSON content-type, so the probe for
   # the wrong content type would arrive with two and be judged by the other.
-  c=$(eval "curl -sS $probe" | jq -r '.code // empty')
+  c=$(eval "c $probe" | jq -r '.code // empty')
   # Named in the shell, not in jq: a `// "literal"` inside the program is a
   # fallback that turns a missing field into a passing check (3.240). Also
   # guards the `case` below, where an empty word matches anything.
@@ -856,7 +892,7 @@ FCA=$(j -X POST "$BASE/libraries/$LIB/items" \
         -d "{\"itemType\":\"attachment\",\"parentKey\":\"$FCP\",\"filename\":\"bytes-probe.pdf\",\"contentType\":\"application/pdf\",\"linkMode\":\"imported_file\"}" \
         | jq -r '.created[0].key')
 printf '%%PDF-1.4\ntrailer<</Root 1 0 R>>\n%%%%EOF\n' > /tmp/yk-bytes-probe.pdf
-curl -sS -o /dev/null -X PUT "$BASE/libraries/$LIB/files/$FCA" \
+c -o /dev/null -X PUT "$BASE/libraries/$LIB/files/$FCA" \
   -H 'Content-Type: application/pdf' --data-binary @/tmp/yk-bytes-probe.pdf
 check "file is on disk"    "$(find "$SERVING/storage" -name 'bytes-probe.pdf' 2>/dev/null | head -1)"
 j -X POST "$BASE/libraries/$LIB/items/delete" -d "{\"keys\":[\"$FCP\",\"$FCA\"]}" > /dev/null
@@ -898,7 +934,7 @@ check "session closed"    "$(j -X POST "$BASE/integration/session/$SID/close" | 
 # Same trap as `refuses an empty`: this fell through to "rejected" whatever
 # came back, so a session that stayed usable after being closed would have
 # read as a pass.
-check "closed stays shut" "$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+check "closed stays shut" "$(c -o /dev/null -w '%{http_code}' -X POST \
                               -H 'Content-Type: application/json' -d "$SNAP" \
                               "$BASE/integration/session/$SID/refresh" | grep -x 404)"
 
@@ -916,19 +952,19 @@ echo "▸ thumbnails"
 # the browser and PUT it back, not a failure.
 THUMBED=$(j -X POST "$BASE/libraries/$LIB/items" \
             -d '{"itemType":"journalArticle","title":"Cover page"}' | jq -r '.created[0].key')
-check "cache starts empty" "$(curl -sS -o /dev/null -w '%{http_code}' \
+check "cache starts empty" "$(c -o /dev/null -w '%{http_code}' \
                                "$BASE/libraries/$LIB/items/$THUMBED/thumbnail?page=1&w=240" \
                                | grep -x 404)"
 printf '\211PNG\r\n\032\n\001\002\003' > /tmp/yk-thumb.png
-check "thumbnail stored"   "$(curl -sS -o /dev/null -w '%{http_code}' -X PUT --data-binary @/tmp/yk-thumb.png \
+check "thumbnail stored"   "$(c -o /dev/null -w '%{http_code}' -X PUT --data-binary @/tmp/yk-thumb.png \
                                "$BASE/libraries/$LIB/items/$THUMBED/thumbnail?page=1&w=240" | grep -x 201)"
-check "served as an image" "$(curl -sS -o /dev/null -w '%{content_type}' \
+check "served as an image" "$(c -o /dev/null -w '%{content_type}' \
                                "$BASE/libraries/$LIB/items/$THUMBED/thumbnail?page=1&w=240" | grep -x image/png)"
 # These bytes come back from the user's own origin, so what the caller claims
 # they are is worth nothing; only the magic number counts.
-check "html is refused"    "$(curl -sS -o /dev/null -w '%{http_code}' -X PUT --data-binary '<svg onload=alert(1)>' \
+check "html is refused"    "$(c -o /dev/null -w '%{http_code}' -X PUT --data-binary '<svg onload=alert(1)>' \
                                "$BASE/libraries/$LIB/items/$THUMBED/thumbnail?page=1&w=240" | grep -x 422)"
-check "odd width refused"  "$(curl -sS -o /dev/null -w '%{http_code}' --data-binary @/tmp/yk-thumb.png -X PUT \
+check "odd width refused"  "$(c -o /dev/null -w '%{http_code}' --data-binary @/tmp/yk-thumb.png -X PUT \
                                "$BASE/libraries/$LIB/items/$THUMBED/thumbnail?page=1&w=241" | grep -x 422)"
 rm -f /tmp/yk-thumb.png
 
@@ -952,7 +988,7 @@ if [[ -n "$WITHFILE" ]]; then
 else
   skip "reveal resolves" "no stored file in this library"
 fi
-check "path is not a key" "$(curl -sS -o /dev/null -w '%{http_code}' \
+check "path is not a key" "$(c -o /dev/null -w '%{http_code}' \
                               -X POST "$BASE/libraries/$LIB/items/..%2fetc/reveal" | grep -E '4[0-9][0-9]')"
 
 echo "▸ exposure"
@@ -960,7 +996,13 @@ echo "▸ exposure"
 # applies only on loopback, and with no key there is nothing to ask for. What
 # is then reachable is the whole API, not a read-only view.
 if [[ -x ./target/release/yinkote ]]; then
-  EXPOSED=$(./target/release/yinkote --data-dir /tmp/yk-exposure-$$ --host 0.0.0.0 --port 23999 2>&1 || true)
+  # `env -u` because this suite may itself be authenticating (YK_API_KEY), and
+  # the binary reads that variable: the key meant for the client turned the
+  # server under test into a protected one, so it started instead of refusing
+  # and this check hung forever. `timeout` because a check that hangs is worse
+  # than one that fails -- it stops the suite rather than reporting.
+  EXPOSED=$(timeout 20 env -u YK_API_KEY ./target/release/yinkote \
+              --data-dir /tmp/yk-exposure-$$ --host 0.0.0.0 --port 23999 2>&1 || true)
   rm -rf "/tmp/yk-exposure-$$"
   check "refuses to publish"  "$(printf '%s' "$EXPOSED" | grep -o 'refusing to serve')"
   # A refusal nobody can act on is only an annoyance — the same standard the
@@ -977,16 +1019,16 @@ fi
 # binds wherever --host says. Its authentication is that the caller is here.
 LANIP=$(hostname -I 2>/dev/null | awk '{print $1}')
 if [[ -x ./target/release/yinkote && -n "$LANIP" ]]; then
-  setsid ./target/release/yinkote --data-dir "/tmp/yk-peer-$$" --host 0.0.0.0 \
+  setsid env -u YK_API_KEY ./target/release/yinkote --data-dir "/tmp/yk-peer-$$" --host 0.0.0.0 \
     --port 23998 --allow-anonymous > /dev/null 2>&1 < /dev/null &
   sleep 4
-  check "connector is local-only" "$(curl -sS -o /dev/null -w '%{http_code}' \
+  check "connector is local-only" "$(c -o /dev/null -w '%{http_code}' \
                                       -X POST -H 'Content-Type: application/json' \
                                       "http://$LANIP:23998/connector/saveItems" \
                                       -d '{"items":[{"itemType":"journalArticle","title":"remote"}]}' \
                                       | grep -x 403)"
   # And still answers the extension actually running on this machine.
-  check "connector still local" "$(curl -sS -o /dev/null -w '%{http_code}' \
+  check "connector still local" "$(c -o /dev/null -w '%{http_code}' \
                                     "http://127.0.0.1:23998/connector/ping" | grep -x 200)"
   PEERPID=$(ss -lptnH 'sport = :23998' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
   [[ -n "$PEERPID" ]] && kill "$PEERPID" 2>/dev/null
@@ -1036,11 +1078,11 @@ echo "▸ single binary"
 # if "install" means one file. The workbench is compiled in; a directory named
 # with --web-dir still wins, because that is how the frontend is developed.
 ORIGIN2=${BASE%/api/v1}
-check "workbench served"  "$(curl -sS -o /dev/null -w '%{content_type}' "$ORIGIN2/" | grep -o 'text/html')"
+check "workbench served"  "$(c -o /dev/null -w '%{content_type}' "$ORIGIN2/" | grep -o 'text/html')"
 # A client route must reach the app shell, not a 404 from a server that has
 # never heard of it.
-check "client routes"     "$(curl -sS -o /dev/null -w '%{http_code}' "$ORIGIN2/reader/ABCD1234" | grep -x 200)"
-check "hashed asset"      "$(curl -sS "$ORIGIN2/" | grep -o '/assets/index-[A-Za-z0-9_-]*\.js' | head -1)"
+check "client routes"     "$(c -o /dev/null -w '%{http_code}' "$ORIGIN2/reader/ABCD1234" | grep -x 200)"
+check "hashed asset"      "$(c "$ORIGIN2/" | grep -o '/assets/index-[A-Za-z0-9_-]*\.js' | head -1)"
 
 echo "▸ word add-in"
 # The pane is served by the binary, outside /api/v1 and outside the SPA

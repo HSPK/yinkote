@@ -97,7 +97,7 @@ async fn fetch(
         })?,
     };
 
-    let attachment = attach_url(&app, lib, &parent, &url, item.title()).await?;
+    let (attachment, _) = attach_url(&app, lib, &parent, &url, item.title()).await?;
 
     announce(&app, lib, |version| DomainEvent::ItemsChanged {
         library_id: lib,
@@ -112,13 +112,21 @@ async fn fetch(
 ///
 /// Shared with the browser connector, which saves a page's PDF the same way a
 /// user does from the workbench — the only difference being who asked.
+/// Fetch a URL and file it under `parent`, returning the attachment and the
+/// size of what was stored.
+///
+/// The size is returned rather than left on the item because an attachment has
+/// no field for it: the download worker used to read `fileSize` off the
+/// attachment to report progress, and nothing had ever written one, so every
+/// completed download reported zero bytes. The number is known exactly here
+/// and nowhere else.
 pub(crate) async fn attach_url(
     app: &App,
     lib: i64,
     parent: &Key,
     url: &str,
     title: &str,
-) -> Result<yk_core::model::Item> {
+) -> Result<(yk_core::model::Item, i64)> {
     let (mut bytes, mut content_type) = download_file(url).await?;
     let mut source = url.to_string();
 
@@ -162,6 +170,8 @@ pub(crate) async fn attach_url(
         .into_iter()
         .find(|c| c.item_type == "attachment" && c.field("url") == Some(url));
 
+    let size = bytes.len() as i64;
+
     let attachment = match existing {
         Some(found) => {
             app.storage().put(&found.key, &filename, &bytes).await?;
@@ -180,7 +190,7 @@ pub(crate) async fn attach_url(
             created
         }
     };
-    Ok(attachment)
+    Ok((attachment, size))
 }
 
 /// Where an item's PDF probably lives.
@@ -188,7 +198,11 @@ pub(crate) async fn attach_url(
 /// Only rules that are certain: guessing wrong means downloading a login page
 /// and calling it a paper, which is worse than asking the user for the address.
 pub fn pdf_url_for(item: &yk_core::model::Item) -> Option<String> {
-    if let Some(arxiv) = item.field("arxiv").or_else(|| item.field("archiveID")) {
+    // `arXiv` with the capital, which is how every resolver writes it. This
+    // read `arxiv` and matched nothing; `archiveID` happened to carry the same
+    // number and covered for it, so the mistake was invisible until an item
+    // had one and not the other.
+    if let Some(arxiv) = item.field("arXiv").or_else(|| item.field("archiveID")) {
         let id = arxiv.trim().trim_start_matches("arXiv:");
         if !id.is_empty() {
             return Some(format!("https://arxiv.org/pdf/{id}"));
@@ -498,10 +512,17 @@ mod tests {
         assert_eq!(got.as_deref(), Some("https://arxiv.org/pdf/2401.12345"));
     }
 
+    /// Spelled the way the resolvers spell it. This test used to pass
+    /// `"arxiv"`, matching the misspelling in the code rather than anything
+    /// the program stores -- so the two agreed with each other and both
+    /// disagreed with every real item.
     #[test]
     fn an_arxiv_id_field_is_enough_on_its_own() {
-        let got = pdf_url_for(&item(&[("arxiv", "arXiv:2401.12345")]));
-        assert_eq!(got.as_deref(), Some("https://arxiv.org/pdf/2401.12345"));
+        let got = pdf_url_for(&item(&[("arXiv", "2401.12345v1")]));
+        assert_eq!(got.as_deref(), Some("https://arxiv.org/pdf/2401.12345v1"));
+
+        let prefixed = pdf_url_for(&item(&[("archiveID", "arXiv:2401.12345")]));
+        assert_eq!(prefixed.as_deref(), Some("https://arxiv.org/pdf/2401.12345"));
     }
 
     #[test]

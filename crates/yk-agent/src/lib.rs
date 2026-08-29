@@ -29,6 +29,29 @@ use yk_core::{Error, Result};
 /// half-finished answer that looks like a bad one.
 pub const MAX_STEPS: usize = 16;
 
+/// How much of a tool's answer the model is shown.
+///
+/// A tool that returns everything it found can crowd out the question. One
+/// unbounded list of 588 collections was enough for the model to reply with
+/// nothing at all -- no error, no refusal, an empty answer -- which reads to
+/// the user as a broken product.
+///
+/// The trace already caps what is *stored* and broadcast, but that copy is not
+/// the one that matters here: it is made after the model has already been sent
+/// the whole thing. This is the cap on the way in.
+///
+/// Generous, because the usual case is a search result the model needs whole,
+/// and the cut is marked so a truncated list is not read as a complete one.
+pub const MAX_TOOL_RESULT_CHARS: usize = 12_000;
+
+/// Bound one tool result, marking the cut where there is one.
+fn bounded(result: &str) -> String {
+    match result.char_indices().nth(MAX_TOOL_RESULT_CHARS) {
+        Some((cut, _)) => format!("{}\n…truncated, this is not the whole result", &result[..cut]),
+        None => result.to_string(),
+    }
+}
+
 /// What the loop produced.
 #[derive(Debug, Clone)]
 pub struct AgentTurn {
@@ -189,10 +212,11 @@ impl Agent {
                     return Ok(cut_short(transcript, "stopped"));
                 }
                 let result = self.invoke(library_id, call).await;
-                progress.tool_done(call, &result.to_string());
+                let shown = bounded(&result.to_string());
+                progress.tool_done(call, &shown);
                 let message = ChatMessage {
                     role: "tool".into(),
-                    content: result.to_string(),
+                    content: shown,
                     tool_calls: Vec::new(),
                     tool_call_id: Some(call.id.clone()),
                     reasoning: None,
@@ -294,6 +318,23 @@ mod tests {
         }
     }
 
+    /// A tool that answers with more than the model can be shown.
+    struct Firehose;
+
+    #[async_trait]
+    impl Tool for Firehose {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec {
+                name: "firehose".into(),
+                description: "returns everything".into(),
+                parameters: json!({ "type": "object" }),
+            }
+        }
+        async fn call(&self, _: i64, _: Value) -> Result<Value> {
+            Ok(json!({ "rows": vec!["a-collection-name"; 20_000] }))
+        }
+    }
+
     fn call(id: &str, name: &str) -> ChatMessage {
         ChatMessage {
             role: "assistant".into(),
@@ -391,5 +432,36 @@ mod tests {
         assert!(required_str(&json!({ "q": "diffusion" }), "q").is_ok());
         assert!(required_str(&json!({ "q": "   " }), "q").is_err());
         assert!(required_str(&json!({}), "q").is_err());
+    }
+
+    /// A tool that returns everything it found must not crowd out the
+    /// question. Unbounded, one overview of 588 collections produced an empty
+    /// answer -- no error, no refusal, nothing -- which reads as a broken
+    /// product. The trace cap does not help: it is applied to a copy made
+    /// after the model has already been sent the whole thing.
+    #[tokio::test]
+    async fn a_huge_tool_result_is_cut_before_the_model_sees_it() {
+        let provider = Scripted::new(vec![
+            call("1", "firehose"),
+            ChatMessage::new("assistant", "done"),
+        ]);
+        let turn = agent(provider.clone(), vec![Arc::new(Firehose)])
+            .run(1, vec![ChatMessage::new("user", "go")])
+            .await
+            .unwrap();
+        assert_eq!(turn.reply, "done", "the turn still finishes");
+
+        let sent = provider.seen.lock().unwrap();
+        let tool_message = sent
+            .iter()
+            .flatten()
+            .find(|m| m.role == "tool")
+            .expect("the tool answer was sent to the model");
+        assert!(
+            tool_message.content.chars().count() <= MAX_TOOL_RESULT_CHARS + 64,
+            "sent {} characters",
+            tool_message.content.chars().count()
+        );
+        assert!(tool_message.content.contains("truncated"), "the cut must be marked");
     }
 }

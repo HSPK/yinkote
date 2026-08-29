@@ -51,7 +51,7 @@ fn default_agent_timeout() -> u64 {
 /// Off unless an endpoint and a model are named: an agent that silently talks
 /// to a service the user never configured would be a surprise, and a local-first
 /// tool should never make a network call nobody asked for.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentConfig {
     /// An OpenAI-compatible base URL, e.g. `http://127.0.0.1:11434/v1`.
@@ -85,6 +85,32 @@ pub struct AgentConfig {
     /// not change it" is expressed without a second concept.
     #[serde(default)]
     pub disabled_tools: Vec<String>,
+}
+
+/// Written out rather than derived.
+///
+/// `#[serde(default = "...")]` applies when *parsing*, and `#[derive(Default)]`
+/// does not read it: it gives every number a zero. The two therefore disagreed,
+/// and `max_steps` came out 0 for anybody without an explicit value in
+/// `config.toml`. `with_max_steps` raises that to 1, which is exactly enough
+/// for the model to ask for a tool and never enough to answer -- so the
+/// assistant returned an empty message to any question that needed one.
+///
+/// `timeout_secs` had the same problem and was patched at the one call site
+/// that noticed. Naming every field here is what stops the next one.
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: None,
+            model: None,
+            api_key: None,
+            timeout_secs: default_agent_timeout(),
+            allow_commands: false,
+            max_steps: default_max_steps(),
+            disabled_skills: Vec::new(),
+            disabled_tools: Vec::new(),
+        }
+    }
 }
 
 impl AgentConfig {
@@ -150,7 +176,7 @@ impl Default for Config {
             connector_port: None,
             api_key: None,
             embeddings: Embeddings::default(),
-            agent: AgentConfig { timeout_secs: default_agent_timeout(), ..Default::default() },
+            agent: AgentConfig::default(),
         }
     }
 }
@@ -319,6 +345,39 @@ pub fn default_data_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two ways of saying "no value given" that must agree.
+    ///
+    /// `#[serde(default = "...")]` is read when parsing; `#[derive(Default)]`
+    /// ignores it and zeroes every number. `max_steps` was 16 through one door
+    /// and 0 through the other, and 0 is a working server whose assistant
+    /// cannot answer anything that needs a tool.
+    ///
+    /// Comparing the two whole structs, rather than the field that was wrong,
+    /// is what makes this hold for the next field somebody adds.
+    #[test]
+    fn an_empty_config_file_agrees_with_no_config_file() {
+        let parsed: Config = toml::from_str("").expect("an empty file is a valid config");
+        let implied = Config::default();
+
+        assert_eq!(parsed.agent.max_steps, implied.agent.max_steps);
+        assert_eq!(parsed.agent.timeout_secs, implied.agent.timeout_secs);
+        assert_eq!(
+            serde_json::to_value(&parsed).unwrap(),
+            serde_json::to_value(&implied).unwrap(),
+            "parsing nothing and defaulting must produce the same configuration"
+        );
+    }
+
+    /// And the value itself has to be usable: one step is enough for the model
+    /// to ask for a tool and never enough to use the answer.
+    #[test]
+    fn the_assistant_is_allowed_more_than_one_turn() {
+        assert!(
+            Config::default().agent.max_steps > 1,
+            "a one-step agent can call a tool but never answer"
+        );
+    }
 
     #[test]
     fn defaults_bind_to_loopback_only() {

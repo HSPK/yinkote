@@ -135,6 +135,36 @@ async fn clearing_keeps_what_still_needs_attention() {
     assert_eq!(left[0].state, state::WAITING);
 }
 
+/// The queue that actually needs clearing is one full of failures, and this
+/// button did nothing to it: it deleted only `done`, so on a list of dead rows
+/// it reported success and removed none of them. A failed download is finished
+/// -- nothing moves it again without being asked.
+#[tokio::test]
+async fn clearing_removes_the_failures_too() {
+    let s = Store::in_memory().unwrap();
+    let lib = s.default_library;
+    s.downloads
+        .enqueue(
+            lib,
+            vec![
+                draft("A", "https://x/1.pdf"),
+                draft("B", "https://x/2.pdf"),
+                draft("C", "https://x/3.pdf"),
+            ],
+        )
+        .await
+        .unwrap();
+    let done = s.downloads.claim(lib).await.unwrap().unwrap();
+    s.downloads.succeed(done.id, 1).await.unwrap();
+    let broken = s.downloads.claim(lib).await.unwrap().unwrap();
+    s.downloads.fail(broken.id, "404").await.unwrap();
+
+    assert_eq!(s.downloads.clear_finished(lib).await.unwrap(), 2, "done and failed");
+    let left = s.downloads.list(lib, 10).await.unwrap();
+    assert_eq!(left.len(), 1, "only the one still waiting");
+    assert_eq!(left[0].state, state::WAITING);
+}
+
 #[tokio::test]
 async fn an_empty_url_is_not_a_download() {
     let s = Store::in_memory().unwrap();

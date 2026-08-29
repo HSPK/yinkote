@@ -4515,3 +4515,102 @@ standalone probe and did nothing at all when the server was restarted with it.
 The 44ms baseline was a **cold page cache** in a separate process; the process
 that actually serves had those rows in memory. Always A/B against the running
 server, not a script beside it.
+
+### 3.256 One paper, two sources, two items
+
+Pasting `https://arxiv.org/abs/…` filed the paper twice: one copy with the
+categories as tags, one with the venue and the date, identical titles and
+identical abstracts. The address is detected twice -- as the arXiv number and
+as the URL -- and both resolve, which is deliberate: if arXiv is down the page
+still works.
+
+There *was* a check meant to stop this, and it could not. `fingerprint()`
+returned **one** value per draft: the first strong identifier it happened to
+carry, or the title if it carried none. So the arXiv record fingerprinted as
+`arXiv:2608.27441v1` and the scraped page as `towards the global torelli
+theorem` -- an identifier compared against a title, which can never match.
+
+**A comparison must be like with like.** `same_work` now takes the strongest
+evidence *both* drafts carry and falls back to the title only when neither
+carries any. Two DOIs that differ are two papers however alike the titles; an
+arXiv version suffix is not a difference.
+
+And the duplicate is **merged**, not dropped: neither source is complete, which
+is exactly what the reader noticed -- one copy had the tags and the other had
+the venue. The keeper wins every field it has, the other fills the gaps, tags
+are a union.
+
+### 3.257 A field read in one place and written in none
+
+Three more from the same report, each a claim nothing checked:
+
+- **"Clear finished" cleared nothing.** It deleted `state = 'done'`; the queue
+  that needs clearing is one full of *failures*, and 236 dead rows sat under a
+  button that reported success. A failed download is finished — nothing moves
+  it again unless asked. The existing test used a done row and a waiting row,
+  so it passed either way.
+- **Every completed download showed 0 bytes.** The worker read `fileSize` off
+  the attachment; nothing had ever written one, and `unwrap_or_default()` made
+  the absence a zero. Adding the field was refused by the schema — attachments
+  have no such field — which was the right answer: the size is known exactly at
+  the moment of download and nowhere else, so `attach_url` returns it.
+  §3.228's `KEY_STORE` again: a name read in one place and written in none.
+- **`item.field("arxiv")` never matched anything**, because the field is
+  `arXiv`. §3.206 in shipped code. `archiveID` happened to carry the same
+  number and covered for it. The unit test passed *because it used the same
+  misspelling as the code* — the two agreed with each other and both disagreed
+  with every real item. A fixture must be written from what the program
+  actually stores, not from the code under test.
+
+### 3.258 The assistant could never answer a question that used a tool
+
+`maxSteps` was **0**. `with_max_steps` raises that to 1, which is exactly
+enough for the model to ask for a tool and never enough to use the answer — so
+every question that needed one came back as an empty message, with no error and
+no refusal.
+
+`#[serde(default = "default_max_steps")]` applies when *parsing*.
+`#[derive(Default)]` does not read it and zeroes every number. The two
+disagreed, and the second is what a server without an explicit value in
+`config.toml` uses. Somebody had already been bitten by this on `timeout_secs`
+and patched **that one field** at the one call site that noticed:
+`AgentConfig { timeout_secs: default_agent_timeout(), ..Default::default() }`.
+Fixing the instance and leaving the mechanism is what let it happen again.
+
+`Default` is now written out by hand, and the test compares the *whole* struct
+parsed from an empty file against the whole struct defaulted — not the field
+that was wrong, so it holds for the next field somebody adds.
+
+Two things about finding it:
+
+- **The trace lied by omission.** The step was recorded, the tool result was
+  there, `error` was null and `stopped` was false; nothing said "out of
+  budget". I first blamed the size of the tool result, capped it, and the
+  answer was still empty — a plausible fix for a real problem that was not
+  *this* problem.
+- **A logging proxy settled it in one run.** Standing between the server and
+  the model showed **one** request where there should have been two. Everything
+  before that was inference; that was evidence. Reach for it sooner.
+
+Separately and genuinely worth keeping: `library_overview` listed all 588
+collections of a real library unbounded, and no tool result was capped on the
+way *to* the model — §3.231 capped only the copy that is stored, which is made
+after the model has already been sent the whole thing.
+
+### 3.259 A test harness must not lend its key to the server under test
+
+Giving the server an API key locked the suite out of 32 raw `curl -sS` calls
+that bypassed `j()`. Routing every request through one `c()` wrapper fixed
+that — and then the exposure check hung for nineteen minutes.
+
+That check starts a server expecting it to **refuse** to bind publicly with no
+key. `YK_API_KEY` was exported for the client, the binary reads that variable,
+and so the server under test decided it was protected and started serving.
+The credential meant for one side of the test configured the other.
+
+`env -u YK_API_KEY` for anything the suite launches, and `timeout` around it:
+a check that hangs is worse than one that fails, because it stops the run
+instead of reporting. Also `access reported` asserted `private` when
+`protected` is equally safe — it named one of the two right answers rather than
+the wrong one, and failed the moment a server was configured the other safe
+way.

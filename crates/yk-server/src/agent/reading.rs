@@ -388,12 +388,26 @@ impl Tool for LibraryOverview {
             .await?
             .total;
 
+        // Capped like the tags beside them. Unbounded, this listed all 588
+        // collections of a real library, and the answer that came back was
+        // empty: an overview big enough to crowd out the question is not an
+        // overview. The biggest are the ones worth naming.
+        const SHOWN: usize = 40;
+        let mut biggest: Vec<_> = collections.iter().collect();
+        biggest.sort_by_key(|c| std::cmp::Reverse(c.item_count));
+        let omitted = biggest.len().saturating_sub(SHOWN);
+
         Ok(json!({
             "itemCount": total,
-            "collections": collections
+            "collections": biggest
                 .iter()
+                .take(SHOWN)
                 .map(|c| json!({ "name": c.name, "items": c.item_count }))
                 .collect::<Vec<_>>(),
+            // Said outright, so the model does not read a truncated list as
+            // the whole library.
+            "collectionsOmitted": omitted,
+            "collectionCount": collections.len(),
             "tags": tags
                 .iter()
                 .map(|t| json!({ "tag": t.name, "items": t.count }))

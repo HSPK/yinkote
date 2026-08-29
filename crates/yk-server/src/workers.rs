@@ -238,11 +238,7 @@ fn download_worker(app: App) {
             };
 
             match outcome {
-                Ok(attachment) => {
-                    let bytes = attachment
-                        .field("fileSize")
-                        .and_then(|s| s.parse::<i64>().ok())
-                        .unwrap_or_default();
+                Ok((attachment, bytes)) => {
                     let _ = app.store().downloads.succeed(job.id, bytes).await;
                     let version =
                         app.store().libraries.version(lib).await.unwrap_or_default();

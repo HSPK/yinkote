@@ -250,14 +250,21 @@ impl DownloadQueue for SqliteDownloadQueue {
         .map_err(|e| Error::internal(e.to_string()))?
     }
 
+    /// Both terminal states, not just the successful one.
+    ///
+    /// This deleted only `done`, so on the queue that actually needs tidying --
+    /// one full of failures -- the button labelled "clear finished" reported
+    /// success and removed nothing. A failed download *is* finished: nothing
+    /// will move it again without being asked. Retrying is still available
+    /// before the list is cleared, and single rows have `remove`.
     async fn clear_finished(&self, library_id: i64) -> Result<u64> {
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || {
             let conn = db.conn()?;
             let n = conn
                 .execute(
-                    "DELETE FROM fetch_queue WHERE library_id = ?1 AND state = ?2",
-                    params![library_id, state::DONE],
+                    "DELETE FROM fetch_queue WHERE library_id = ?1 AND state IN (?2, ?3)",
+                    params![library_id, state::DONE, state::FAILED],
                 )
                 .map_err(sql_err)?;
             Ok(n as u64)
