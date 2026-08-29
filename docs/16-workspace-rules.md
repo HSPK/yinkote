@@ -4925,3 +4925,50 @@ it on the last line. A test that fails never reaches its own cleanup, so the
 next test ran in a language it had not asked for and failed for a reason that
 was not its own — one broken assertion reported as two. Cleanup belongs in
 `afterEach`, unconditionally.
+
+### 3.274 A typo answered with the whole library
+
+`?tags=survey` returned 99,992 rows with a 200. So did `?collcetion=X` and
+`?top_level=true`. An unknown query key was dropped in silence, so a client
+that asked for one collection got the entire library — the right shape, a
+plausible number, and the wrong answer, with nothing anywhere to say so.
+
+I found it by mistyping it twice in one afternoon *while holding the source*.
+Three clients speak this API and two of them are somebody else's.
+
+This is §3.219 in the query string: the patch bodies were made strict because a
+request the server accepts and answers wrongly is worse than one it refuses,
+since every layer above it looks like it worked. Values stay forgiving — an
+unparseable one falls back to its default, because these are user-facing URLs
+and a stray character should not empty somebody's screen. **Keys are not
+values.**
+
+Applied to all nine query structs rather than the one I tripped over. Fixing
+the instance and leaving the mechanism is what let §3.258's `timeout_secs` bug
+come back as `max_steps`.
+
+### 3.275 The benchmark asked for something that was never possible
+
+Turning the silence into a refusal immediately failed the benchmark:
+`/files?limit=500` → 400. The file browser takes only an offset; its page size
+is a constant. That parameter had been **ignored since the line was written**,
+so the URL described a request nobody had ever made, and the measurement was
+of the default page size while claiming to be of 500.
+
+Harmless by luck — the constant is 500 — but it is the second time in three
+rounds that making something strict has revealed a caller that was wrong all
+along and could not have known. That is the argument for strictness, not an
+argument against it.
+
+§3.229 says a benchmark must issue the request the client issues. The client
+sends `offset`, so now so does the benchmark.
+
+Two things worth keeping about the sweep itself:
+
+- **Smoke passed; the benchmark did not.** 270 checks over the whole API missed
+  a URL only the benchmark uses. Coverage is per-caller, not per-endpoint.
+- **The check that now guards this crosses the boundary in one request**: every
+  parameter `buildQuery` can emit, sent together, expecting 200. `buildQuery`
+  is hand-written and nothing else compares the two lists — and with unknown
+  keys refused, drift in either direction is now a failure rather than a
+  silently different answer.

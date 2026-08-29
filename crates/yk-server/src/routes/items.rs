@@ -433,7 +433,7 @@ async fn duplicates(
 const DUPLICATE_GROUPS: u32 = 200;
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(deny_unknown_fields, default)]
 struct GroupParams {
     limit: Option<u32>,
 }

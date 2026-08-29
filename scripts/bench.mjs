@@ -591,7 +591,10 @@ async function main() {
   }
 
   console.log('\n▸ files')
-  await measure('file browser page', `/libraries/${lib}/files?limit=500`, 20)
+  // `?limit=` was silently dropped: the page size is a constant on the server
+  // and the client sends only an offset, so the URL implied a request nobody
+  // ever made. Now that unknown keys are refused, it says what it does.
+  await measure('file browser page', `/libraries/${lib}/files?offset=0`, 20)
   {
     // Measured for its *size* as much as its speed: this once returned every
     // planned rename — 3.7 MB for a panel that shows eight lines.

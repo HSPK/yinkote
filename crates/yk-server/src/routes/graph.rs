@@ -27,6 +27,7 @@ pub fn router() -> Router<App> {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Params {
     /// How many neighbours of each kind. Kept modest on purpose: a readable
     /// graph is a small one.

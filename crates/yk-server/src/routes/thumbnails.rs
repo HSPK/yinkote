@@ -55,6 +55,7 @@ pub fn router() -> Router<App> {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Params {
     #[serde(default = "first_page")]
     page: u32,

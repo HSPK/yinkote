@@ -337,6 +337,21 @@ check "collection empty" "$(j "$BASE/libraries/$LIB/items?collection=$FCOL" | jq
 # The item itself is untouched, which is the whole difference between taking it
 # out of a collection and deleting it.
 check "item survives"    "$(j "$BASE/libraries/$LIB/items/$FKEY" | jq -r 'select(.deleted == false) | "still here"')"
+
+# Every parameter the workbench can put in a URL, in one request. A key the
+# server does not know is now refused rather than dropped, which is right --
+# and makes this the check that the two have not drifted apart. `buildQuery`
+# is hand-written, so nothing else compares the lists.
+check "client params fit" "$(c -o /dev/null -w '%{http_code}' \
+  "$BASE/libraries/$LIB/items?q=a&mode=hybrid&collection=$FCOL&trash=exclude&topLevel=true\
+&sort=title&direction=asc&limit=1&offset=0&tag=survey&itemType=journalArticle" | grep -x 200)"
+# And a key it does not know is refused, not answered with the whole library.
+# A typo used to return 99,992 rows with a 200: the right shape, a plausible
+# number, and the wrong answer.
+check "a typo is refused"  "$(c -o /dev/null -w '%{http_code}' \
+                               "$BASE/libraries/$LIB/items?tags=survey" | grep -x 400)"
+check "typo names itself"  "$(j "$BASE/libraries/$LIB/items?collcetion=X" \
+                               | jq -r '.title | select(contains("collcetion")) | "named"')"
 j -X DELETE "$BASE/libraries/$LIB/collections/$FCOL" > /dev/null
 
 echo "▸ tags & facets"

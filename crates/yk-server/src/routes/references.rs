@@ -169,6 +169,7 @@ fn to_draft(r: &yk_scrape::Reference) -> CitationDraft {
 }
 
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Limit {
     #[serde(default = "default_missing")]
     limit: u32,

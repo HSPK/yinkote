@@ -107,10 +107,22 @@ fn notify_plugins(app: &App, hook: &'static str, payload: Value) {
 
 /// Query string shared by listing and search endpoints.
 ///
-/// Everything is optional and forgiving: an unparseable value falls back to the
-/// default rather than 400-ing, because these are user-facing URLs.
+/// **Values** are forgiving: an unparseable one falls back to the default
+/// rather than 400-ing, because these are user-facing URLs and a stray
+/// character should not empty somebody's screen.
+///
+/// **Keys are not.** An unknown one used to be dropped in silence, so a client
+/// that asked for `?tags=survey` or `?collcetion=X` was answered 200 with the
+/// entire library -- the right shape, a plausible number, and the wrong
+/// answer, with nothing anywhere to say so. Three clients speak this API and
+/// two of them are somebody else's; I mistyped it twice in one afternoon while
+/// holding the source.
+///
+/// Same reasoning as `deny_unknown_fields` on the patch bodies (§3.219): a
+/// request the server accepts and answers wrongly is worse than one it
+/// refuses, because every layer above it looks like it worked.
 #[derive(Debug, Default, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct ListParams {
     pub q: Option<String>,
     pub mode: Option<String>,

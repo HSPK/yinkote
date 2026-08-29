@@ -56,7 +56,7 @@ async fn update(
 }
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(deny_unknown_fields, default)]
 struct DeleteParams {
     recursive: bool,
 }
@@ -74,7 +74,7 @@ async fn remove(
 }
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(deny_unknown_fields, default)]
 struct TagParams {
     q: Option<String>,
     limit: Option<u32>,

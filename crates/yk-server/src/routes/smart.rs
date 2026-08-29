@@ -41,7 +41,7 @@ pub fn router() -> Router<App> {
 }
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(deny_unknown_fields, default)]
 struct ListParamsWithCounts {
     /// Evaluating counts costs one query each; the sidebar asks for them, a
     /// picker does not.

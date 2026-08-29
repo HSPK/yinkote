@@ -36,6 +36,7 @@ pub fn router() -> Router<App> {
 const PAGE: u32 = 500;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Paging {
     #[serde(default)]
     offset: u32,

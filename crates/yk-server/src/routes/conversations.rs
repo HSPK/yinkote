@@ -488,6 +488,7 @@ async fn remove(
 const MESSAGE_PAGE: u32 = 60;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MessageQuery {
     limit: Option<u32>,
     /// Everything older than this message id.
