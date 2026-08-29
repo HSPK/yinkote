@@ -64,6 +64,27 @@ await_task() { # await_task <task-id>
   echo "timeout"
 }
 
+# ── a check that cannot fail ────────────────────────────────────────────────
+#
+# `check` passes on any non-empty value, so a jq expression whose branches are
+# *both* non-empty is a check that always passes. Two of them lived here for
+# a while: one reported "children leaked" and one reported "kept", and both
+# read as success. An `if/then/else` in a check has to have one branch that
+# yields nothing.
+# Assignments are excluded: an ordinary variable is allowed to compute a value
+# on both branches. It is only a `check` argument where "any non-empty" means
+# "passed".
+SUSPECT=$(grep -n 'then' "$0" \
+          | grep 'else' \
+          | grep -v 'empty' \
+          | grep -v '^[0-9]*:#' \
+          | grep -v '^[0-9]*:[A-Za-z_][A-Za-z0-9_]*=' || true)
+if [[ -n "$SUSPECT" ]]; then
+  printf '  \033[31mFAIL\033[0m %s\n' "a check has no failing branch:" >&2
+  echo "$SUSPECT" >&2
+  exit 3
+fi
+
 echo "▸ system"
 check "ping"             "$(j "$BASE/ping" | jq -r .ok)"
 # Browser saving is off unless asked for, so the settings page can only tell
@@ -155,7 +176,7 @@ check "items?q= hydrate" "$(j "$BASE/libraries/$LIB/items?q=attention" | jq -r '
 # "probe.pdf" between two papers — but a search must still reach them, because
 # the phrase a reader highlighted is on the annotation and not on the paper.
 check "browse is top level" "$(j "$BASE/libraries/$LIB/items?limit=60&topLevel=true" \
-                                | jq -r '[.items[]|select(.parentKey)]|length|if .==0 then "papers only" else "children leaked" end')"
+                                | jq -r '[.items[]|select(.parentKey)]|length|select(.==0)|"papers only"')"
 # The negative: without it, children are included. A check that only asserted
 # the filter works would pass on a server that always excluded children, which
 # is what would break highlight search.
@@ -249,7 +270,7 @@ APPK=$(j -X POST "$BASE/libraries/$LIB/collections" \
 check "colour saved"     "$(j "$BASE/libraries/$LIB/collections" \
                             | jq -r --arg k "$APPK" '.[] | select(.key==$k) | .color')"
 check "colour cleared"   "$(j -X PATCH "$BASE/libraries/$LIB/collections/$APPK" -d '{"color":null}' \
-                            | jq -r 'if .color then "kept" else .icon end')"
+                            | jq -r 'select(.color == null) | .icon')"
 # Every field on a patch is optional, so a key that matches nothing produces a
 # patch that does nothing — and answers 200 having done it. `colour` is the
 # spelling this codebase uses in every comment, tag and check name except the
@@ -1159,7 +1180,7 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
   check "summary is a child" "$(j "$BASE/libraries/$LIB/items/$AK/children" | jq -r 'length')"
   # Re-running must replace the note, not add a second one.
   j -X POST "$BASE/libraries/$LIB/items/$AK/summarise" -d '{}' > /dev/null
-  check "summary replaced" "$(j "$BASE/libraries/$LIB/items/$AK/children" | jq -r 'if length == 1 then "one" else "duplicated" end')"
+  check "summary replaced" "$(j "$BASE/libraries/$LIB/items/$AK/children" | jq -r 'select(length == 1) | "one"')"
 
   ACONV=$(j -X POST "$BASE/libraries/$LIB/conversations" -d '{"title":"smoke"}' | jq -r .key)
   # Starting returns at once now, so the answer is waited for the way a client
