@@ -292,6 +292,56 @@ mod tests {
         );
     }
 
+    /// A paper's notes and files follow it into the trash, and back out.
+    ///
+    /// They used not to. The trash listed the paper alone while its note still
+    /// answered a search as a live result, and emptying the trash then
+    /// destroyed that note through `items.parent_id ON DELETE CASCADE` —
+    /// content the user was never shown as being on its way out.
+    #[tokio::test]
+    async fn a_papers_notes_and_files_go_to_the_trash_with_it() {
+        let s = store();
+        let lib = s.default_library;
+        let paper = s.items.create(lib, article("Kept work")).await.unwrap();
+
+        let mut note = ItemDraft::new("note").with_field("note", "Worth keeping.");
+        note.parent_key = Some(paper.key.clone());
+        let note = s.items.create(lib, note).await.unwrap();
+
+        let mut pdf = ItemDraft::new("attachment").with_field("filename", "paper.pdf");
+        pdf.parent_key = Some(paper.key.clone());
+        let pdf = s.items.create(lib, pdf).await.unwrap();
+
+        s.items.set_trashed(lib, std::slice::from_ref(&paper.key), true).await.unwrap();
+
+        for key in [&note.key, &pdf.key] {
+            let child = s.items.get(lib, key).await.unwrap();
+            assert!(child.deleted, "a child was left live under a trashed paper");
+        }
+
+        // And out again, or restoring a paper would return it without its PDF.
+        s.items.set_trashed(lib, std::slice::from_ref(&paper.key), false).await.unwrap();
+        for key in [&paper.key, &note.key, &pdf.key] {
+            assert!(!s.items.get(lib, key).await.unwrap().deleted, "restore left something behind");
+        }
+    }
+
+    /// Trashing a child on its own must not drag the paper down with it.
+    #[tokio::test]
+    async fn trashing_a_file_leaves_its_paper_alone() {
+        let s = store();
+        let lib = s.default_library;
+        let paper = s.items.create(lib, article("Still here")).await.unwrap();
+        let mut pdf = ItemDraft::new("attachment").with_field("filename", "paper.pdf");
+        pdf.parent_key = Some(paper.key.clone());
+        let pdf = s.items.create(lib, pdf).await.unwrap();
+
+        s.items.set_trashed(lib, std::slice::from_ref(&pdf.key), true).await.unwrap();
+
+        assert!(s.items.get(lib, &pdf.key).await.unwrap().deleted);
+        assert!(!s.items.get(lib, &paper.key).await.unwrap().deleted, "the paper went too");
+    }
+
     /// Deleting a shelf must never delete what is on it.
     ///
     /// Untested until now, which is uncomfortable for the one operation here

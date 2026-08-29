@@ -1383,8 +1383,59 @@ impl ItemRepository for SqliteItemRepository {
                         .map_err(sql_err)? as u64;
                 }
 
+                // A paper's notes, highlights and files go with it.
+                //
+                // They did not, and the consequence was quiet: the trash
+                // listed only the paper, while its note still answered a
+                // search as a live result — and emptying the trash then
+                // destroyed that note through `items.parent_id ON DELETE
+                // CASCADE`, without it ever having been shown as on its way
+                // out. Whatever "empty trash" will destroy has to be visible
+                // in the trash first.
+                //
+                // Restoring brings them back for the same reason. A child
+                // trashed on its own beforehand is restored too, which is the
+                // lesser wrong: the alternative is a paper restored without
+                // its PDF and no way to tell why.
+                let mut touched: Vec<String> = keys.clone();
+                for run in crate::filter::chunks(&keys) {
+                    let ph = placeholders(run.len());
+                    let mut args: Vec<rusqlite::types::Value> = vec![
+                        rusqlite::types::Value::Integer(i64::from(trashed)),
+                        rusqlite::types::Value::Integer(version),
+                        rusqlite::types::Value::Integer(yk_core::now_ms()),
+                        rusqlite::types::Value::Integer(library_id),
+                    ];
+                    args.extend(run.iter().map(|k| rusqlite::types::Value::Text(k.clone())));
+                    tx.execute(
+                        &format!(
+                            "UPDATE items SET deleted=?1, version=?2, date_modified=?3 \
+                             WHERE library_id=?4 AND parent_id IN \
+                               (SELECT id FROM items WHERE library_id=?4 AND key IN ({ph}))"
+                        ),
+                        params_from_iter(args),
+                    )
+                    .map_err(sql_err)?;
+
+                    let mut stmt = tx
+                        .prepare(&format!(
+                            "SELECT c.key FROM items c JOIN items p ON c.parent_id = p.id \
+                             WHERE p.library_id = ?1 AND p.key IN ({ph})"
+                        ))
+                        .map_err(sql_err)?;
+                    let mut ids: Vec<rusqlite::types::Value> =
+                        vec![rusqlite::types::Value::Integer(library_id)];
+                    ids.extend(run.iter().map(|k| rusqlite::types::Value::Text(k.clone())));
+                    let kids: Vec<String> = stmt
+                        .query_map(params_from_iter(ids), |r| r.get(0))
+                        .map_err(sql_err)?
+                        .collect::<rusqlite::Result<_>>()
+                        .map_err(sql_err)?;
+                    touched.extend(kids);
+                }
+
                 // Keep the search index consistent with visibility.
-                for k in &keys {
+                for k in &touched {
                     if let Ok(key) = Key::parse(k) {
                         if let Ok((id, item)) = load_one(&tx, library_id, &key) {
                             index::reindex(&tx, id, &item)?;

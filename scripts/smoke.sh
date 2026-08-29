@@ -681,6 +681,20 @@ check "kept the pdf"      "$(j "$BASE/libraries/$LIB/items/$DA" | jq -r '.attach
 check "filled the gap"    "$(j "$BASE/libraries/$LIB/items/$DA" | jq -r '.DOI | select(startswith("10.5555/dup-"))')"
 # Recoverable: the loser is in the trash, not destroyed.
 check "loser is trashed"  "$(j "$BASE/libraries/$LIB/items/$DB" | jq -r '.deleted | select(. == true) | "trashed"')"
+# Whatever "empty trash" will destroy has to be visible in the trash first.
+# A paper's note used to stay live when the paper was trashed — answering
+# searches, absent from the trash — and `items.parent_id ON DELETE CASCADE`
+# then destroyed it when the trash was emptied.
+TRP=$(j -X POST "$BASE/libraries/$LIB/items" \
+        -d '{"itemType":"journalArticle","title":"Trash cascade probe"}' | jq -r '.created[0].key')
+TRN=$(j -X POST "$BASE/libraries/$LIB/items" \
+        -d "{\"itemType\":\"note\",\"parentKey\":\"$TRP\",\"note\":\"notes that must not vanish\"}" \
+        | jq -r '.created[0].key')
+j -X DELETE "$BASE/libraries/$LIB/items" -d "{\"keys\":[\"$TRP\"]}" > /dev/null
+check "note follows down"  "$(j "$BASE/libraries/$LIB/items/$TRN" | jq -r '.deleted | select(. == true) | "trashed"')"
+j -X POST "$BASE/libraries/$LIB/items/restore" -d "{\"keys\":[\"$TRP\"]}" > /dev/null 2>&1 || true
+check "note comes back"    "$(j "$BASE/libraries/$LIB/items/$TRN" | jq -r 'if .deleted then empty else "restored" end')"
+j -X DELETE "$BASE/libraries/$LIB/items" -d "{\"keys\":[\"$TRP\"]}" > /dev/null
 check "group is gone"     "$(j "$BASE/libraries/$LIB/duplicates" \
                              | jq -r --arg a "$DA" '[.groups[] | select(any(.[]; .key == $a))] | length | select(. == 0) | "resolved"')"
 
