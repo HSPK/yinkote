@@ -317,7 +317,18 @@ check "import commits"    "$(zotero_import | jq -r 'select(.failed == 0) | .tota
 # Running it again updates rather than duplicating; that is why keys are kept.
 # Phrased so a wrong answer is empty, not merely a different word — `check`
 # passes anything non-empty, which once made "failed" read as a success.
-check "import repeatable" "$(zotero_import | jq -r 'select(.failed == 0 and .updated > 0) | "updated \(.updated)"')"
+#
+# `added == 0` is the half that matters. `updated > 0` alone would pass on an
+# import that updated every item *and* inserted a second copy of each, which is
+# exactly what re-running an import must never do: it is the thing a user tries
+# when they are not sure the first one worked.
+IMP_AGAIN="$(zotero_import)"
+check "import repeatable" "$(echo "$IMP_AGAIN" | jq -r 'select(.failed == 0 and .updated > 0) | "updated \(.updated)"')"
+# The field is `items`, not `added`: it counts what this run created. Asking
+# for `.added` gets null, `null == 0` is false, and the check fails while the
+# program is right — which is the same shape as the bugs this suite exists to
+# catch, so it is worth naming rather than quietly correcting.
+check "import adds nothing" "$(echo "$IMP_AGAIN" | jq -r 'select(.items == 0) | "no duplicates"')"
 check "import untouched"  "$(test -f "${ZDB}-wal" && echo "journal left" || echo untouched)"
 # A highlight belongs to the file it was drawn on, so it must arrive as a child
 # of the attachment — and with a palette name, not Zotero's hex, or it would not
