@@ -221,9 +221,12 @@ export const useStore = create<State>((set, get, store) => ({
   async bootstrap() {
     try {
       const server = await api.ping()
-      const [schema, collections, settings, citationStyles] = await Promise.all([
+      // Collections are deliberately absent here: `reloadSidebar` below fetches
+      // them, in the same wave as the item list, and writes the same state.
+      // Asking twice cost a duplicate round trip on every start — and on every
+      // change event, since both ran again together.
+      const [schema, settings, citationStyles] = await Promise.all([
         api.schema(),
-        api.collections.list(server.defaultLibrary),
         api.settings.get().catch(() => ({}) as Record<string, unknown>),
         // Menus are built synchronously, so the styles must already be here.
         api.citations.styles().catch(() => []),
@@ -232,7 +235,6 @@ export const useStore = create<State>((set, get, store) => ({
         library: server.defaultLibrary,
         server,
         schema,
-        collections,
         citationStyles,
         ready: true,
         error: null,
