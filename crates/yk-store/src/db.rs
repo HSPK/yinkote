@@ -249,6 +249,34 @@ impl Db {
         self.call(|c| c.execute_batch("PRAGMA optimize;").map_err(sql_err)).await
     }
 
+    /// Merge some of the full-text index's accumulated segments.
+    ///
+    /// Every write appends a segment; nothing ever merged them, so the search
+    /// index degrades for as long as the library is used. Measured on a real
+    /// 100,000-item library after a few weeks of writes: **30,770 segments**,
+    /// and merging them took a common keyword search from 30.6ms to 23.9ms.
+    /// A library nobody ever reindexes only gets slower.
+    ///
+    /// `PRAGMA optimize` does not do this. It refreshes the *query planner's*
+    /// statistics, which is a different thing with a confusingly similar name,
+    /// and it was the only maintenance this database had.
+    ///
+    /// Bounded on purpose: `'merge', N` does about N pages of work and stops,
+    /// where a full `'optimize'` on that library took 41 seconds and holds the
+    /// write lock throughout. This runs on a timer beside the statistics, so
+    /// it has to be something nobody notices; being idempotent, it costs
+    /// nothing at all once there is little left to merge.
+    pub async fn merge_search_segments(&self) -> Result<()> {
+        self.call(|c| {
+            c.execute_batch(
+                "INSERT INTO items_fts(items_fts, rank) VALUES('merge', 64);
+                 INSERT INTO items_trgm(items_trgm, rank) VALUES('merge', 64);",
+            )
+            .map_err(sql_err)
+        })
+        .await
+    }
+
     /// Write a consistent copy of the database to `dest`.
     ///
     /// `VACUUM INTO` rather than the backup API's page-by-page copy: it takes

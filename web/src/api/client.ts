@@ -211,6 +211,12 @@ export const api = {
         method: 'POST',
         ...json({ keys }),
       }),
+    /** Take items out of a collection. They stay in the library. */
+    removeFromCollection: (lib: number, collection: string, keys: string[]) =>
+      request<{ removed: number }>(`/libraries/${lib}/collections/${collection}/items`, {
+        method: 'DELETE',
+        ...json({ keys }),
+      }),
   },
 
   collections: {

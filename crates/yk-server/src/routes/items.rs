@@ -28,7 +28,10 @@ pub fn router() -> Router<App> {
         .route("/libraries/:lib/items/restore", post(restore))
         .route("/libraries/:lib/items/delete", post(destroy))
         .route("/libraries/:lib/trash", axum::routing::delete(empty_trash))
-        .route("/libraries/:lib/collections/:ckey/items", post(add_to_collection))
+        .route(
+            "/libraries/:lib/collections/:ckey/items",
+            post(add_to_collection).delete(remove_from_collection),
+        )
         .route("/libraries/:lib/duplicates", post(duplicates))
         .route("/libraries/:lib/duplicates", get(duplicate_groups))
         .route("/libraries/:lib/items/merge", post(merge))
@@ -382,6 +385,30 @@ async fn add_to_collection(
     })
     .await?;
     Ok(Json(json!({ "added": n, "version": version })))
+}
+
+/// Take items out of a collection without deleting them.
+///
+/// The store has been able to do this all along and only the assistant could
+/// ask: there was no route, so the workbench could file an item into a
+/// collection and never take it out again. A one-way door in the one screen
+/// whose whole purpose is organising.
+async fn remove_from_collection(
+    State(app): State<App>,
+    Path((lib, ckey)): Path<(i64, String)>,
+    Json(body): Json<KeysBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let keys = parse_keys(&body.keys)?;
+    let n = app.store().items.remove_from_collection(lib, &key(&ckey)?, &keys).await?;
+    let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
+        library_id: lib,
+        keys: keys.clone(),
+        version,
+    })
+    .await?;
+    // Named `removed`, not `deleted`: the items are still in the library and
+    // the difference is the entire point of the operation.
+    Ok(Json(json!({ "removed": n, "version": version })))
 }
 
 #[derive(Deserialize)]

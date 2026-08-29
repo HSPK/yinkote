@@ -4791,3 +4791,78 @@ Verified end to end rather than by unit test alone: the agent ran
 search_external ×5 → quick_add ×2 → create_collection → file_items`, and the
 items that landed carry real DOIs, real venues and real dates from the
 publisher's record.
+
+### 3.267 The bracket that belonged to the address
+
+`https://en.wikipedia.org/wiki/Transformer_(deep_learning_architecture)`
+resolved to nothing. The URL detector strips trailing punctuation — right, so
+that `see https://example.com/paper.` does not keep the full stop — but it
+stripped the closing bracket unconditionally, asking the server for an address
+one character short. The 404 came back as "no record", which reads as *the page
+does not exist* rather than *we asked for the wrong page*.
+
+Wikipedia disambiguates with brackets and so do plenty of DOIs, so this is not
+an edge case; it is every page of that shape. A closing bracket is sentence
+punctuation only when it has no opener inside the URL, which is one line and
+was never written.
+
+Found by the routine inspection actually pasting the three kinds of thing a
+person pastes, rather than reading the code. It had been broken for as long as
+the detector existed and no test had ever tried a URL with a bracket in it.
+
+### 3.268 A door that only opened one way
+
+`remove_from_collection` has existed in the store since collections did. It had
+**no HTTP route**, and the only caller was the assistant — so the workbench
+could file an item into a collection and never take it out again, on the one
+screen whose entire purpose is organising. The way to find this was to try it:
+`DELETE …/collections/:key/items` answered 405.
+
+Filing is half an operation. The half that undoes it is not a refinement.
+
+### 3.269 A search index nobody ever merged
+
+Search was measurably slower than the previous round on the same machine —
+Chinese keyword 33 → 55ms, hybrid 14 → 26ms — with the library only 0.2%
+larger and the covering index and query plan both intact.
+
+Every write appends to an FTS5 index. On the real library the index's storage
+had spread across 30,770 pages; merging it to 6,342 took a common keyword
+search from 30.6ms to 23.9ms. **Nothing had ever merged it.** The only
+maintenance this database ran was `PRAGMA optimize`, which refreshes the query
+planner's statistics — a different thing with a confusingly similar name, and
+the similarity is exactly why the gap survived.
+
+So a library gets slower at being searched for as long as it is used, with no
+way back short of a reindex. Now merged incrementally beside the statistics:
+`'merge', 64` does a bounded amount of work where a full `'optimize'` took 41
+seconds holding the write lock, and it costs nothing once there is little left
+to do.
+
+Two things I got wrong on the way:
+
+- **I called the page count a segment count.** `items_fts_data` is the index's
+  storage, not its segments. The measurement and the effect were real; the word
+  was wrong, and a wrong word in a commit message becomes a wrong belief later.
+- **The first test could not fail.** FTS5 merges a little on its own
+  (`automerge`, four segments), which keeps a small index tidy — so 400 writes
+  in memory produced no fragmentation to merge and the test passed by having
+  nothing to prove. It now switches `automerge` off to reach in a second the
+  state a real library reaches over months, and was confirmed red against a
+  no-op merge.
+
+### 3.270 A budget sitting on the measurement
+
+Two budgets failed by 0.2ms and 0.5ms. I had set each to its own measured p50
+last round — and the comment at the top of that very list says a threshold near
+the measurement fails for machine reasons instead of for regressions. I wrote
+tighter numbers directly underneath a warning against them.
+
+They are now about 1.4× the measured value: close enough to catch a doubling,
+far enough not to cry wolf. A budget that cries wolf gets raised in a hurry by
+whoever is trying to ship, and that is how it ends up meaningless.
+
+Also: `bench.mjs` could not authenticate and died on its first request, exactly
+as `smoke.sh` did when the server first got a key. Fixing one harness and not
+the other left performance unmeasurable on a protected server for a whole
+round.

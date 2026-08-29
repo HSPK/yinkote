@@ -30,6 +30,8 @@ export interface SidebarSlice {
   addToCollection: (collection: string, keys: string[]) => Promise<void>
   tagItems: (tag: string, keys: string[]) => Promise<void>
   addSelectedToCollection: (key: string) => Promise<void>
+  /** Take the selection out of the collection being viewed. */
+  removeSelectedFromCollection: () => Promise<void>
   tagSelected: (tag: string) => Promise<void>
 }
 
@@ -181,6 +183,15 @@ export const createSidebarSlice: StateCreator<State, [], [], SidebarSlice> = (se
 
   async addSelectedToCollection(key) {
     await get().addToCollection(key, get().selected)
+  },
+
+  /** Only meaningful while a collection is open, which is what names the one
+   *  to take them out of. Filing was a one-way door until this existed. */
+  async removeSelectedFromCollection() {
+    const { library, collection, selected } = get()
+    if (!collection || !selected.length) return
+    await api.items.removeFromCollection(library, collection, selected)
+    await Promise.all([get().refresh(), get().reloadSidebar()])
   },
 
   async tagSelected(tag) {

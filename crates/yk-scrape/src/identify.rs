@@ -336,6 +336,36 @@ fn valid_isbn(value: &str) -> bool {
     }
 }
 
+/// Drop the punctuation that ended the sentence, not the punctuation that is
+/// part of the address.
+///
+/// `(see https://example.com/paper)` must not keep its bracket, and
+/// `https://en.wikipedia.org/wiki/Transformer_(deep_learning_architecture)`
+/// must keep both of its. Stripping unconditionally turned every Wikipedia
+/// page with a disambiguator -- and every DOI with a bracket in it -- into a
+/// 404, reported as "no record", which reads as the page not existing.
+///
+/// So a closing bracket is only sentence punctuation when it has no opener.
+fn trim_trailing_punctuation(url: &str) -> &str {
+    let mut end = url.len();
+    while let Some(last) = url[..end].chars().last() {
+        let counts = |open: char, close: char| {
+            url[..end].matches(close).count() > url[..end].matches(open).count()
+        };
+        let sentence = match last {
+            '.' | ',' | ';' => true,
+            ')' => counts('(', ')'),
+            ']' => counts('[', ']'),
+            _ => false,
+        };
+        if !sentence {
+            break;
+        }
+        end -= last.len_utf8();
+    }
+    &url[..end]
+}
+
 fn urls(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for scheme in ["https://", "http://"] {
@@ -346,7 +376,7 @@ fn urls(text: &str) -> Vec<String> {
                 .find(|c: char| c.is_whitespace() || c == '"' || c == '<' || c == '>')
                 .map(|n| start + n)
                 .unwrap_or(text.len());
-            let url = text[start..end].trim_end_matches(['.', ',', ';', ')', ']']);
+            let url = trim_trailing_punctuation(&text[start..end]);
             if url.len() > scheme.len() && !out.contains(&url.to_string()) {
                 out.push(url.to_string());
             }
@@ -468,6 +498,41 @@ mod tests {
     fn finds_plain_urls() {
         assert_eq!(
             only("https://example.com/paper"),
+            Identifier::Url("https://example.com/paper".into())
+        );
+    }
+
+    /// A bracket in the address is part of the address.
+    ///
+    /// Wikipedia disambiguates with one -- `Transformer_(deep_learning_
+    /// architecture)` -- and so do plenty of DOIs. Stripping it unconditionally
+    /// asked the server for a URL one character short, which answered 404, and
+    /// the reader was told "no record": the page not existing, rather than us
+    /// having asked for the wrong one.
+    #[test]
+    fn a_bracket_inside_an_address_is_kept() {
+        let wiki = "https://en.wikipedia.org/wiki/Transformer_(deep_learning_architecture)";
+        assert_eq!(only(wiki), Identifier::Url(wiki.into()));
+
+        let doi = "https://doi.org/10.1002/(SICI)1097-0142(19970815)80:4<771::AID>3.0.CO;2-A";
+        assert!(matches!(only(doi), Identifier::Doi(_) | Identifier::Url(_)));
+    }
+
+    /// And the other half, which is why the stripping exists: punctuation that
+    /// ended the sentence is not part of the address.
+    #[test]
+    fn punctuation_that_ended_the_sentence_is_dropped() {
+        assert_eq!(
+            only("See https://example.com/paper."),
+            Identifier::Url("https://example.com/paper".into())
+        );
+        assert_eq!(
+            only("(see https://example.com/paper)"),
+            Identifier::Url("https://example.com/paper".into()),
+            "a closing bracket with no opener inside the url is the sentence's"
+        );
+        assert_eq!(
+            only("Read https://example.com/paper, then stop"),
             Identifier::Url("https://example.com/paper".into())
         );
     }

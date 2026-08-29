@@ -225,6 +225,20 @@ export function itemMenu(item: Item): MenuItem[] {
           }),
       })),
     },
+    // Only while a collection is open: it is what names the one to remove
+    // from, and the entry would be meaningless in the library view.
+    ...(store.view === 'collection' && store.collection
+      ? [
+          {
+            label: `${t('menu.removeFromCollection')}${suffix}`,
+            onSelect: () =>
+              withToast(() => store.removeSelectedFromCollection(), {
+                success: t('toast.removedFromCollection'),
+                failure: t('toast.removeFromCollectionFailed'),
+              }),
+          },
+        ]
+      : []),
     {
       label: `${t('menu.addTag')}${suffix}`,
       onSelect: async () => {

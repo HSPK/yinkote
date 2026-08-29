@@ -323,6 +323,22 @@ check "unknown source said" "$(j -X POST "$BASE/search/external" \
                                 -d '{"query":"x","sources":["web-of-science"]}' \
                                 | jq -r '.failed | length | select(. == 1) | "named"')"
 
+echo "▸ filing"
+# Filing was a one-way door: the store could take an item out of a collection
+# and only the assistant could ask it to, because there was no route. The
+# workbench could put things in and never get them out again.
+FCOL=$(j -X POST "$BASE/libraries/$LIB/collections" -d '{"name":"Smoke filing"}' | jq -r .key)
+FKEY=$(j "$BASE/libraries/$LIB/items?limit=1" | jq -r '.items[0].key')
+j -X POST "$BASE/libraries/$LIB/collections/$FCOL/items" -d "{\"keys\":[\"$FKEY\"]}" > /dev/null
+check "filed"            "$(j "$BASE/libraries/$LIB/items?collection=$FCOL" | jq -r '.total | select(. == 1)')"
+check "unfiled"          "$(j -X DELETE "$BASE/libraries/$LIB/collections/$FCOL/items" \
+                             -d "{\"keys\":[\"$FKEY\"]}" | jq -r '.removed | select(. == 1)')"
+check "collection empty" "$(j "$BASE/libraries/$LIB/items?collection=$FCOL" | jq -r '.total | select(. == 0) | "empty"')"
+# The item itself is untouched, which is the whole difference between taking it
+# out of a collection and deleting it.
+check "item survives"    "$(j "$BASE/libraries/$LIB/items/$FKEY" | jq -r 'select(.deleted == false) | "still here"')"
+j -X DELETE "$BASE/libraries/$LIB/collections/$FCOL" > /dev/null
+
 echo "▸ tags & facets"
 check "tags"             "$(j "$BASE/libraries/$LIB/tags" | jq -r 'length')"
 check "facets"           "$(j "$BASE/libraries/$LIB/facets" | jq -r 'length')"

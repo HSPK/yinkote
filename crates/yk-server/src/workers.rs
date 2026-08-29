@@ -51,6 +51,13 @@ fn keep_statistics_current(app: App) {
                 if let Err(error) = app.store().db().refresh_statistics().await {
                     tracing::debug!(%error, "could not refresh planner statistics");
                 }
+                // And the full-text index's own housekeeping, which `PRAGMA
+                // optimize` does not do despite the name: every write appends
+                // a segment and nothing merged them, so search got slower for
+                // as long as the library was used.
+                if let Err(error) = app.store().db().merge_search_segments().await {
+                    tracing::debug!(%error, "could not merge search segments");
+                }
             }
             // Often enough to follow a big import, rare enough to be invisible.
             tokio::time::sleep(Duration::from_secs(60 * 30)).await;
