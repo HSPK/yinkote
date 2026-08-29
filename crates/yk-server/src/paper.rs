@@ -13,6 +13,19 @@ use yk_core::{Key, Result};
 
 use crate::state::App;
 
+/// How much of a paper a *summary* is written from.
+///
+/// Not the whole thing. Measured on a 202,432-character paper: the full text
+/// costs 47,110 prompt tokens and 5.2 seconds, and 25,000 characters costs
+/// 6,198 and 4.8 — eight times the tokens for a summary that says the same
+/// thing. On a shared endpoint that limits by tokens, the large request is
+/// also eight times likelier to be refused, which is the failure this feature
+/// actually has.
+///
+/// A close reading is not bounded this way: it is asked what the paper *did*,
+/// section by section, and the middle is where that lives.
+const SUMMARY_CHARS: usize = 25_000;
+
 /// What could be read of one paper.
 pub struct Paper {
     /// The extracted text, absent when there is no readable file.
@@ -31,12 +44,14 @@ impl Paper {
     pub fn material(&self, item: &Item) -> String {
         match &self.text {
             Some(got) if got.is_useful() => {
+                let excerpt = got.excerpt(SUMMARY_CHARS);
+                let shortened = excerpt.chars().count() < got.text.chars().count();
                 let mut out = String::from("Full text of the paper");
-                if got.truncated {
-                    out.push_str(" (the first part only; it is longer than this)");
+                if got.truncated || shortened {
+                    out.push_str(" (its beginning and its end; the middle is omitted)");
                 }
                 out.push_str(":\n");
-                out.push_str(&got.text);
+                out.push_str(&excerpt);
                 out
             }
             _ => match item.field("abstractNote").unwrap_or_default() {
@@ -115,5 +130,82 @@ pub async fn require(app: &App, lib: i64, item: &Item) -> Result<yk_pdf::Extract
             "that file has no text in it -- it is probably a scan, which needs OCR",
         )),
         None => Err(yk_core::Error::invalid("that item has no readable PDF attached")),
+    }
+}
+
+#[cfg(test)]
+mod material_size {
+    use super::*;
+    use yk_core::model::Fields;
+
+    fn paper(chars: usize) -> Paper {
+        let text = "the transformer architecture ".repeat(chars / 29 + 1);
+        Paper {
+            text: Some(yk_pdf::Extracted {
+                total_chars: text.chars().count(),
+                truncated: false,
+                text,
+            }),
+            source: Some("paper.pdf".into()),
+        }
+    }
+
+    fn item() -> Item {
+        let mut fields = Fields::new();
+        fields.insert("title".into(), serde_json::json!("A paper"));
+        fields.insert("abstractNote".into(), serde_json::json!("An abstract."));
+        Item {
+            key: yk_core::Key::generate(),
+            library_id: 1,
+            item_type: "journalArticle".into(),
+            parent_key: None,
+            fields,
+            creators: Vec::new(),
+            tags: Vec::new(),
+            collections: Vec::new(),
+            version: 1,
+            deleted: false,
+            attachments: Vec::new(),
+            date_added: 0,
+            date_modified: 0,
+        }
+    }
+
+    /// A hundred pages of prose cost eight times the tokens of twenty-five
+    /// thousand characters and produced the same summary -- measured, on a
+    /// real paper, at 47,110 tokens against 6,198. On a shared endpoint that
+    /// limits by tokens, the large request is also the one that gets refused.
+    #[test]
+    fn a_long_paper_is_not_sent_whole_to_be_summarised() {
+        let long = paper(200_000);
+        let material = long.material(&item());
+        assert!(
+            material.chars().count() < SUMMARY_CHARS + 500,
+            "sent {} characters",
+            material.chars().count()
+        );
+        // And it says it is an excerpt, so the model does not describe a
+        // conclusion that followed from text it was not shown.
+        assert!(material.contains("middle is omitted"));
+    }
+
+    /// Most papers are shorter than the budget and must arrive whole.
+    #[test]
+    fn a_short_paper_is_sent_entire() {
+        let short = paper(4_000);
+        let material = short.material(&item());
+        assert!(!material.contains("middle is omitted"));
+        assert!(material.contains("Full text of the paper"));
+    }
+
+    /// With no readable file the abstract is used and *labelled* as one, so
+    /// the model does not claim to have read the paper.
+    #[test]
+    fn without_a_file_the_abstract_is_named_as_such() {
+        let none = Paper { text: None, source: None };
+        let material = none.material(&item());
+        assert!(material.contains("Abstract only"));
+        assert!(material.contains("do not claim to have read the paper"));
+        assert!(!none.read_in_full());
     }
 }

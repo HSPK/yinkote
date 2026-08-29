@@ -5064,3 +5064,52 @@ My probe was wrong a fourth time — I guessed `/citations/styles` where the
 route is `/citation-styles` — but caught in the same minute, because this time
 the probe printed the status of every request rather than only the answer to
 the one I cared about.
+
+### 3.280 Eight times the tokens for the same summary
+
+Last round left an owed measurement rather than a guess: is sending 200,000
+characters to write a three-sentence summary the right amount? The model was
+throttled all that round, and a size decision made without measuring the
+latency it is meant to improve is a guess. This round it answered, so it was
+measured, on a real 202,432-character paper:
+
+| sent | prompt tokens | time |
+| --- | --- | --- |
+| 8,000 | 2,269 | 3.2s |
+| 25,000 | 6,017 | 3.4s |
+| 60,000 | 14,778 | 3.8s |
+| 200,000 | 47,110 | 5.2s |
+
+Every summary from 8,000 characters upward said the same thing: GPT-3, 175
+billion parameters, few-shot learning, the same headline number. **Eight times
+the tokens for the same answer** — and on a shared endpoint that limits by
+tokens, the large request is also the one that gets refused, which is the
+failure this feature actually has.
+
+So a summary now reads 25,000 characters: measured end to end at **2,954ms**
+against 5.2s at the model alone before, with `readInFull` still true.
+
+Two details that are the point rather than decoration:
+
+- **Head *and* tail, not the first 25,000 characters.** What a paper did is at
+  the front and what it found is at the back. Head-only produced a good summary
+  of the paper measured — but only because that paper front-loads its results,
+  which is a property of that paper and not a rule.
+- **The join is marked.** Unmarked, a model reads it as continuous prose and
+  describes a conclusion following from premises it was never shown.
+
+A close reading is deliberately *not* bounded this way. It is asked what the
+paper did, section by section, and the middle is where that lives.
+
+### 3.281 An attachment is not a paper
+
+My first attempt summarised `HMDMCTP4` — the key on the storage folder, which
+is the *attachment*, not the item. It answered `readInFull: false` and "the
+material is too thin to summarise honestly", which is the right answer to the
+question I actually asked and not the one I meant.
+
+Worth recording for the honesty rather than the mistake: given nothing to work
+from, the feature said so in one sentence instead of writing a plausible
+summary of a paper it had not read. That behaviour was asked for in the prompt
+(§ "if the material is too thin to summarise honestly, say so") and this is the
+first time it has been seen firing on its own.
