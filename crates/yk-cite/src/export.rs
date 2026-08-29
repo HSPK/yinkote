@@ -246,7 +246,16 @@ fn ris(item: &Item) -> String {
         tag("SP", pages);
     }
 
-    tag("PB", item.field("publisher").unwrap_or_default());
+    // A thesis's university and a report's institution are the body that
+    // issued it; RIS has one tag for that, and writing only `publisher` left
+    // them out of the file entirely.
+    tag(
+        "PB",
+        item.field("publisher")
+            .or_else(|| item.field("university"))
+            .or_else(|| item.field("institution"))
+            .unwrap_or_default(),
+    );
     tag("DO", item.field("DOI").unwrap_or_default());
     tag("SN", item.field("ISSN").or(item.field("ISBN")).unwrap_or_default());
     tag("UR", item.field("url").unwrap_or_default());

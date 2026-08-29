@@ -68,13 +68,38 @@ fn item_type_for_csl(kind: &str) -> &'static str {
     }
 }
 
-/// Where a CSL `container-title` belongs, which depends on the item type.
+/// Where the name of the containing work belongs, which depends on the type.
+///
+/// Every interchange format has one field for it — CSL's `container-title`,
+/// RIS's `T2`, BibTeX's `booktitle` — and this program has four. Putting them
+/// all in `publicationTitle` records a proceedings as a journal, which is
+/// wrong in every citation the item appears in.
 fn container_field(item_type: &str) -> &'static str {
     match item_type {
         "bookSection" => "bookTitle",
         "conferencePaper" => "proceedingsTitle",
         "webpage" => "websiteTitle",
         _ => "publicationTitle",
+    }
+}
+
+/// Where the body that issued the work belongs.
+fn issuer_field(item_type: &str) -> &'static str {
+    match item_type {
+        "thesis" => "university",
+        "report" => "institution",
+        _ => "publisher",
+    }
+}
+
+/// Which standard number a serial number is, given the type.
+///
+/// RIS has one `SN` tag for both. Filing a book's ISBN under ISSN is worse
+/// than dropping it: the record then claims a number it does not have.
+fn serial_field(item_type: &str) -> &'static str {
+    match item_type {
+        "book" | "bookSection" => "ISBN",
+        _ => "ISSN",
     }
 }
 
@@ -116,15 +141,7 @@ fn csl_draft(row: &serde_json::Value) -> Result<ItemDraft, String> {
     draft = set(draft, "pages", text("page"));
     // And back to the field the type actually uses, or a thesis would come
     // home with its university recorded as a publisher.
-    draft = set(
-        draft,
-        match item_type {
-            "thesis" => "university",
-            "report" => "institution",
-            _ => "publisher",
-        },
-        text("publisher"),
-    );
+    draft = set(draft, issuer_field(item_type), text("publisher"));
     draft = set(draft, "DOI", text("DOI"));
     draft = set(draft, "ISBN", text("ISBN"));
     draft = set(draft, "url", text("URL"));
@@ -267,7 +284,8 @@ fn bibtex_entry(raw: &str) -> Result<ItemDraft, String> {
     }
 
     let inner = body[open + 1..].trim_end().trim_end_matches('}');
-    let mut draft = ItemDraft::new(item_type_for_bibtex(entry_type));
+    let item_type = item_type_for_bibtex(entry_type);
+    let mut draft = ItemDraft::new(item_type);
     let mut seen_any = false;
     // Held rather than written as they arrive: BibTeX keeps the year and the
     // month in separate fields, and the library stores one date. Exporting and
@@ -298,7 +316,9 @@ fn bibtex_entry(raw: &str) -> Result<ItemDraft, String> {
             }
             "title" => draft = draft.with_field("title", value),
             "journal" | "journaltitle" => draft = draft.with_field("publicationTitle", value),
-            "booktitle" => draft = draft.with_field("bookTitle", value),
+            // `@inproceedings` writes its proceedings under `booktitle` too,
+            // so the destination follows the entry type rather than the tag.
+            "booktitle" => draft = draft.with_field(container_field(item_type), value),
             "year" => draft = draft.with_field("date", value),
             "month" => month = bibtex_month(&value),
             "volume" => draft = draft.with_field("volume", value),
@@ -532,7 +552,8 @@ fn finish_ris(fields: &mut Vec<(String, String)>, index: usize, out: &mut Parsed
         .find(|(t, _)| t == "TY")
         .map(|(_, v)| v.as_str())
         .unwrap_or("GEN");
-    let mut draft = ItemDraft::new(item_type_for_ris(ty));
+    let item_type = item_type_for_ris(ty);
+    let mut draft = ItemDraft::new(item_type);
     let mut start = String::new();
     let mut end = String::new();
 
@@ -552,7 +573,9 @@ fn finish_ris(fields: &mut Vec<(String, String)>, index: usize, out: &mut Parsed
                 }
             }
             "TI" | "T1" => draft = draft.with_field("title", value.clone()),
-            "T2" | "JO" | "JF" => draft = draft.with_field("publicationTitle", value.clone()),
+            // By type, not always `publicationTitle`: RIS has one tag for the
+            // containing work and this program has four.
+            "T2" | "JO" | "JF" => draft = draft.with_field(container_field(item_type), value.clone()),
             // `DA` carries the full date and `PY` only the year, so a later
             // `DA` should win — the loop order does that, since `DA` is
             // conventionally written after `PY`.
@@ -561,9 +584,11 @@ fn finish_ris(fields: &mut Vec<(String, String)>, index: usize, out: &mut Parsed
             "IS" => draft = draft.with_field("issue", value.clone()),
             "SP" => start = value.clone(),
             "EP" => end = value.clone(),
-            "PB" => draft = draft.with_field("publisher", value.clone()),
+            "PB" => draft = draft.with_field(issuer_field(item_type), value.clone()),
             "DO" => draft = draft.with_field("DOI", value.clone()),
-            "SN" => draft = draft.with_field("ISSN", value.clone()),
+            // One tag, two numbers. Filing a book's ISBN as an ISSN is worse
+            // than losing it: the record then claims a number it has not got.
+            "SN" => draft = draft.with_field(serial_field(item_type), value.clone()),
             "UR" | "L1" => draft = draft.with_field("url", value.clone()),
             "AB" | "N2" => draft = draft.with_field("abstractNote", value.clone()),
             "KW" => draft.tags.push(yk_core::model::ItemTag::manual(value.trim())),
@@ -881,5 +906,60 @@ mod tests {
         assert_eq!(items[1].fields.get("institution").and_then(|v| v.as_str()), Some("Test Institute"));
         // And a book's publisher really is a publisher.
         assert_eq!(items[2].fields.get("publisher").and_then(|v| v.as_str()), Some("Widget Press"));
+    }
+
+    /// One tag, several destinations.
+    ///
+    /// Every interchange format has a single field for the containing work,
+    /// for the issuing body and (in RIS) for the standard number. Sending them
+    /// all to `publicationTitle`, `publisher` and `ISSN` recorded a
+    /// proceedings as a journal, a university as a publisher, and a book's
+    /// ISBN *as an ISSN* — that last one is worse than losing it, because the
+    /// record then claims a number it does not have.
+    #[test]
+    fn ris_puts_a_value_where_its_type_expects_it() {
+        let chapter = &ris("TY  - CHAP\nTI  - A Chapter\nT2  - The Book\nSN  - 9780262510875\nER  -\n").items[0];
+        assert_eq!(chapter.fields.get("bookTitle").and_then(|v| v.as_str()), Some("The Book"));
+        assert_eq!(chapter.fields.get("ISBN").and_then(|v| v.as_str()), Some("9780262510875"));
+        assert_eq!(chapter.fields.get("ISSN"), None);
+
+        let paper = &ris("TY  - CONF\nTI  - A Paper\nT2  - Proc. of Testing\nER  -\n").items[0];
+        assert_eq!(
+            paper.fields.get("proceedingsTitle").and_then(|v| v.as_str()),
+            Some("Proc. of Testing"),
+        );
+
+        let thesis = &ris("TY  - THES\nTI  - A Thesis\nPB  - Test University\nER  -\n").items[0];
+        assert_eq!(thesis.fields.get("university").and_then(|v| v.as_str()), Some("Test University"));
+        assert_eq!(thesis.fields.get("publisher"), None);
+
+        let report = &ris("TY  - RPRT\nTI  - A Report\nPB  - Test Institute\nER  -\n").items[0];
+        assert_eq!(report.fields.get("institution").and_then(|v| v.as_str()), Some("Test Institute"));
+    }
+
+    /// And a journal article is unaffected: the ordinary case must not move.
+    #[test]
+    fn a_journal_article_keeps_the_plain_fields() {
+        let article = &ris("TY  - JOUR\nTI  - A Paper\nT2  - Journal of Tests\nSN  - 1234-5678\nPB  - A Press\nER  -\n").items[0];
+        assert_eq!(
+            article.fields.get("publicationTitle").and_then(|v| v.as_str()),
+            Some("Journal of Tests"),
+        );
+        assert_eq!(article.fields.get("ISSN").and_then(|v| v.as_str()), Some("1234-5678"));
+        assert_eq!(article.fields.get("publisher").and_then(|v| v.as_str()), Some("A Press"));
+    }
+
+    /// BibTeX writes a proceedings under `booktitle` as well, so the entry
+    /// type decides where it lands.
+    #[test]
+    fn bibtex_booktitle_follows_the_entry_type() {
+        let paper = &parse("@inproceedings{k, title = {A Paper}, booktitle = {Proc. of Testing},}").items[0];
+        assert_eq!(
+            paper.fields.get("proceedingsTitle").and_then(|v| v.as_str()),
+            Some("Proc. of Testing"),
+        );
+
+        let chapter = &parse("@incollection{k, title = {A Chapter}, booktitle = {The Book},}").items[0];
+        assert_eq!(chapter.fields.get("bookTitle").and_then(|v| v.as_str()), Some("The Book"));
     }
 }
