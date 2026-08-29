@@ -32,11 +32,145 @@ pub struct Parsed {
 /// Sniffed rather than asked for: the extension is often wrong, and a user who
 /// has just downloaded `citation.txt` should not have to know.
 pub fn parse(text: &str) -> Parsed {
-    if looks_like_ris(text) {
+    if looks_like_csl(text) {
+        csl_json(text)
+    } else if looks_like_ris(text) {
         ris(text)
     } else {
         bibtex(text)
     }
+}
+
+/// CSL-JSON is an array of objects, each with a `type` or a `title`.
+///
+/// Checked before RIS and BibTeX because it is the format this program itself
+/// writes, and for a long time could not read: exporting a library to CSL-JSON
+/// and importing the file back produced nothing at all — no items, no
+/// rejections, no reason. It is also what Zotero and Pandoc hand around.
+fn looks_like_csl(text: &str) -> bool {
+    text.trim_start().starts_with('[')
+        && serde_json::from_str::<Vec<serde_json::Value>>(text)
+            .is_ok_and(|rows| rows.iter().any(|r| r.get("type").is_some() || r.get("title").is_some()))
+}
+
+fn item_type_for_csl(kind: &str) -> &'static str {
+    match kind {
+        "article-journal" | "article" => "journalArticle",
+        "article-magazine" => "magazineArticle",
+        "article-newspaper" => "newspaperArticle",
+        "book" => "book",
+        "chapter" => "bookSection",
+        "paper-conference" => "conferencePaper",
+        "thesis" => "thesis",
+        "report" => "report",
+        "webpage" | "post-weblog" => "webpage",
+        _ => "document",
+    }
+}
+
+/// Where a CSL `container-title` belongs, which depends on the item type.
+fn container_field(item_type: &str) -> &'static str {
+    match item_type {
+        "bookSection" => "bookTitle",
+        "conferencePaper" => "proceedingsTitle",
+        "webpage" => "websiteTitle",
+        _ => "publicationTitle",
+    }
+}
+
+fn csl_json(text: &str) -> Parsed {
+    let mut out = Parsed::default();
+    let rows: Vec<serde_json::Value> = match serde_json::from_str(text) {
+        Ok(rows) => rows,
+        Err(e) => {
+            out.rejected.push(Rejected { index: 1, reason: e.to_string() });
+            return out;
+        }
+    };
+
+    for (i, row) in rows.iter().enumerate() {
+        match csl_draft(row) {
+            Ok(draft) => out.items.push(draft),
+            Err(reason) => out.rejected.push(Rejected { index: i + 1, reason }),
+        }
+    }
+    out
+}
+
+fn csl_draft(row: &serde_json::Value) -> Result<ItemDraft, String> {
+    let text = |name: &str| row.get(name).and_then(|v| v.as_str()).unwrap_or_default();
+    let item_type = item_type_for_csl(text("type"));
+    let mut draft = ItemDraft::new(item_type);
+
+    let set = |draft: ItemDraft, field: &str, value: &str| {
+        if value.trim().is_empty() {
+            draft
+        } else {
+            draft.with_field(field, value)
+        }
+    };
+    draft = set(draft, "title", text("title"));
+    draft = set(draft, container_field(item_type), text("container-title"));
+    draft = set(draft, "volume", text("volume"));
+    draft = set(draft, "issue", text("issue"));
+    draft = set(draft, "pages", text("page"));
+    // And back to the field the type actually uses, or a thesis would come
+    // home with its university recorded as a publisher.
+    draft = set(
+        draft,
+        match item_type {
+            "thesis" => "university",
+            "report" => "institution",
+            _ => "publisher",
+        },
+        text("publisher"),
+    );
+    draft = set(draft, "DOI", text("DOI"));
+    draft = set(draft, "ISBN", text("ISBN"));
+    draft = set(draft, "url", text("URL"));
+    draft = set(draft, "abstractNote", text("abstract"));
+
+    for (kind, field) in [("author", "author"), ("editor", "editor")] {
+        for person in row.get(field).and_then(|v| v.as_array()).into_iter().flatten() {
+            let get = |k: &str| person.get(k).and_then(|v| v.as_str()).map(str::to_string);
+            let mut creator = yk_core::model::Creator {
+                creator_type: kind.into(),
+                ..Default::default()
+            };
+            // A `literal` name is one field on purpose — an institution, not a
+            // surname — and splitting it would turn it into an initial.
+            if let Some(literal) = get("literal") {
+                creator.name = Some(literal);
+            } else {
+                creator.last_name = get("family");
+                creator.first_name = get("given");
+            }
+            if creator.name.is_some() || creator.last_name.is_some() {
+                draft = draft.with_creator(creator);
+            }
+        }
+    }
+
+    if let Some(date) = csl_date(row.get("issued")) {
+        draft = draft.with_field("date", date.as_str());
+    }
+
+    if draft.fields.get("title").is_none() && draft.creators.is_empty() {
+        return Err("neither a title nor an author".into());
+    }
+    Ok(draft)
+}
+
+/// `{"date-parts": [[2021, 3, 4]]}` back into `2021-03-04`.
+fn csl_date(issued: Option<&serde_json::Value>) -> Option<String> {
+    let parts = issued?.get("date-parts")?.as_array()?.first()?.as_array()?;
+    let mut numbers = parts.iter().filter_map(|p| p.as_i64().or_else(|| p.as_str()?.parse().ok()));
+    let year = numbers.next()?;
+    Some(match (numbers.next(), numbers.next()) {
+        (Some(m), Some(d)) => format!("{year:04}-{m:02}-{d:02}"),
+        (Some(m), None) => format!("{year:04}-{m:02}"),
+        _ => format!("{year:04}"),
+    })
 }
 
 /// RIS records begin with a type tag and end with `ER`.
@@ -664,5 +798,88 @@ mod tests {
         let text = "@article{k, title = {T}, year = {2021}, month = {spring},}";
         let drafts = parse(text).items;
         assert_eq!(drafts[0].fields.get("date").and_then(|d| d.as_str()), Some("2021"));
+    }
+
+    /// What this program writes, it must be able to read.
+    ///
+    /// CSL-JSON export existed and CSL-JSON import did not, so a user who
+    /// exported their library and imported the file back got nothing —
+    /// no items, and no rejections either, because the sniffer handed it to
+    /// the BibTeX parser, which found no `@` and said so about nothing.
+    #[test]
+    fn csl_json_is_recognised_and_read() {
+        let text = r#"[
+          {"id":"a","type":"paper-conference","title":"A Conference Paper",
+           "container-title":"Proc. of Testing","page":"5-9",
+           "issued":{"date-parts":[[2022,7,1]]},
+           "author":[{"family":"Evans","given":"Dee"}]},
+          {"id":"b","type":"chapter","title":"A Chapter",
+           "container-title":"The Containing Book","publisher":"Chapter House",
+           "issued":{"date-parts":[[2018]]}}
+        ]"#;
+        let parsed = parse(text);
+        assert_eq!(parsed.items.len(), 2, "rejected: {:?}", parsed.rejected);
+
+        let paper = &parsed.items[0];
+        assert_eq!(paper.item_type, "conferencePaper");
+        // `container-title` is one field in CSL and several here, so it has to
+        // land on the one belonging to the type — a proceedings title filed as
+        // a journal name is wrong in every citation it appears in.
+        assert_eq!(
+            paper.fields.get("proceedingsTitle").and_then(|v| v.as_str()),
+            Some("Proc. of Testing"),
+        );
+        assert_eq!(paper.fields.get("date").and_then(|v| v.as_str()), Some("2022-07-01"));
+        assert_eq!(paper.creators[0].last_name.as_deref(), Some("Evans"));
+
+        let chapter = &parsed.items[1];
+        assert_eq!(chapter.item_type, "bookSection");
+        assert_eq!(
+            chapter.fields.get("bookTitle").and_then(|v| v.as_str()),
+            Some("The Containing Book"),
+        );
+        assert_eq!(chapter.fields.get("date").and_then(|v| v.as_str()), Some("2018"));
+    }
+
+    /// An institution is one name, not a surname to be abbreviated.
+    #[test]
+    fn a_literal_name_stays_whole() {
+        let text = r#"[{"type":"report","title":"A Report",
+                        "author":[{"literal":"World Health Organization"}]}]"#;
+        let parsed = parse(text);
+        let creator = &parsed.items[0].creators[0];
+        assert_eq!(creator.name.as_deref(), Some("World Health Organization"));
+        assert_eq!(creator.last_name, None);
+    }
+
+    /// BibTeX and RIS must still be recognised: the sniffer runs CSL first.
+    #[test]
+    fn the_other_two_formats_are_still_read() {
+        assert_eq!(parse("@article{k, title = {T}, year = {2020},}").items.len(), 1);
+        assert_eq!(parse("TY  - JOUR\nTI  - T\nPY  - 2020\nER  - \n").items.len(), 1);
+        // A JSON array that is not CSL must not be swallowed by the new branch.
+        assert_eq!(parse("[1, 2, 3]").items.len(), 0);
+    }
+
+    /// A thesis keeps its university across a CSL round trip.
+    ///
+    /// CSL has one field for the issuing body, so a university and an
+    /// institution both travel as `publisher` and have to be put back where
+    /// the type expects them. Otherwise a thesis returns with its university
+    /// recorded as a publisher, which is wrong in the citation and invisible
+    /// in the list.
+    #[test]
+    fn an_issuing_body_lands_on_the_right_field() {
+        let text = r#"[
+          {"type":"thesis","title":"A Thesis","publisher":"Test University"},
+          {"type":"report","title":"A Report","publisher":"Test Institute"},
+          {"type":"book","title":"A Book","publisher":"Widget Press"}
+        ]"#;
+        let items = parse(text).items;
+        assert_eq!(items[0].fields.get("university").and_then(|v| v.as_str()), Some("Test University"));
+        assert_eq!(items[0].fields.get("publisher"), None);
+        assert_eq!(items[1].fields.get("institution").and_then(|v| v.as_str()), Some("Test Institute"));
+        // And a book's publisher really is a publisher.
+        assert_eq!(items[2].fields.get("publisher").and_then(|v| v.as_str()), Some("Widget Press"));
     }
 }

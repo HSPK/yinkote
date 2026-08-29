@@ -33,7 +33,11 @@ check() { # check <name> <value>
   # the run looks fine and one check silently stopped existing. This has now
   # happened three times; a value carrying an escape or a newline is never
   # anything else, so it is refused rather than reported.
-  if [[ "${2:-}" == *$'\033'* || "${2:-}" == *$'\n'* ]]; then
+  # The escape alone, not a newline: a check may legitimately return several
+  # lines — the graph one lists every neighbouring title — and rejecting those
+  # turned a working check red. Only our own coloured output can appear inside
+  # a value, and only when a check ran in there.
+  if [[ "${2:-}" == *$'\033'* ]]; then
     printf '  \033[31mFAIL\033[0m %-44s %s\n' "$1" "another check ran inside this one's value"
     FAIL=$((FAIL + 1))
     FAILED+=("$1")

@@ -295,7 +295,17 @@ fn csl(item: &Item) -> serde_json::Value {
     put("volume", item.field("volume").unwrap_or_default());
     put("issue", item.field("issue").unwrap_or_default());
     put("page", item.field("pages").unwrap_or_default());
-    put("publisher", item.field("publisher").unwrap_or_default());
+    // CSL has one field for the body that issued a work, so a thesis's
+    // university and a report's institution both belong in `publisher`.
+    // Emitting only `publisher` dropped them from every thesis and report
+    // handed to Pandoc, Zotero or back to this program.
+    put(
+        "publisher",
+        item.field("publisher")
+            .or_else(|| item.field("university"))
+            .or_else(|| item.field("institution"))
+            .unwrap_or_default(),
+    );
     put("DOI", item.field("DOI").unwrap_or_default());
     put("ISBN", item.field("ISBN").unwrap_or_default());
     put("URL", item.field("url").unwrap_or_default());
