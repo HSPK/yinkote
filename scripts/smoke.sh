@@ -616,6 +616,40 @@ check "rubbish reported"  "$(j -X POST "$BASE/libraries/$LIB/import/bibliography
                              -d '{"text":"@article{broken, year = {2019} }"}' \
                              | jq -r 'select(.imported == 0 and .skipped == 1) | .reasons[0]')"
 
+# Every format this program writes, it must be able to read — and put each
+# value back where the *type* expects it. Each interchange format has one field
+# for the containing work, one for the issuing body and (in RIS) one for the
+# standard number, while this program has several of each. Sending them all to
+# publicationTitle / publisher / ISSN recorded a proceedings as a journal, a
+# university as a publisher, and a book's ISBN as an ISSN — the last being
+# worse than losing it, since the record then claims a number it has not got.
+#
+# A chapter and a thesis between them exercise all three decisions.
+RTC=$(j -X POST "$BASE/libraries/$LIB/items" \
+        -d '{"itemType":"bookSection","title":"RT smoke chapter","bookTitle":"RT smoke book","ISBN":"9780262510875","date":"2018-03-04"}' \
+        | jq -r '.created[0].key')
+RTT=$(j -X POST "$BASE/libraries/$LIB/items" \
+        -d '{"itemType":"thesis","title":"RT smoke thesis","university":"RT smoke university","date":"2020"}' \
+        | jq -r '.created[0].key')
+for FMT in bibtex ris csljson; do
+  TEXT=$(j -X POST "$BASE/libraries/$LIB/export" -d "{\"keys\":[\"$RTC\",\"$RTT\"],\"format\":\"$FMT\"}")
+  BACK=$(j -X POST "$BASE/libraries/$LIB/import/bibliography" -d "$(jq -nc --arg t "$TEXT" '{text:$t}')")
+  check "$FMT reads its own"  "$(echo "$BACK" | jq -r 'select(.imported == 2) | "both"')"
+  RTKEYS=$(echo "$BACK" | jq -r '.keys // [] | @tsv')
+  RTBODY=$(for K in $RTKEYS; do j "$BASE/libraries/$LIB/items/$K"; done | jq -sc '.')
+  check "$FMT keeps chapter"  "$(echo "$RTBODY" \
+     | jq -r 'map(select(.itemType == "bookSection")) | .[0] | select(.bookTitle == "RT smoke book") | .bookTitle')"
+  check "$FMT keeps thesis"   "$(echo "$RTBODY" \
+     | jq -r 'map(select(.itemType == "thesis")) | .[0] | select(.university == "RT smoke university") | .university')"
+  j -X POST "$BASE/libraries/$LIB/items/delete" \
+    -d "$(printf '%s' "$RTKEYS" | tr '\t' '\n' | jq -R . | jq -sc '{keys: .}')" > /dev/null
+done
+# BibTeX has no field for a day, so only the two that can carry one are asked.
+check "csl keeps the day"  "$(j -X POST "$BASE/libraries/$LIB/export" \
+                               -d "{\"keys\":[\"$RTC\"],\"format\":\"csljson\"}" \
+                               | jq -r '.[0].issued["date-parts"][0] | select(length == 3) | join("-")')"
+j -X POST "$BASE/libraries/$LIB/items/delete" -d "{\"keys\":[\"$RTC\",\"$RTT\"]}" > /dev/null
+
 
 echo "▸ maintenance"
 # Asked, not assumed: the server knows where it keeps its data, and a script
