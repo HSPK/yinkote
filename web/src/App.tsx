@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { failureText } from './lib/errors'
 
 import { CommandPalette } from './components/CommandPalette'
 import { DetailPanel } from './components/DetailPanel'
@@ -160,7 +161,11 @@ export function App() {
   return (
     <div className="app">
       <TopBar />
-      {error && <div className="banner">{error}</div>}
+      {error && (
+        <div className="banner" title={error.detail}>
+          {failureText(t, error)}
+        </div>
+      )}
 
       <div className="workspace">
         <div className="pane sidebar" style={{ width: layout.sidebar }}>

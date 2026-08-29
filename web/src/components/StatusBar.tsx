@@ -1,4 +1,5 @@
 import { ActivityIndicator } from './ActivityIndicator'
+import { failureText } from '../lib/errors'
 import { searchText } from '../state/scope'
 import { useStore } from '../state/store'
 import { useT } from '../i18n'
@@ -33,8 +34,8 @@ export function StatusBar() {
         </span>
       )}
       {error && (
-        <span className="err" title={error}>
-          ⚠ {error}
+        <span className="err" title={error.detail}>
+          ⚠ {failureText(t, error)}
         </span>
       )}
       {stats?.search && (

@@ -424,7 +424,7 @@ export function ReaderView({ target }: { target?: string }) {
           </div>
         )}
         <div className="reader-pages" ref={scrollRef} onMouseDown={() => setPending(null)}>
-          {error && <Empty>{t('reader.unsupported')}</Empty>}
+          {error && <Empty title={error.detail}>{t('reader.unsupported')}</Empty>}
           {!doc && !error && <Empty>{t('reader.loading')}</Empty>}
           {doc && reserve.height > 0 &&
             pages.map((n) => (

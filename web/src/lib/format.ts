@@ -1,5 +1,5 @@
 import type { Creator, Item } from '../api/types'
-import type { MessageKey } from '../i18n'
+import type { MessageKey, Translate } from '../i18n'
 
 export function creatorName(c: Creator): string {
   if (c.name) return c.name
@@ -47,7 +47,7 @@ export function displayTitle(item: Item, untitled: string): string {
  * Anything that is not a known code is returned unchanged, so a task recorded
  * by an older server still reads as words rather than as a bare key.
  */
-export function taskMessage(t: (key: MessageKey) => string, message: string): string {
+export function taskMessage(t: Translate, message: string): string {
   return TASK_MESSAGES.has(message) ? t(message as MessageKey) : message
 }
 

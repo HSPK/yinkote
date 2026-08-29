@@ -10,6 +10,7 @@
  *  would mean reimplementing all three.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { failureOf, failureText, type Failure } from '../lib/errors'
 
 import { api } from '../api/client'
 import type { GraphEdge, GraphNode } from '../api/types'
@@ -28,7 +29,7 @@ export function GraphView({ target }: { target?: string }) {
 
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphEdge[]>([])
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<Failure | null>(null)
   const [hover, setHover] = useState<string | null>(null)
   const [size, setSize] = useState({ width: 720, height: 480 })
   const boxRef = useRef<HTMLDivElement>(null)
@@ -45,7 +46,7 @@ export function GraphView({ target }: { target?: string }) {
         setGraphSize(g.nodes.length, g.edges.length)
         setError(null)
       })
-      .catch((e: unknown) => live && setError(e instanceof Error ? e.message : String(e)))
+      .catch((e: unknown) => live && setError(failureOf(e)))
     return () => {
       live = false
     }
@@ -76,7 +77,7 @@ export function GraphView({ target }: { target?: string }) {
   }
 
   if (!target) return <Empty>{t('graph.none')}</Empty>
-  if (error) return <Empty>{error}</Empty>
+  if (error) return <Empty>{failureText(t, error)}</Empty>
   if (!nodes.length) return <Empty>{t('graph.empty')}</Empty>
 
   return (

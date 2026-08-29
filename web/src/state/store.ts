@@ -5,6 +5,7 @@
  *  slices so it stays obvious which is which.
  */
 import { create } from 'zustand'
+import { failureOf, type Failure } from '../lib/errors'
 import { displayTitle } from '../lib/format'
 
 import { ApiError, api, connectEvents, setApiKey } from '../api/client'
@@ -53,7 +54,7 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   // connection & metadata
   ready: boolean
   connected: boolean
-  error: string | null
+  error: Failure | null
   /** The server wants an API key and this browser has not got a working one. */
   needsKey: boolean
   useApiKey: (key: string) => Promise<void>
@@ -273,7 +274,7 @@ export const useStore = create<State>((set, get, store) => ({
         set({ needsKey: true, ready: true, error: null })
         return
       }
-      set({ error: e instanceof Error ? e.message : String(e), ready: true })
+      set({ error: failureOf(e), ready: true })
     }
   },
 
@@ -349,7 +350,7 @@ export const useStore = create<State>((set, get, store) => ({
       void get().loadBadges(page.items.map((i) => i.key))
     } catch (e) {
       if (seq !== requestSeq) return
-      set({ loading: false, error: e instanceof Error ? e.message : String(e) })
+      set({ loading: false, error: failureOf(e) })
     }
   },
 
@@ -694,7 +695,7 @@ export const useStore = create<State>((set, get, store) => ({
       const updated = await api.items.update(s.library, key, patch, current?.version)
       set({ items: s.items.map((i) => (i.key === key ? { ...i, ...updated } : i)) })
     } catch (e) {
-      set({ error: e instanceof Error ? e.message : String(e) })
+      set({ error: failureOf(e) })
       await get().refresh()
     }
   },

@@ -4360,3 +4360,52 @@ Two things this round is worth remembering for:
   A list would have to be extended by whoever adds the fifteenth job, which is
   exactly the person who won't. Verified against a synthetic sentence before
   being kept, per §3.239.
+
+### 3.250 The failure banner spoke English all along
+
+Six places wrote `e instanceof Error ? e.message : String(e)` and put the
+result on screen — the top banner, the status bar, the graph, the reader, the
+chat slice, the store. All six showed the server's own English sentence, and
+all six had a translated alternative available the whole time: the envelope has
+carried a `code` naming the class of failure since rejections got one (§3.208).
+The client threw the useful half away and kept the untranslatable half.
+
+`Failure { code, detail }` keeps both, because neither alone is enough. A code
+says *what kind* — "not found" — and never says *which thing*; only the
+server's sentence does. So the class goes on screen from the catalogue and the
+detail stays on the element's `title`, exactly as §3.248 did for downloads.
+
+Four things worth keeping from this round:
+
+- **A `lib/` module must not import the API client.** `failureOf` began with
+  `e instanceof ApiError`, which is the wrong direction of dependency and had a
+  concrete cost: every test that mocks the client threw on merely *touching*
+  the name, because the mock has no class behind it. Seven unhandled errors,
+  and `npm test` still printed "593 passed" — **it was the exit code that
+  failed, not the tally.** Reading a value off the object costs nothing and
+  points the dependency the right way.
+- **A new key namespace can swallow an old one.** `error.<code>` collided with
+  `error.surface`/`error.retry`, and the dead-entry lint exempts anything under
+  a prefix built at runtime — so adding my keys quietly stopped those two from
+  ever being checked again. Renamed to `failure.`; the parity test then reads
+  both lists and compares them exactly.
+- **Two lists that nothing compares will drift.** The set of codes the client
+  claims and the keys in the catalogues are now asserted equal, in both
+  languages. Without it, a claimed code with no entry renders as its own key,
+  which is worse than the English it replaced.
+- **`$?` after a pipe is the pipe's.** I "read" two gates as
+  `cargo test … | grep … ; echo $?` and got 0 from `head`. A gate must be run
+  with its output redirected and its own status read.
+
+### 3.251 Probes must differ, and must arrive as written
+
+The smoke check for this sweeps four failure classes rather than one thing
+tried four ways, and asserts the four codes are *distinct* — my first version
+counted probes, not distinct answers, so it could not have failed. It went red
+immediately: `j` always sends a JSON content-type, so the probe meant to test
+*the wrong content type* arrived with two of them and was judged by the other.
+The helper that makes every other request convenient was the reason this one
+did not test what it said. The self-lint also caught a `// "missing"` fallback
+in the same block before it ever ran (§3.240), and refusing it exposed a real
+bug underneath: an empty word in a `case` pattern matches anything, so a
+missing code would have been read as a known one.

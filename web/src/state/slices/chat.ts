@@ -6,6 +6,7 @@
  *  legitimately take twenty seconds to arrive.
  */
 import type { StateCreator } from 'zustand'
+import { failureOf } from '../../lib/errors'
 import { displayTitle } from '../../lib/format'
 
 import { api } from '../../api/client'
@@ -240,7 +241,7 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
       }
       set(fromPage(await api.conversations.messages(s.library, s.conversation)))
     } catch (e) {
-      set({ error: e instanceof Error ? e.message : String(e) })
+      set({ error: failureOf(e) })
       if (s.conversation) {
         set(fromPage(await api.conversations.messages(s.library, s.conversation)))
       }

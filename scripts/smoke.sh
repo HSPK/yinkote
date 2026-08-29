@@ -750,6 +750,36 @@ check "cancel is honest"  "$(j -X POST "$BASE/tasks/t999999/cancel" | jq -r 'sel
 check "jobs speak codes"  "$(j "$BASE/tasks" | jq -r '
   [.tasks[] | select(.message != null and .message != "") | select(.message | test(" "))]
   | length | select(. == 0) | "all coded"')"
+
+# Every failure the client shows is named from its own catalogue, keyed by the
+# `code` in the envelope. A code the catalogue has never heard of falls back to
+# the server's English, so the two lists must not drift apart. Read from the
+# client's list rather than repeated here, for the same reason.
+KNOWN=$(sed -n "/KNOWN_CODES = new Set/,/])/p" web/src/lib/errors.ts | grep -o "'[a-z_]*'" | tr -d "'" | tr '\n' ' ')
+UNKNOWN=""
+SEEN=""
+# Four classes, not four spellings of the same one: a missing thing, a verb the
+# address does not have, a body in the wrong syntax, and a body of the wrong
+# shape. All four are rejected in different places in the server.
+while IFS= read -r probe; do
+  # Bare curl, not `j`: `j` always sends a JSON content-type, so the probe for
+  # the wrong content type would arrive with two and be judged by the other.
+  c=$(eval "curl -sS $probe" | jq -r '.code // empty')
+  # Named in the shell, not in jq: a `// "literal"` inside the program is a
+  # fallback that turns a missing field into a passing check (3.240). Also
+  # guards the `case` below, where an empty word matches anything.
+  c=${c:-unnamed}
+  SEEN="$SEEN $c"
+  case " $KNOWN " in *" $c "*) ;; *) UNKNOWN="$UNKNOWN $c" ;; esac
+done <<PROBES
+"$BASE/items/nope"
+-X DELETE "$BASE/ping"
+-X POST "$BASE/libraries/$LIB/items" -H content-type:text/plain -d x
+-X POST "$BASE/libraries/$LIB/items" -H 'Content-Type: application/json' -d '{"bogus":1}'
+PROBES
+check "failures are named" "$(test -z "$UNKNOWN" && echo "all known")"
+# Four distinct codes, or the sweep is one class probed four ways.
+check "failures differ"    "$(echo "$SEEN" | tr ' ' '\n' | grep . | sort -u | wc -l | tr -d ' ' | grep -x 4)"
 check "archive opens"     "$(python3 - "$DATA/exports/$EXPNAME" <<'PY'
 import zipfile, sqlite3, sys, tempfile, os, json
 z = zipfile.ZipFile(sys.argv[1])

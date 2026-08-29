@@ -54,6 +54,9 @@ export const useI18n = create<I18nState>((set) => ({
   },
 }))
 
+/** A translator, however it was obtained -- the module-level `t` or `useT`. */
+export type Translate = (key: MessageKey, vars?: Vars) => string
+
 /** Translate outside React (menus, toasts, store actions). */
 export function t(key: MessageKey, vars?: Vars): string {
   return format(MESSAGES[useI18n.getState().locale][key], vars)

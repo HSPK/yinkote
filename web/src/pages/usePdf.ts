@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { failureOf, type Failure } from '../lib/errors'
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from 'pdfjs-dist'
 
 /**
@@ -10,7 +11,7 @@ import type { PDFDocumentLoadingTask, PDFDocumentProxy } from 'pdfjs-dist'
  */
 export function usePdf(url: string | null) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<Failure | null>(null)
 
   useEffect(() => {
     if (!url) {
@@ -36,7 +37,7 @@ export function usePdf(url: string | null) {
         setDoc(loaded)
         setError(null)
       } catch (e) {
-        if (live) setError(e instanceof Error ? e.message : String(e))
+        if (live) setError(failureOf(e))
       }
     })()
 

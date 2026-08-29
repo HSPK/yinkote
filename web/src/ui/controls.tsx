@@ -73,8 +73,12 @@ export function Section({ title, action, children }: { title: string; action?: R
   )
 }
 
-export function Empty({ children }: { children: ReactNode }) {
-  return <div className="empty">{children}</div>
+export function Empty({ children, title }: { children: ReactNode; title?: string }) {
+  return (
+    <div className="empty" title={title}>
+      {children}
+    </div>
+  )
 }
 
 export function Badge({
