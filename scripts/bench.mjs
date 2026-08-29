@@ -258,9 +258,12 @@ const BUDGET = {
   // Set at roughly twice what is measured, deliberately loose: the job is to
   // catch a plan collapsing, and a threshold near the measurement fails for
   // machine reasons instead.
-  'keyword (1 term)': 60,
-  'keyword (2 terms)': 50,
-  'chinese keyword': 90,
+  // Tightened from 60/50/90 after `idx_items_live` took ranked search from
+  // 31/21/48ms to 26/14/33. A budget left at the old number keeps room for
+  // the cost it was set around to come back unnoticed.
+  'keyword (1 term)': 40,
+  'keyword (2 terms)': 30,
+  'chinese keyword': 55,
   'fuzzy (typo)': 20,
   // A phrase, not a word. This was measured at 38ms while the one-word typo
   // beside it read 6ms: a trigram phrase query over common trigrams. The
@@ -270,7 +273,7 @@ const BUDGET = {
   // Was 45 while fuzzy inside it cost 36ms. Tightened once that was fixed, so
   // the same mistake cannot pass next time.
   'hybrid': 25,
-  'hybrid + hydrate items': 85,
+  'hybrid + hydrate items': 60,
   'facets': 15,
   'stats': 15,
   'collections': 15,

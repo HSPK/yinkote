@@ -29,9 +29,19 @@ const MAX_CHUNKS: usize = 5;
 /// Dropping the join would be faster and wrong: the index holds every library.
 fn bm25_sql() -> String {
     format!(
+        // `INDEXED BY` because ranking reaches `items` once per *match*, not
+        // once per returned row: bm25 must score everything before it can keep
+        // the best few hundred, so a common word costs twenty thousand
+        // lookups. The index carries the only two columns tested here, which
+        // keeps those lookups off the table.
+        //
+        // Named rather than left to the planner. On a library with statistics
+        // the planner picks it anyway, but a fresh install has none and
+        // chooses the table; naming it makes the two behave the same, and a
+        // missing index then fails loudly instead of quietly costing 30%.
         "SELECT items_fts.rowid, bm25(items_fts, {W_TITLE}, {W_CREATORS}, {W_BODY}, {W_TAGS}) AS s
          FROM items_fts
-         CROSS JOIN items i ON i.id = items_fts.rowid
+         CROSS JOIN items i INDEXED BY idx_items_live ON i.id = items_fts.rowid
          WHERE items_fts MATCH ?1 AND i.library_id = ?2 AND i.deleted = 0
          ORDER BY s LIMIT ?3"
     )

@@ -46,3 +46,29 @@ fn search_statements_are_driven_by_the_fts_index() {
         );
     }
 }
+
+/// Ranked search reaches `items` once per *match*, not once per returned row:
+/// `bm25()` in an `ORDER BY` has to score everything before it can keep the
+/// best three hundred. On a library of 100k that is twenty thousand lookups
+/// for a common word, and the only thing keeping them off the table is that
+/// `idx_items_live` carries the two columns the join tests.
+///
+/// Losing the covering index changes no result and no test — only the latency,
+/// which is why it needs a plan assertion rather than a measurement.
+#[test]
+fn ranked_search_reads_the_join_columns_from_an_index() {
+    let store = Store::in_memory().unwrap();
+    let conn = store.db().conn().unwrap();
+
+    let (_, ranked) = critical_statements()
+        .into_iter()
+        .find(|(table, sql)| *table == "items_fts" && sql.contains("bm25"))
+        .expect("the ranked statement is the one this is about");
+
+    let steps = plan(&conn, &ranked);
+    assert!(
+        steps.iter().any(|s| s.contains("COVERING INDEX idx_items_live")),
+        "the row lookup must be answered from the index, not the table:\n  {}",
+        steps.join("\n  ")
+    );
+}

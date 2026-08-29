@@ -4461,3 +4461,57 @@ with the trailing prefix removed.
 The rule this is the third instance of: **a test that passes on the broken
 implementation is not evidence.** Run it against the break before keeping it.
 Here the break was one I had actually written and nearly shipped.
+
+### 3.254 Ranking reaches the table once per match, not once per row returned
+
+Keyword search was the slowest thing left: 31ms for one common word. The cost
+is not the words and not the scoring — it is that `bm25()` in an `ORDER BY`
+has to score *every* match before it can know which three hundred to keep, and
+each of those crosses into `items` to check the library and the trash. On this
+library "transformer" matches 20,146 documents, so a search returning 300 rows
+read 20,146 whole rows to look at two integers. The same query without ranking
+costs 3.5ms, because it stops at the limit and never scores anything.
+
+`idx_items_live(id, library_id, deleted)` carries exactly those two columns, so
+the lookup never touches the table. Measured on the running server: 31.1 →
+24.3ms, and Chinese 50.5 → 31.2ms.
+
+- **Name the index rather than leave it to the planner.** A library with
+  statistics picks it; a fresh install has none and picks the table. `INDEXED
+  BY` makes the two behave the same, and turns a missing index into a loud
+  failure instead of a quiet 30%. Naming it was worth another 6ms over letting
+  the planner choose.
+- **Weigh an index by measuring both sides on the real path.** A synthetic
+  six-column table said +16% on writes, which is what made §3.215 decline two
+  indexes. Through the actual create endpoint the difference was noise
+  (1.66–1.96ms vs 1.72–1.84ms per item) — the real `items` row is wide enough
+  that one more index is a rounding error. The synthetic number was measuring
+  its own fixture.
+- **A plan assertion, not a budget.** An index that stops being used returns
+  every correct answer and only costs time, so `query_plan.rs` now asserts the
+  covering index appears in the ranked statement's plan.
+
+### 3.255 A benchmark that wrote nothing
+
+My first write measurement posted 400 items per run and reported a confident
+2.4 seconds. The library gained **zero rows**: the endpoint takes an array and
+flat fields, my body was an object with them nested under `fields`, and every
+request was a 422. I never saw it because the probe was written with
+`-o /dev/null`, so 400 rejections and 400 creations look identical.
+
+This is §3.240 in a new place. There, a check printed a refusal message that
+could only appear when the refusal failed; here, a benchmark timed the server's
+error path and called it the write path. Both come from the same habit of
+reading whether something *came back* instead of whether it *worked*.
+
+The rewritten probe counts the rows in the database before and after and
+asserts `made == N` before printing a number. It failed twice more on that
+assertion — once for the nesting, once because tags are objects and not
+strings — which is exactly the point: **a measurement should refuse to report
+a number until it has proved it measured the right thing.**
+
+Related, from the same round: the covering index looked like a 30% win in a
+standalone probe and did nothing at all when the server was restarted with it.
+The 44ms baseline was a **cold page cache** in a separate process; the process
+that actually serves had those rows in memory. Always A/B against the running
+server, not a script beside it.
