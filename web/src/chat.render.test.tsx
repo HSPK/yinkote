@@ -8,6 +8,7 @@
  * answer.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useI18n } from './i18n'
 import { createRoot, type Root } from 'react-dom/client'
 import { act } from 'react'
 
@@ -168,6 +169,10 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unconditionally, not at the end of the test that changed it: a test that
+  // fails never reaches its own cleanup, and the next one then runs in a
+  // language it did not ask for and fails for a reason that is not its own.
+  useI18n.setState({ locale: 'en-US' })
   act(() => root.unmount())
   container.remove()
 })
@@ -382,6 +387,35 @@ describe('an answer arriving', () => {
         ...extra,
       } as never,
     },
+  })
+
+  /// A throttled model is the failure a reader of this feature actually meets,
+  /// and its message is English carrying the upstream service's raw JSON.
+  it('says why a turn failed in the reader’s language, not the server’s', async () => {
+    const raw =
+      'internal error: model returned 429 Too Many Requests: {"error":"TRAPI: Rate Limit Exceeded"}'
+    useI18n.setState({ locale: 'zh-CN' })
+    useStore.setState(running({ running: false, error: raw, errorProblem: 'rateLimited' }))
+    await render()
+
+    const note = container.querySelector('.bubble-note')
+    expect(note?.textContent).toContain('模型正忙')
+    expect(note?.textContent).not.toContain('429')
+    expect(note?.textContent).not.toContain('TRAPI')
+    // The server's own words stay reachable for anybody diagnosing.
+    expect(note?.getAttribute('title')).toBe(raw)
+  })
+
+  /// A kind nobody has named yet keeps its sentence: wrong language beats an
+  /// empty bubble, and beats a bare catalogue key.
+  it('falls back to the server’s sentence for a failure it cannot name', async () => {
+    useStore.setState(
+      running({ running: false, error: 'the index refused to answer', errorProblem: undefined }),
+    )
+    await render()
+    expect(container.querySelector('.bubble-note')?.textContent).toContain(
+      'the index refused to answer',
+    )
   })
 
   it('shows the answer as it arrives rather than after it', async () => {

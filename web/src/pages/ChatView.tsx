@@ -5,7 +5,7 @@ import type { Item, Message, RunState, RunStep } from '../api/types'
 import { MentionPicker, mentionQuery, stripMention } from '../components/MentionPicker'
 import { JumpRail, railMarks } from '../components/JumpRail'
 import { VirtualList } from '../components/VirtualList'
-import { elapsed } from '../lib/format'
+import { agentProblem, elapsed } from '../lib/format'
 import { type ScrollRequest, shouldFollow, type Tail } from '../lib/follow'
 import { Markdown } from '../lib/markdown'
 import { useStore } from '../state/store'
@@ -207,7 +207,7 @@ function LiveTurn({ run, onCancel }: { run: RunState; onCancel: () => void }) {
 type Entry =
   | { kind: 'message'; id: string; message: Message }
   | { kind: 'live'; id: string; run: RunState }
-  | { kind: 'error'; id: string; error: string }
+  | { kind: 'error'; id: string; error: string; problem?: string }
   /** A marker at the top of what is loaded; asking for it fetches more. */
   | { kind: 'older'; id: string }
 
@@ -262,7 +262,8 @@ export function ChatView() {
     }))
     if (hasOlder) out.unshift({ kind: 'older', id: 'older' })
     if (run?.running) out.push({ kind: 'live', id: 'live', run })
-    if (run?.error) out.push({ kind: 'error', id: 'error', error: run.error })
+    if (run?.error)
+      out.push({ kind: 'error', id: 'error', error: run.error, problem: run.errorProblem })
     return out
   }, [messages, run])
 
@@ -389,7 +390,12 @@ export function ChatView() {
                 {loadingOlder ? t('chat.loadingOlder') : t('chat.loadOlder')}
               </button>
             ) : (
-              <div className="bubble-note">{entry.error}</div>
+              // The class of failure from the catalogue; the server's own
+              // words stay on the element, which is where they belong. A
+              // throttled model used to put raw JSON in the chat.
+              <div className="bubble-note" title={entry.error}>
+                {agentProblem(t, entry.problem) || entry.error}
+              </div>
             )
           }
         </VirtualList>

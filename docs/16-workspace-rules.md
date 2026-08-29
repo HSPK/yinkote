@@ -4866,3 +4866,62 @@ Also: `bench.mjs` could not authenticate and died on its first request, exactly
 as `smoke.sh` did when the server first got a key. Fixing one harness and not
 the other left performance unmeasurable on a protected server for a whole
 round.
+
+### 3.271 The number on the row did not describe the view it opens
+
+A shelf holding sixty papers with a sub-shelf of sixty more was labelled **60**
+in the sidebar and listed **120** when clicked. Browsing a collection includes
+its sub-collections — `recursive` defaults to true on the items route, and
+there is a test asserting exactly that intent — while the count in `C_SELECT`
+joined only direct members.
+
+§3.223 fixed this same disagreement between the sidebar and the footer for the
+library as a whole. Nesting is where it survived, because the check written
+then compared a *flat* count: a guard is only as general as the case it was
+written against.
+
+The count is now the recursive one, `DISTINCT` because a paper filed in both a
+shelf and its child is one paper and the list shows it once. Cost measured
+rather than assumed: 601 collections each with a recursive subquery came out at
+3.7ms against 3.4ms before.
+
+Four tests, three of which go red on the old query — including one that reaches
+a *grandchild*, because a count that joined only the immediate children would
+pass the obvious test and still be wrong.
+
+### 3.272 A throttled model spoke to the reader in JSON
+
+The chat pane rendered the run's error verbatim:
+`internal error: model returned 429 Too Many Requests: {"error":"TRAPI: Rate
+Limit Exceeded","status":429}` — English, with the upstream service's raw JSON,
+to a reader of any language. And a throttled model is by far the most common
+failure this feature has, so that is the message a user actually meets.
+
+The §3.248 shape again: the server names the *kind* (`rateLimited`,
+`notConfigured`, `timedOut`, `unreachable`, `refused`), the catalogue says it,
+and the server's own sentence stays on the element for anybody diagnosing. A
+kind nobody has named keeps its sentence — a wrong language beats a bare key.
+
+Classified by the words rather than by a type, because the message arrives from
+three layers and giving each an error enum to thread through would be a large
+change for a small question. Anything unrecognised is `failed` rather than
+guessed at: a mislabelled failure sends the reader the wrong way.
+
+### 3.273 My probe hid the reason, again
+
+Last round I recorded "the agent replied empty with 0 steps and `error: None`"
+and moved on. This round it worked, so I went looking for what differed — and
+the answer was that **my probe never checked the status of `/ask`**. A request
+that fails before a run starts leaves the default empty state, whose error is
+of course null.
+
+§3.255 was a benchmark that wrote nothing because its output went to
+`/dev/null`. This is the same habit in a different place: reading whether
+something *came back* instead of whether it *worked*. The product was fine; the
+measurement was not, and I nearly spent a round fixing the wrong thing.
+
+Also from this round, in my own test: it set the locale to Chinese and restored
+it on the last line. A test that fails never reaches its own cleanup, so the
+next test ran in a language it had not asked for and failed for a reason that
+was not its own — one broken assertion reported as two. Cleanup belongs in
+`afterEach`, unconditionally.

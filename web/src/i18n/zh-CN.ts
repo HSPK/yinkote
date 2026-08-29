@@ -4,6 +4,12 @@
  *  is a compile error rather than a `[missing]` string discovered by a user.
  */
 export const zhCN = {
+  'agent.failed': '本轮对话未能完成',
+  'agent.notConfigured': '未配置模型，请在设置中指定',
+  'agent.rateLimited': '模型正忙，稍后再试',
+  'agent.refused': '模型拒绝了请求——请检查 API key',
+  'agent.timedOut': '模型响应超时',
+  'agent.unreachable': '无法连接到模型',
   'app.connecting': '正在连接 Yinkote 服务…',
 
   'failure.not_found': '未找到',

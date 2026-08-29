@@ -3,6 +3,12 @@ import type { MessageKey } from './zh-CN'
 /** English. Typed against the reference locale, so adding a key there without
  *  adding it here fails the build. */
 export const enUS: Record<MessageKey, string> = {
+  'agent.failed': 'The turn could not be completed',
+  'agent.notConfigured': 'No model is configured; set one in Settings',
+  'agent.rateLimited': 'The model is busy right now — try again in a moment',
+  'agent.refused': 'The model refused the request — check the API key',
+  'agent.timedOut': 'The model took too long to answer',
+  'agent.unreachable': 'The model could not be reached',
   'app.connecting': 'Connecting to Yinkote…',
 
   'failure.not_found': 'Not found',

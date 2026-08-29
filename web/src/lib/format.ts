@@ -159,3 +159,25 @@ export function modKey(): string {
     (typeof navigator === 'undefined' ? '' : navigator.platform || navigator.userAgent) ?? ''
   return /Mac|iPhone|iPad/i.test(platform) ? '⌘' : 'Ctrl+'
 }
+
+/**
+ *  Why a turn ended badly, in the reader's language.
+ *
+ *  The server's message is written in English where it is thrown and often
+ *  carries the upstream service's raw JSON — and a throttled model is by far
+ *  the most common failure here, so that is the one a reader meets. Unknown
+ *  kinds return empty, and the caller falls back to the sentence: a sentence
+ *  in the wrong language still beats a bare key.
+ */
+export function agentProblem(t: Translate, problem?: string): string {
+  return problem && AGENT_PROBLEMS.has(problem) ? t(`agent.${problem}` as MessageKey) : ''
+}
+
+const AGENT_PROBLEMS = new Set([
+  'rateLimited',
+  'notConfigured',
+  'timedOut',
+  'unreachable',
+  'refused',
+  'failed',
+])

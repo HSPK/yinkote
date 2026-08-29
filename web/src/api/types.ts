@@ -470,6 +470,9 @@ export interface RunState {
   /** True when the user stopped it, as opposed to the loop running out. */
   stopped: boolean
   error: string | null
+  /** What kind of failure, as a key the catalogues name. The message itself
+   *  is written in English and often carries the upstream service's JSON. */
+  errorProblem?: string
   /** The answer as it arrives, before it lands as a step. */
   partial?: string
   partialReasoning?: string

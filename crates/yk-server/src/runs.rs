@@ -64,13 +64,48 @@ pub struct RunState {
     pub reply: String,
     pub truncated: bool,
     pub stopped: bool,
+    /// The server's own words, kept for anybody diagnosing.
     pub error: Option<String>,
+    /// What *kind* of failure, as a code the catalogues can name.
+    ///
+    /// The message is written in English at the point it is thrown and often
+    /// carries the upstream service's raw JSON. Showing that in a chat bubble
+    /// to a reader of any language is the thing this program says it never
+    /// does -- and a throttled model is by far the most common failure here,
+    /// so it is the one a reader meets.
+    #[serde(rename = "errorProblem", skip_serializing_if = "Option::is_none")]
+    pub error_problem: Option<&'static str>,
     /// The answer as it is arriving, before the model has finished the message.
     /// Cleared when the message lands as a step, so the same words are never on
     /// screen twice.
     pub partial: String,
     /// The current reasoning, same rule.
     pub partial_reasoning: String,
+}
+
+/// The kind of failure, from what the message says.
+///
+/// By the words rather than by a type, because the message arrives from three
+/// layers -- the provider, the agent loop and the store -- and giving each its
+/// own error enum to thread through would be a large change for a small
+/// question. The words checked are the ones the upstream services actually
+/// use; anything unrecognised keeps its sentence, which is better than a
+/// wrong label.
+fn classify(message: &str) -> &'static str {
+    let said = message.to_lowercase();
+    if said.contains("429") || said.contains("rate limit") || said.contains("too many requests") {
+        "rateLimited"
+    } else if said.contains("no model is configured") || said.contains("agent.endpoint") {
+        "notConfigured"
+    } else if said.contains("timed out") || said.contains("timeout") {
+        "timedOut"
+    } else if said.contains("connect") || said.contains("dns") || said.contains("unreachable") {
+        "unreachable"
+    } else if said.contains("401") || said.contains("403") || said.contains("unauthorized") {
+        "refused"
+    } else {
+        "failed"
+    }
 }
 
 /// Every conversation with a turn in flight, and the last state of those that
@@ -181,6 +216,7 @@ impl Run {
         {
             let mut state = self.state.lock();
             state.running = false;
+            state.error_problem = Some(classify(&message));
             state.error = Some(message);
         }
         self.announce();
@@ -452,5 +488,39 @@ mod tests {
         state.steps.push(Step::Text { content: "y".repeat(9_000) });
         let step = &steps_json(&state)[0];
         assert_eq!(step["content"].as_str().unwrap().chars().count(), 9_000);
+    }
+}
+
+#[cfg(test)]
+mod failure_kinds {
+    use super::classify;
+
+    /// A throttled model is the failure a reader of this feature actually
+    /// meets, and its message carries the upstream service's raw JSON.
+    #[test]
+    fn a_throttled_model_is_named() {
+        for said in [
+            "internal error: model returned 429 Too Many Requests: {\"error\":\"TRAPI: Rate Limit Exceeded\"}",
+            "upstream busy: rate limit exceeded",
+            "HTTP 429",
+        ] {
+            assert_eq!(classify(said), "rateLimited", "{said}");
+        }
+    }
+
+    #[test]
+    fn the_other_kinds_are_told_apart() {
+        assert_eq!(classify("no model is configured; set agent.endpoint"), "notConfigured");
+        assert_eq!(classify("the request timed out after 60s"), "timedOut");
+        assert_eq!(classify("error sending request: failed to connect"), "unreachable");
+        assert_eq!(classify("model returned 401 Unauthorized"), "refused");
+    }
+
+    /// Anything unrecognised keeps its own sentence rather than being given a
+    /// wrong label -- a mislabelled failure sends the reader the wrong way.
+    #[test]
+    fn an_unfamiliar_failure_is_not_guessed_at() {
+        assert_eq!(classify("the index refused to answer"), "failed");
+        assert_eq!(classify(""), "failed");
     }
 }

@@ -164,10 +164,26 @@ impl SqliteCollectionRepository {
     }
 }
 
+/// The count counts what clicking the row will show.
+///
+/// Browsing a collection includes its sub-collections -- `recursive` defaults
+/// to true and there is a test saying so -- while this counted only direct
+/// members. A shelf holding sixty papers with a sub-shelf of sixty more was
+/// labelled 60 in the sidebar and listed 120 when opened. §3.223 fixed the
+/// same disagreement between the sidebar and the footer for the library as a
+/// whole; nesting is where it survived.
+///
+/// `DISTINCT`, because a paper filed in both a collection and its child is one
+/// paper, and the list shows it once.
 const C_SELECT: &str = "SELECT c.id, c.key, c.library_id, c.name, p.key, c.sort_index, \
      c.color, c.icon, c.version, \
-     (SELECT count(*) FROM collection_items ci JOIN items i ON i.id = ci.item_id \
-      WHERE ci.collection_id = c.id AND i.deleted = 0) \
+     (SELECT count(DISTINCT ci.item_id) \
+        FROM collection_items ci JOIN items i ON i.id = ci.item_id \
+       WHERE i.deleted = 0 AND ci.collection_id IN ( \
+             WITH RECURSIVE sub(id) AS ( \
+                 SELECT c.id UNION ALL \
+                 SELECT d.id FROM collections d JOIN sub ON d.parent_id = sub.id) \
+             SELECT id FROM sub)) \
      FROM collections c LEFT JOIN collections p ON p.id = c.parent_id";
 
 fn map_collection(r: &rusqlite::Row<'_>) -> rusqlite::Result<Collection> {
