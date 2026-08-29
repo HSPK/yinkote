@@ -194,7 +194,15 @@ const BUDGET = {
   // index stopped being named), and a threshold close to the measurement fails
   // for machine reasons instead.
   'list first page (sort=modified)': 15,
-  'list deep page (offset=50000)': 15,
+  // Higher than the first page on purpose, and higher than it used to be.
+  // Browsing now asks for top-level items only, which is what the workbench
+  // asks for, and `parent_id` is not in the sort index — so the index stops
+  // being *covering* and each of the 50,100 rows walked needs a table visit:
+  // 1.8ms to 22ms, measured, plan confirmed. Adding the column to all seven
+  // sort indexes would buy that back on an operation that means scrolling five
+  // hundred pages, and cost every write. The old 15 described a request the
+  // product does not make.
+  'list deep page (offset=50000)': 35,
   'list sorted by title': 15,
   // 36.2ms before the plan was chosen from the tag's cardinality, 17.3 after,
   // and nearly all of what is left is the count rather than the page. A
@@ -410,10 +418,17 @@ async function main() {
   )
 
   console.log('▸ browse')
-  await measure('list first page (sort=modified)', `/libraries/${lib}/items?limit=100`)
-  await measure('list deep page (offset=50000)', `/libraries/${lib}/items?limit=100&offset=50000`)
-  await measure('list sorted by title', `/libraries/${lib}/items?limit=100&sort=title`)
-  await measure('list filtered by tag', `/libraries/${lib}/items?limit=100&tag=survey`)
+  // `topLevel=true` on every browse, because that is what the workbench sends:
+  // the table is flat and cannot nest a highlight under its paper. Measuring
+  // the request the product does not make hid a 28x regression on the first
+  // page of the library — the single most-loaded query there is — for as long
+  // as the filter existed. A benchmark is only worth its budget if it asks
+  // what the client asks.
+  const browse = `/libraries/${lib}/items?topLevel=true`
+  await measure('list first page (sort=modified)', `${browse}&limit=100`)
+  await measure('list deep page (offset=50000)', `${browse}&limit=100&offset=50000`)
+  await measure('list sorted by title', `${browse}&limit=100&sort=title`)
+  await measure('list filtered by tag', `${browse}&limit=100&tag=survey`)
   // The other side of the same decision. Which SQL a tag filter becomes turns
   // on how common the tag is, so measuring only a common one leaves half the
   // choice unwatched — and that half is where forcing the sort index onto a
@@ -428,7 +443,7 @@ async function main() {
     console.log(`  (rarest tag: ${rare.name}, ${rare.count} items)`)
     await measure(
       'list filtered by rare tag',
-      `/libraries/${lib}/items?limit=100&tag=${encodeURIComponent(rare.name)}`,
+      `${browse}&limit=100&tag=${encodeURIComponent(rare.name)}`,
     )
   }
   // No `limit`, because the sidebar sends none and the startup warm-up
@@ -449,10 +464,10 @@ async function main() {
   // went entirely unmeasured while the corpus had no collections in it.
   const shelf = shelves[0]?.key
   if (shelf) {
-    await measure('list one collection', `/libraries/${lib}/items?limit=100&collection=${shelf}`)
+    await measure('list one collection', `${browse}&limit=100&collection=${shelf}`)
     await measure(
       'list collection + children',
-      `/libraries/${lib}/items?limit=100&collection=${shelf}&recursive=true`,
+      `${browse}&limit=100&collection=${shelf}&recursive=true`,
     )
   }
   // The statistics the workbench asks for on every load.

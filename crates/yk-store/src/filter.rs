@@ -65,7 +65,17 @@ impl Predicate {
 
         clauses.push("i.library_id = ?".into());
         params.push(SqlValue::Integer(filter.library_id));
-        let base_clauses = 2; // library and trash scope
+        // Library, trash scope — and top-level, which belongs with them.
+        //
+        // `parent_id IS NULL` matches all but a handful of rows in any real
+        // library, so it cannot help the planner narrow anything. Counting it
+        // as a narrowing clause dropped the `INDEXED BY` below, and without
+        // that SQLite left the covering index that already holds the order,
+        // drove from `idx_items_parent` instead, and sorted the whole library
+        // in a temp B-tree: the first page of a plain browse went from 1.4ms
+        // to 47.8ms, and page 500 from 3.6ms to 80.3ms. The workbench sends
+        // this filter on every browse.
+        let base_clauses = 2 + usize::from(filter.top_level_only);
 
         match filter.trash {
             TrashScope::Exclude => clauses.push("i.deleted = 0".into()),
