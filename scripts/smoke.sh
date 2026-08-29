@@ -27,6 +27,18 @@ SKIP=0
 FAILED=()
 
 check() { # check <name> <value>
+  # A value that contains our own output means another check ran *inside* this
+  # one's `$( )`, which is what an edit landing in the middle of a multi-line
+  # check produces. Both lines print green and only one of them is counted, so
+  # the run looks fine and one check silently stopped existing. This has now
+  # happened three times; a value carrying an escape or a newline is never
+  # anything else, so it is refused rather than reported.
+  if [[ "${2:-}" == *$'\033'* || "${2:-}" == *$'\n'* ]]; then
+    printf '  \033[31mFAIL\033[0m %-44s %s\n' "$1" "another check ran inside this one's value"
+    FAIL=$((FAIL + 1))
+    FAILED+=("$1")
+    return
+  fi
   if [[ -n "${2:-}" && "$2" != "null" && "$2" != "false" && "$2" != "0" ]]; then
     printf '  \033[32mok\033[0m   %-44s %s\n' "$1" "$2"
     PASS=$((PASS + 1))
