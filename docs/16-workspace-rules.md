@@ -4683,3 +4683,54 @@ now. A bilingual summary opens `## English`, so it was titled "## English" in
 every list. A heading names what follows; the title is the first line that says
 something, with the heading kept only as a fallback for a note that is nothing
 else.
+
+### 3.263 A seam, not a dependency
+
+Asked whether PDF reading should use a layout model — Marker, MinerU,
+PaddleOCR — I measured the built-in reader first rather than answering from
+taste. On real papers it recovers prose faithfully in ~100ms, which is what a
+summary and a close reading are made of. It has two weaknesses, and they are
+facts rather than impressions: a results table flattens into rows with the
+columns lost, `10²⁰` comes out `10 20`, and a scan yields nothing at all.
+
+A layout model fixes both and costs a Python runtime, one to two gigabytes of
+weights and a GPU to be quick — against a product whose premise is a single
+binary somebody downloads and runs. Paying that for every user to be better on
+a minority of files is trading the premise for the feature.
+
+So `yk_pdf::Pipeline`: anything that takes a path and prints text can be named
+in `[pdf]`, the built-in reader stays the default, and OCR arrives through the
+same seam rather than a second mechanism. Three rules make it safe:
+
+- **A missing or failing external reader is never the answer.** It is logged
+  and the built-in result stands — that is the state every machine starts in,
+  and a half-typed configuration must not turn a paper that reads fine into an
+  error.
+- **`fallback` is the setting worth having.** The case a layout model is
+  irreplaceable for — a page of images — is exactly the one the built-in reader
+  cannot do at all, and it is detectable.
+- **The `{}` placeholder is required.** Without it the program runs on no file
+  and reports success on an empty document: a failure with no error.
+
+The same round: the design document claimed `yk-pdf` was built on pdfium. It
+is not, and the reason is the same premise — pdfium needs a prebuilt native
+library per platform. **A document describing something that does not exist is
+worse than no document**, so it now records what was built, the measured limits
+and why the model is a seam.
+
+### 3.264 A fixture too small to test what it claimed
+
+The test for "fallback does not pay for a reader it does not need" passed, and
+did not test that. The stand-in reader echoed one short line, which is not
+*useful* text — so the external reader ran, its answer was thrown away for
+being too thin, and the assertion held for a reason unrelated to fallback.
+
+The hand-built fixture had the same fault from the other side: 159 characters,
+below the threshold that distinguishes a paper from a scan, so the built-in
+reader's result was never "good enough" and the branch under test was never
+taken. Two accidents cancelling.
+
+Both fixed by making each side unambiguous — a fixture the built-in reader
+plainly reads, and a stand-in whose answer would plainly be preferred — and
+then confirmed red by disabling the rule. §3.253 for the third time: **the
+fixture has to be able to produce the failure, not merely the pass.**

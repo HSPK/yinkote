@@ -8,6 +8,7 @@ license.workspace = true
 yk-core.workspace = true
 pdf-extract = "0.12"
 tracing.workspace = true
+tokio = { workspace = true, features = ["process", "time", "fs"] }
 
 [dev-dependencies]
 tokio.workspace = true

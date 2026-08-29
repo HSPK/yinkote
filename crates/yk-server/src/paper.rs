@@ -74,18 +74,14 @@ pub async fn read(app: &App, lib: i64, item: &Item) -> Paper {
         }
     };
 
-    // Extraction is CPU-bound and takes ~90ms for a real paper, which is long
-    // enough to matter to every other request sharing the runtime.
-    let extracted = tokio::task::spawn_blocking(move || yk_pdf::extract(&bytes)).await;
-
-    match extracted {
-        Ok(Ok(text)) => Paper { text: Some(text), source: Some(filename) },
-        Ok(Err(e)) => {
-            tracing::debug!(error = %e, %filename, "the paper's file could not be read");
-            Paper { text: None, source: Some(filename) }
-        }
+    // The built-in reader is CPU-bound and takes ~100ms for a real paper,
+    // which is long enough to matter to every other request sharing the
+    // runtime; the pipeline puts it on a blocking thread and may hand the file
+    // to a layout model instead, if one is configured.
+    match app.config().pdf.pipeline().read(&bytes).await {
+        Ok(text) => Paper { text: Some(text), source: Some(filename) },
         Err(e) => {
-            tracing::warn!(error = %e, "extracting the paper's text panicked");
+            tracing::debug!(error = %e, %filename, "the paper's file could not be read");
             Paper { text: None, source: Some(filename) }
         }
     }

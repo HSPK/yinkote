@@ -39,6 +39,8 @@ pub struct Config {
     /// Optional bearer token. When set, every `/api` call must present it.
     pub api_key: Option<String>,
     pub embeddings: Embeddings,
+    /// How PDFs are read. See [`PdfConfig`].
+    pub pdf: PdfConfig,
     pub agent: AgentConfig,
 }
 
@@ -129,6 +131,75 @@ impl AgentConfig {
     }
 }
 
+/// How the text is got out of a PDF.
+///
+/// The built-in reader is a text-layer reader: offline, no model, ~100ms for a
+/// real paper, and faithful on prose, which is what a summary and a close
+/// reading are made of. It cannot read a scan at all, and it flattens tables.
+///
+/// A layout model -- Marker, MinerU, PaddleOCR -- does better on both, and
+/// none is built in: they are Python programs with a gigabyte or two of
+/// weights that want a GPU to be quick, and this is a single binary somebody
+/// installs and runs. So the good answer is available to anybody who wants it
+/// and nobody pays for it who does not.
+///
+/// ```toml
+/// [pdf]
+/// mode = "fallback"                 # off (default) | fallback | always
+/// command = "marker_single"
+/// args = ["{}", "--output_format", "markdown"]
+/// timeout_secs = 300
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PdfConfig {
+    /// `off`, `fallback` (only when there is no text layer), or `always`.
+    pub mode: String,
+    /// The program to run. Empty means there is none, whatever `mode` says.
+    pub command: String,
+    /// Its arguments; one must contain `{}`, which becomes the file's path.
+    pub args: Vec<String>,
+    /// A layout model on a CPU takes minutes on a long paper, and a summary
+    /// nobody waits for is worse than a rough one.
+    #[serde(default = "default_pdf_timeout")]
+    pub timeout_secs: u64,
+}
+
+impl Default for PdfConfig {
+    fn default() -> Self {
+        Self {
+            mode: "off".into(),
+            command: String::new(),
+            args: Vec::new(),
+            timeout_secs: default_pdf_timeout(),
+        }
+    }
+}
+
+fn default_pdf_timeout() -> u64 {
+    300
+}
+
+impl PdfConfig {
+    /// The pipeline this describes.
+    ///
+    /// A mode with no command is `off`, not an error: half-configuring this is
+    /// how somebody tries it out, and it must not stop the server starting.
+    pub fn pipeline(&self) -> yk_pdf::Pipeline {
+        if self.command.trim().is_empty() {
+            return yk_pdf::Pipeline::default();
+        }
+        yk_pdf::Pipeline {
+            mode: yk_pdf::Mode::parse(&self.mode),
+            external: Some(yk_pdf::External {
+                command: self.command.clone(),
+                args: self.args.clone(),
+                timeout: std::time::Duration::from_secs(self.timeout_secs.max(1)),
+            }),
+        }
+    }
+}
+
 fn default_max_steps() -> usize {
     yk_agent::MAX_STEPS
 }
@@ -176,6 +247,7 @@ impl Default for Config {
             connector_port: None,
             api_key: None,
             embeddings: Embeddings::default(),
+            pdf: PdfConfig::default(),
             agent: AgentConfig::default(),
         }
     }

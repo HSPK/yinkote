@@ -9,6 +9,10 @@
 //! at all, and the honest answer there is "nothing", not an error: the caller
 //! decides whether to fall back to the abstract.
 
+pub mod pipeline;
+
+pub use pipeline::{External, Mode, Pipeline};
+
 use yk_core::{Error, Result};
 
 /// How much text one paper contributes.
@@ -64,7 +68,7 @@ pub fn extract(bytes: &[u8]) -> Result<Extracted> {
 /// Text extracted from a two-column paper arrives with a line break every
 /// forty characters and blank lines between them. Left alone that triples the
 /// token count and reads to a model as a poem.
-fn normalise(raw: &str) -> String {
+pub(crate) fn normalise(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     let mut blank_run = 0usize;
 
@@ -95,7 +99,7 @@ fn normalise(raw: &str) -> String {
     out
 }
 
-fn bound(text: &str) -> Extracted {
+pub(crate) fn bound(text: &str) -> Extracted {
     let total_chars = text.chars().count();
     match text.char_indices().nth(MAX_CHARS) {
         Some((cut, _)) => {
