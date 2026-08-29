@@ -5113,3 +5113,37 @@ from, the feature said so in one sentence instead of writing a plausible
 summary of a paper it had not read. That behaviour was asked for in the prompt
 (§ "if the material is too thin to summarise honestly, say so") and this is the
 first time it has been seen firing on its own.
+
+### 3.282 Loaded, called, and doing nothing
+
+The plugin section checked three things: three plugins reach `ready`, the
+contributions map is not empty, and `enabled` agrees with `state`. All three
+are claims about the *host*. A plugin that loads, is invoked on every write and
+returns nothing satisfies every one of them.
+
+Demonstrated rather than argued: I made `auto-tag`'s hook return `null` and
+restarted. It still reported `state: ready, failures: 0`, all three checks
+still passed, and items came back with no tags. The feature was gone and the
+suite was green.
+
+The check that matters is that the hook's answer *reaches the item*: create
+one whose title matches a rule and see the tags on it — and see that they are
+marked automatic, so a tag the model chose is never mistaken for one the reader
+did. §3.224 tested a plugin that *fails*; nothing tested one that succeeds.
+
+This is the shape of most of what these rounds have found: the difference
+between a component reporting itself healthy and the thing it exists to do
+having happened.
+
+### 3.283 What the round confirmed
+
+Nothing else was broken. Recorded so it is not re-derived:
+
+- **Close reading of a 202,432-character paper takes 20.9 seconds**, reads
+  200,000 of them, reports `partial: true`, and produces all five headings.
+  Well inside the 120-second model timeout. Deliberately *not* bounded the way
+  summarising now is (§3.280): it is asked what the paper did section by
+  section, and the middle is where that lives.
+- The scraper's three input kinds, the nested collection counts, filing and
+  unfiling, the close-reading refusal and the four external search sources all
+  behave as the previous rounds left them.

@@ -395,6 +395,22 @@ check "contributions"    "$(j "$BASE/plugins/contributions" | jq -r '[to_entries
 # plugin reported `enabled: true`.
 check "enabled agrees"   "$(j "$BASE/plugins" | jq -r '[.[] | select(.enabled != (.state != "disabled"))] | length | select(. == 0) | "coherent"')"
 
+# Loaded, called, and *did something*. The three checks above are all claims
+# about the host: a plugin that loads, is invoked on every write and returns
+# nothing satisfies every one of them. `auto-tag` hooks `item.beforeCreate`
+# and adds tags from the title, so an item created with a matching title comes
+# back carrying them -- which is the only evidence that a hook's answer reaches
+# the item rather than being computed and dropped.
+PLUGGED=$(j -X POST "$BASE/libraries/$LIB/items" \
+  -d '[{"itemType":"journalArticle","title":"A systematic review of reinforcement learning"}]')
+check "a hook changes it"  "$(echo "$PLUGGED" | jq -r '
+  [.created[0].tags[]?.tag] | select(index("survey") and index("rl")) | "tagged"')"
+# And as an automatic tag, so it is never mistaken for one the reader chose.
+check "marked automatic"   "$(echo "$PLUGGED" | jq -r '
+  [.created[0].tags[]? | select(.tag == "survey") | .type] | first | select(. == 1) | "automatic"')"
+PLUGKEY=$(echo "$PLUGGED" | jq -r '.created[0].key')
+j -X POST "$BASE/libraries/$LIB/items/delete" -d "{\"keys\":[\"$PLUGKEY\"]}" > /dev/null
+
 echo "▸ collection appearance"
 APPK=$(j -X POST "$BASE/libraries/$LIB/collections" \
          -d '{"name":"Smoke appearance","color":"violet","icon":"flask"}' | jq -r .key)
