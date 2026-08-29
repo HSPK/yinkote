@@ -79,6 +79,14 @@ SUSPECT=$(grep -n 'then' "$0" \
           | grep -v 'empty' \
           | grep -v '^[0-9]*:#' \
           | grep -v '^[0-9]*:[A-Za-z_][A-Za-z0-9_]*=' || true)
+
+# The same fault spelled with `//`. `jq -r '.a // .b // "refused"'` answers
+# "refused" when the request was *accepted* and the error field is absent —
+# two refusal checks passed on that literal for as long as the error envelope
+# had a different shape. A fallback to a literal is a way of not asking.
+SUSPECT="$SUSPECT$(grep -n '// *"' "$0" \
+          | grep -v '^[0-9]*: *#' \
+          | grep -v '^[0-9]*:[A-Za-z_][A-Za-z0-9_]*=' || true)"
 if [[ -n "$SUSPECT" ]]; then
   printf '  \033[31mFAIL\033[0m %s\n' "a check has no failing branch:" >&2
   echo "$SUSPECT" >&2
@@ -572,8 +580,14 @@ print('in order' if t.find('p. 2') < t.find('p. 7') else '')
 ")"
 check "quotes the paper"  "$(echo "$NBODY" | grep -o '<blockquote>earlier passage</blockquote>')"
 check "keeps the comment" "$(echo "$NBODY" | grep -o '<p>a thought</p>')"
-check "refuses an empty"  "$(j -X POST "$BASE/libraries/$LIB/items/$KEY/notes/from-annotations" -d '{}' \
-                             | jq -r '.error.message // .error // "refused"' | head -c 8)"
+# On the status, not the body. This read `.error.message // .error //
+# "refused"`, and the envelope has carried `code`/`status`/`title` since
+# rejections were given one — so there is no `.error` to find and the literal
+# was printed every time, whether the server refused or happily obliged. A
+# fallback in a check is a way of never asking the question.
+check "refuses an empty"  "$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+                             -H 'Content-Type: application/json' -d '{}' \
+                             "$BASE/libraries/$LIB/items/$KEY/notes/from-annotations" | grep -x 422)"
 
 echo "▸ bibliography import"
 # The round trip through the API: what the server just wrote, it can read back.
@@ -795,8 +809,12 @@ check "style change"      "$(j -X PUT "$BASE/integration/session/$SID/prefs" \
 check "restyled citation" "$(j -X POST "$BASE/integration/session/$SID/refresh" -d "$SETTLED" \
                               | jq -r '[.updatedFields[].text] | join(" ") | select(test("Li, 2021"))')"
 check "session closed"    "$(j -X POST "$BASE/integration/session/$SID/close" | jq -r .closed)"
-check "closed stays shut" "$(j -X POST "$BASE/integration/session/$SID/refresh" -d "$SNAP" \
-                              | jq -r '.error.kind // .error // "rejected"' | head -c 20)"
+# Same trap as `refuses an empty`: this fell through to "rejected" whatever
+# came back, so a session that stayed usable after being closed would have
+# read as a pass.
+check "closed stays shut" "$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+                              -H 'Content-Type: application/json' -d "$SNAP" \
+                              "$BASE/integration/session/$SID/refresh" | grep -x 404)"
 
 echo "▸ search paging"
 # The client's infinite scroll stops at `items.length >= total`. While the total
