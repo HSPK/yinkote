@@ -270,6 +270,11 @@ const BUDGET = {
   'collections': 15,
   // 48ms of walking the whole library before a partial index; 3ms after.
   'file browser page': 20,
+  // Sub-millisecond today. Budgeted tightly *because* they are that fast and
+  // that frequent: anything here is paid on every click, so a jump to 10ms is
+  // the kind of change worth being told about.
+  'open an item': 10,
+  'its notes and files': 10,
 }
 
 const overBudget = []
@@ -522,6 +527,22 @@ async function main() {
   await measure('duplicates after a write', `/libraries/${lib}/duplicates`, 6, (i) =>
     post(`/libraries/${lib}/items`, [makeItem(PROBE_BASE + 500 + i)]),
   )
+
+
+  // Clicking a row: the most frequent thing anybody does here, and until now
+  // the only hot path with no number at all. The detail panel asks for the
+  // item and its children, so both are on the critical path of every
+  // selection — a regression in either is felt as the list "being slow".
+  {
+    const first = await get(`/libraries/${lib}/items?limit=1&topLevel=true`)
+    const key = first.items[0]?.key
+    if (key) {
+      await measure('open an item', `/libraries/${lib}/items/${key}`, 20)
+      await measure('its notes and files', `/libraries/${lib}/items/${key}/children`, 20)
+    } else {
+      console.log('  (no item to open)')
+    }
+  }
 
   console.log('\n▸ search')
   await measure('keyword (1 term)', `/libraries/${lib}/search?q=transformer&mode=keyword`)
