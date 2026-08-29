@@ -4972,3 +4972,54 @@ Two things worth keeping about the sweep itself:
   is hand-written and nothing else compares the two lists — and with unknown
   keys refused, drift in either direction is now a failure rather than a
   silently different answer.
+
+### 3.276 Three rounds, three broken probes
+
+The inspection found no product bug this round. It found that **my probe was
+wrong for the third round running**, each time differently:
+
+- Round 2: recorded "the agent replied empty, `error: None`" — the probe never
+  checked the status of `/ask`, and a request that fails before a run starts
+  leaves the default empty state.
+- Round 3: `?tags=` instead of `?tag=`, silently ignored, so every "view" total
+  came back as the whole library. (That one turned into a real fix.)
+- Round 4: `data=... if body else None` — **`{}` is falsy in Python**, so the
+  POST became a GET and `close-reading` answered 405. I briefly believed a
+  422 had regressed.
+
+Three times I nearly spent a round fixing the wrong thing. The pattern is
+§3.255: reading whether something *came back* rather than whether it *did what
+was asked*.
+
+The fix is not to be more careful. It is that a check I re-derive by hand every
+thirty minutes is a check with no tests of its own, and the suite is the thing
+that does not get rewritten each time. So the two AI guarantees the inspection
+exists to verify now live in `smoke.sh`:
+
+- **`readInFull` is reported.** An abstract is already a summary, so
+  summarising one produces something that reads like a summary and says
+  nothing new. That field is the only place the difference is visible, and a
+  summary that silently came from an abstract is one nobody can tell apart.
+- **A close reading refuses without a readable PDF.** It is a fabrication with
+  headings on it otherwise, filed beside the real ones with nothing to tell
+  them apart.
+
+### 3.277 What the inspection confirmed rather than changed
+
+Worth recording, because next time the temptation will be to re-derive it:
+
+- **The two clients that are somebody else's still work.** The Word pane's own
+  requests (`?q=&limit=`), the manifest, and the connector's `saveItems` all
+  answer. Last round made all nine query structs strict and neither smoke nor
+  the benchmark covers those callers — so this needed asking directly.
+- **The connector's boundary holds on a public bind.** From the LAN address it
+  answers 403 with "the browser connector answers only programs running on
+  this machine", and the API itself answers 401. Its authentication is that
+  the caller is local, and that is still true when `--host 0.0.0.0`.
+- **The 74ms p99 on saved-search counts is one cold call**, not a tail. Warm it
+  is 0.5ms for 27 searches; after an item write it is 0.6ms. Reported here so
+  the same number is not investigated a third time.
+- **The search box costs ~37ms and it is all ranking.** Hydration is 1ms, and a
+  ten-row page costs the same as fifty because the retrievers always produce
+  300 candidates. The cost is bm25 over the ~20,000 documents a common word
+  matches, which §3.254 already took as far as an index can.

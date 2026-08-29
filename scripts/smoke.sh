@@ -1370,6 +1370,7 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
     # it is the total — which is exactly what nobody compares. Every check
     # below has to account for itself, present or not.
     for named in "summarise" "summary is a child" "summary replaced" \
+                 "reads the paper" "close reading refuses" \
                  "agent answers" "agent shows work"; do
       skip "$named" "needs the model, which is rate-limited right now"
     done
@@ -1383,6 +1384,22 @@ if [[ "$(j "$BASE/agent" | jq -r .configured)" == "true" ]]; then
   # Re-running must replace the note, not add a second one.
   j -X POST "$BASE/libraries/$LIB/items/$AK/summarise" -d '{}' > /dev/null
   check "summary replaced" "$(j "$BASE/libraries/$LIB/items/$AK/children" | jq -r 'select(length == 1) | "one"')"
+
+  # Whether it read the paper or only its abstract. An abstract is already a
+  # summary, so summarising one produces something that reads like a summary
+  # and says nothing new -- the difference between the two is the entire point
+  # of extracting the text, and `readInFull` is the only place it is visible.
+  # `$AK` has no file, so the honest answer here is `false`; what is checked is
+  # that the field is *reported*, because a summary that silently came from an
+  # abstract is one nobody can tell apart from one that did not.
+  check "reads the paper" "$(jq -r '.readInFull | select(. == true or . == false) | "reported"' <<< "$SUMM")"
+
+  # A close reading of an abstract is a fabrication with headings on it, and it
+  # would be filed beside the real ones with nothing to tell them apart. So
+  # this refuses where summarise falls back.
+  check "close reading refuses" "$(c -o /dev/null -w '%{http_code}' -X POST \
+                                    -H 'Content-Type: application/json' -d '{}' \
+                                    "$BASE/libraries/$LIB/items/$AK/close-reading" | grep -x 422)"
 
   ACONV=$(j -X POST "$BASE/libraries/$LIB/conversations" -d '{"title":"smoke"}' | jq -r .key)
   # Starting returns at once now, so the answer is waited for the way a client
