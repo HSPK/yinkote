@@ -220,7 +220,11 @@ async fn merging_keeps_what_was_only_on_the_copy_being_discarded() {
 
     assert_eq!(merged.field("DOI"), Some("10.1/xyz"), "an identifier the master lacked");
     assert_eq!(merged.field("abstractNote"), Some("The abstract."));
-    assert_eq!(merged.tags.len(), 1, "and its tag");
+    assert_eq!(
+        merged.tags.iter().map(|t| t.tag.as_str()).collect::<Vec<_>>(),
+        vec!["transformers"],
+        "and its tag — named, because a count cannot tell which tag survived",
+    );
     assert_eq!(merged.collections, vec![collection.key], "and where it was filed");
 
     let child = store.items.get(lib, &file.key).await.unwrap();
@@ -292,4 +296,34 @@ async fn merging_a_record_into_itself_does_nothing() {
 
     assert!(!merged.deleted, "it must not trash the very record it was asked to keep");
     assert_eq!(store.libraries.version(lib).await.unwrap(), before, "and nothing was written");
+}
+
+/// A blank field on the master is a gap, not a value worth keeping.
+///
+/// `merging_never_overwrites_the_record_that_was_chosen` above proves a real
+/// value survives; this is the boundary of that rule. A record typed by hand
+/// often has a field that was tabbed through and left as spaces, and treating
+/// that as something the user chose would keep the blank and drop the DOI the
+/// other copy actually had.
+#[tokio::test]
+async fn an_empty_field_on_the_master_counts_as_missing() {
+    let (_root, store, lib) = store("merge-blank-is-a-gap").await;
+
+    let master = store
+        .items
+        .create(lib, paper("Blanks", "Li", "2021").with_field("DOI", "   "))
+        .await
+        .unwrap();
+    let other = store
+        .items
+        .create(lib, paper("Blanks", "Li", "2021").with_field("DOI", "10.3/real"))
+        .await
+        .unwrap();
+
+    let merged = store.items.merge(lib, &master.key, &[other.key]).await.unwrap();
+    assert_eq!(merged.field("DOI"), Some("10.3/real"), "whitespace was treated as a real value");
+
+    // Re-read rather than trusting the reply; those have disagreed before.
+    let stored = store.items.get(lib, &master.key).await.unwrap();
+    assert_eq!(stored.field("DOI"), Some("10.3/real"));
 }
