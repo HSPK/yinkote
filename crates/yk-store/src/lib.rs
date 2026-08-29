@@ -292,6 +292,112 @@ mod tests {
         );
     }
 
+    /// Deleting a shelf must never delete what is on it.
+    ///
+    /// Untested until now, which is uncomfortable for the one operation here
+    /// that a user would experience as losing their library. It works because
+    /// `collection_items` cascades on the *membership* row and `collections`
+    /// cascades on the parent — two schema declarations and a
+    /// `PRAGMA foreign_keys = ON`, none of which the code mentions and any of
+    /// which could be changed by someone with no idea this depended on them.
+    #[tokio::test]
+    async fn deleting_a_shelf_keeps_the_papers_on_it() {
+        let s = store();
+        let lib = s.default_library;
+        let shelf = s
+            .collections
+            .create(lib, CollectionDraft { name: "Doomed".into(), ..Default::default() })
+            .await
+            .unwrap();
+
+        let mut draft = article("A paper on a doomed shelf");
+        draft.collections = vec![shelf.key.clone()];
+        let paper = s.items.create(lib, draft).await.unwrap();
+
+        s.collections.delete(lib, &shelf.key, false).await.unwrap();
+
+        let kept = s.items.get(lib, &paper.key).await.unwrap();
+        assert!(!kept.deleted, "the paper went with the shelf");
+        assert!(kept.collections.is_empty(), "it is still filed on a shelf that is gone");
+    }
+
+    /// A shelf inside a deleted one is moved up, not stranded.
+    ///
+    /// Stranding it would leave a shelf whose parent does not exist: it draws
+    /// nowhere in a tree, so the shelf and everything filed on it become
+    /// unreachable without ever being deleted.
+    #[tokio::test]
+    async fn a_child_shelf_is_promoted_rather_than_stranded() {
+        let s = store();
+        let lib = s.default_library;
+        let parent = s
+            .collections
+            .create(lib, CollectionDraft { name: "Parent".into(), ..Default::default() })
+            .await
+            .unwrap();
+        let child = s
+            .collections
+            .create(
+                lib,
+                CollectionDraft {
+                    name: "Child".into(),
+                    parent_key: Some(parent.key.clone()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        s.collections.delete(lib, &parent.key, false).await.unwrap();
+
+        let all = s.collections.list(lib).await.unwrap();
+        let moved = all.iter().find(|c| c.key == child.key).expect("the child went too");
+        assert_eq!(moved.parent_key, None, "the child was left pointing at a shelf that is gone");
+    }
+
+    /// Recursive is allowed to take the shelves. It is still not allowed to
+    /// take the papers.
+    #[tokio::test]
+    async fn a_recursive_delete_takes_the_shelves_and_leaves_the_papers() {
+        let s = store();
+        let lib = s.default_library;
+        let parent = s
+            .collections
+            .create(lib, CollectionDraft { name: "Top".into(), ..Default::default() })
+            .await
+            .unwrap();
+        let child = s
+            .collections
+            .create(
+                lib,
+                CollectionDraft {
+                    name: "Under".into(),
+                    parent_key: Some(parent.key.clone()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        let mut draft = article("A paper two levels down");
+        draft.collections = vec![child.key.clone()];
+        let paper = s.items.create(lib, draft).await.unwrap();
+
+        s.collections.delete(lib, &parent.key, true).await.unwrap();
+
+        let all = s.collections.list(lib).await.unwrap();
+        assert!(!all.iter().any(|c| c.key == child.key), "the subtree survived a recursive delete");
+        // And nothing is left pointing at a shelf that no longer exists.
+        let keys: Vec<_> = all.iter().map(|c| c.key.clone()).collect();
+        assert!(
+            all.iter().all(|c| c.parent_key.as_ref().is_none_or(|p| keys.contains(p))),
+            "a shelf was stranded",
+        );
+
+        let kept = s.items.get(lib, &paper.key).await.unwrap();
+        assert!(!kept.deleted, "a recursive shelf delete took a paper with it");
+    }
+
     #[tokio::test]
     async fn collections_nest_and_filter_recursively() {
         let s = store();
