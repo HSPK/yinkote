@@ -189,7 +189,25 @@ check "no internals leak" "$(c -X POST -H 'Content-Type: application/json' \
 check "unknown endpoint 404" "$(c -o /dev/null -w '%{http_code}' "$BASE/libraries/$LIB/no-such-thing" | grep -x 404)"
 
 echo "▸ search"
-sleep 1.5   # let the embedding worker drain the queue
+# Embedding is a background worker with a queue, and on a library that is
+# already large the queue is not empty: 373 documents were still waiting when
+# this was written. A fixed sleep is a guess about somebody else's backlog --
+# it passed one run and failed the next -- so wait for the thing being tested
+# to be true, bounded, and fail if it never is.
+#
+# The bound is what keeps this a test rather than a wish: "eventually" with no
+# limit would pass on a worker that had stopped.
+await_embedded() { # await_embedded <key>
+  for _ in $(seq 1 40); do
+    if j "$BASE/libraries/$LIB/search?q=attention%20is%20all%20you%20need&mode=semantic&limit=20" \
+         | jq -e --arg k "$1" '[.hits[].key] | index($k) != null' > /dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+await_embedded "$KEY" || true
 check "keyword"          "$(j "$BASE/libraries/$LIB/search?q=attention&mode=keyword" | jq -r '.hits|length')"
 check "fuzzy (typo)"     "$(j "$BASE/libraries/$LIB/search?q=attension&mode=fuzzy" | jq -r '.hits|length')"
 # Rows came back is not the same as the right rows came back: an embedder
@@ -214,6 +232,41 @@ check "semantic is apt"  "$(j "$BASE/libraries/$LIB/search?q=attention%20is%20al
 # default is lexical rather than semantic -- said in the interface now, and
 # reported here so a change of provider is visible in the run.
 check "embedder named"   "$(j "$BASE/stats" | jq -r '.search.provider | select(length > 0)')"
+
+# The other half of that promise, which nothing had ever exercised: with a real
+# embedding model configured, semantic search must find a paper from words the
+# paper does not contain. That is the whole difference between the shipped
+# default and a vector model, and it is only true of one of them.
+#
+# Its own server on its own library, because the embedder is chosen at startup
+# and the corpus has to be small enough to embed in seconds. Skipped -- named,
+# not silently absent -- when no endpoint is configured, which is every machine
+# that has not opted in.
+if [[ -n "${YK_EMBED_ENDPOINT:-}" && -x ./target/release/yinkote ]]; then
+  EMBDIR="/tmp/yk-embed-$$"
+  setsid env -u YK_API_KEY ./target/release/yinkote --data-dir "$EMBDIR" --port 23146 \
+    > /dev/null 2>&1 < /dev/null &
+  sleep 6
+  EB="http://127.0.0.1:23146/api/v1"
+  c -X POST -H 'Content-Type: application/json' "$EB/libraries/1/items" -d '[
+    {"itemType":"journalArticle","title":"Attention Is All You Need",
+     "abstractNote":"We propose the Transformer, based solely on attention, dispensing with recurrence."},
+    {"itemType":"journalArticle","title":"A History of Medieval Agriculture",
+     "abstractNote":"Crop rotation practices in eleventh century Europe."}]' > /dev/null
+  sleep 10
+  WANT=$(c "$EB/libraries/1/items?q=attention&mode=keyword&limit=1" | jq -r '.items[0].key')
+  # Not one word of this query appears in that paper's title.
+  check "meaning, not words" "$(c "$EB/libraries/1/search?q=a%20model%20with%20no%20recurrence&mode=semantic&limit=1" \
+                                 | jq -r --arg k "$WANT" '.hits[0].key | select(. == $k) | "found it"')"
+  check "and not the other"  "$(c "$EB/libraries/1/search?q=farming%20in%20the%20middle%20ages&mode=semantic&limit=1" \
+                                 | jq -r --arg k "$WANT" '.hits[0].key | select(. != $k) | "ranked apart"')"
+  EMBPID=$(ss -lptnH 'sport = :23146' 2>/dev/null | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2)
+  [[ -n "$EMBPID" ]] && kill "$EMBPID" 2>/dev/null
+  rm -rf "$EMBDIR"
+else
+  skip "meaning, not words" "no embedding endpoint configured (YK_EMBED_ENDPOINT)"
+  skip "and not the other"  "no embedding endpoint configured (YK_EMBED_ENDPOINT)"
+fi
 check "chinese"          "$(j "$BASE/libraries/$LIB/search?q=%E6%89%A9%E6%95%A3%E6%A8%A1%E5%9E%8B" | jq -r '.hits|length')"
 check "tag operator"     "$(j "$BASE/libraries/$LIB/search?q=tag:nlp" | jq -r '.hits|length')"
 check "snippet mark"     "$(j "$BASE/libraries/$LIB/search?q=transformer" | jq -r '.hits[0].snippet' | grep -c '<mark>')"

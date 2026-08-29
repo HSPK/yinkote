@@ -5202,3 +5202,48 @@ lesson already in this file:
 
 Each attempt failed loudly and immediately. That is the argument for the
 self-lint and for running smoke rather than reasoning about it.
+
+### 3.286 The half of the promise that is kept
+
+§3.284 established that the shipped embedder is not semantic and made the
+interface say so. The other half — that a real embedding model *does* keep the
+promise — had never been exercised at all. The endpoint on this machine turned
+out to serve embeddings under a suffixed name (`text-embedding-3-small_1`), so
+it could be:
+
+| query | first result | words shared with the title |
+| --- | --- | --- |
+| `a model with no recurrence` | Attention Is All You Need | none |
+| `training very deep networks` | Deep Residual Learning | none |
+| `farming in the middle ages` | A History of Medieval Agriculture | none |
+
+Every one of those is a query the default embedder answers with unrelated
+papers. So the feature is sound and the default is the limitation, which is
+exactly what the interface now says — and it is worth having *measured* that
+rather than assuming it, because "it would work with a real model" is the kind
+of claim that goes unchecked for years.
+
+It is now a smoke section of its own: its own server on its own library,
+because the embedder is chosen at startup. Skipped — named, not silently
+absent — when no endpoint is configured, which is every machine that has not
+opted in.
+
+### 3.287 A fixed sleep is a guess about somebody else's backlog
+
+The check added last round passed, then failed, then passed. Embedding is a
+background worker with a queue, and `sleep 1.5   # let the embedding worker
+drain the queue` is a guess about how long that takes — on this library 373
+documents were still waiting.
+
+Replaced with a bounded wait for the thing being tested: poll until the paper
+is findable, up to twenty seconds, and fail if it never is. The bound is what
+keeps it a test rather than a wish — "eventually" with no limit passes on a
+worker that has stopped.
+
+Confirmed by running the suite three more times rather than once.
+
+Also, from breaking a rule written down here long ago: two of those runs were
+back to back, and `marker destroyed` and `archive restores` failed — the
+documented consequence of a suite that shares one library with the run before
+it. A single clean run passed. The rule holds; I should read the file I keep
+appending to.
