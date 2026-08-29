@@ -43,9 +43,22 @@ const TRIGRAM_SQL: &str = "SELECT items_trgm.rowid, i.sort_title, i.sort_creator
      WHERE items_trgm MATCH ?1 AND i.library_id = ?2 AND i.deleted = 0
      LIMIT ?3";
 
+/// An exact phrase, asked of the word index rather than the trigram one.
+///
+/// Same shape as [`TRIGRAM_SQL`] and a very different cost: see [`fuzzy`].
+const PHRASE_SQL: &str = "SELECT items_fts.rowid, i.sort_title, i.sort_creator
+     FROM items_fts
+     CROSS JOIN items i ON i.id = items_fts.rowid
+     WHERE items_fts MATCH ?1 AND i.library_id = ?2 AND i.deleted = 0
+     LIMIT ?3";
+
 /// The statements whose query plan must stay FTS-driven.
 pub fn critical_statements() -> Vec<(&'static str, String)> {
-    vec![("items_fts", bm25_sql()), ("items_trgm", TRIGRAM_SQL.to_string())]
+    vec![
+        ("items_fts", bm25_sql()),
+        ("items_fts", PHRASE_SQL.to_string()),
+        ("items_trgm", TRIGRAM_SQL.to_string()),
+    ]
 }
 
 /// Escape a token for FTS5 and optionally make it a prefix query.
@@ -161,9 +174,9 @@ fn chunks(norm: &str) -> Vec<String> {
 /// Typo-tolerant candidate generation.
 ///
 /// Stage 1 asks the trigram index for an exact substring match: fast, precise,
-/// and enough for most queries. Stage 2 only runs when that is not enough, and
-/// uses overlapping chunks (see [`chunks`]) rather than raw trigrams. Actual
-/// scoring is left to edit distance in the caller.
+/// and enough for most single-word queries -- but only those, for the reason
+/// given below. Stage 2 uses overlapping chunks (see [`chunks`]) rather than
+/// raw trigrams. Actual scoring is left to edit distance in the caller.
 pub fn fuzzy(
     conn: &Connection,
     library_id: i64,
@@ -179,7 +192,27 @@ pub fn fuzzy(
         return prefix_scan(conn, library_id, &norm, limit);
     }
 
-    let mut out = trigram_match(conn, library_id, &quote(&norm, false), limit)?;
+    // Stage 1 asks for the query as an exact phrase, and *which index* it asks
+    // makes the difference between 0.2ms and 36ms.
+    //
+    // Over the trigram index a phrase is a positional intersection of every
+    // trigram it contains. For one word -- especially a misspelt one -- those
+    // are rare and the intersection is immediate. For a phrase spanning a
+    // space they are all common, and "diffusion model" took 36ms of the 38ms
+    // a whole fuzzy search cost, to return two rows.
+    //
+    // The word index answers the same question in 0.17ms with the same two
+    // rows. A trailing prefix keeps what the trigram index gave for free:
+    // "diffusion model" still reaches a paper about diffusion *models*.
+    //
+    // The probe cannot simply be dropped for several words -- the chunks below
+    // truncate in rowid order, so the exact match is not reliably among them.
+    // A search for a paper by its exact title was losing that paper.
+    let mut out = if norm.split_whitespace().nth(1).is_none() {
+        trigram_match(conn, library_id, &quote(&norm, false), limit)?
+    } else {
+        phrase_match(conn, library_id, &quote(&norm, true), limit)?
+    };
     if out.len() >= limit.min(8) {
         return Ok(out);
     }
@@ -207,7 +240,28 @@ fn trigram_match(
     expr: &str,
     limit: usize,
 ) -> Result<Vec<FuzzyCandidate>> {
-    let mut stmt = conn.prepare_cached(TRIGRAM_SQL).map_err(sql_err)?;
+    candidates(conn, TRIGRAM_SQL, library_id, expr, limit)
+}
+
+fn phrase_match(
+    conn: &Connection,
+    library_id: i64,
+    expr: &str,
+    limit: usize,
+) -> Result<Vec<FuzzyCandidate>> {
+    candidates(conn, PHRASE_SQL, library_id, expr, limit)
+}
+
+/// Candidates from either index. They differ only in which one they read, and
+/// a malformed FTS expression means no candidates rather than a failed search.
+fn candidates(
+    conn: &Connection,
+    sql: &str,
+    library_id: i64,
+    expr: &str,
+    limit: usize,
+) -> Result<Vec<FuzzyCandidate>> {
+    let mut stmt = conn.prepare_cached(sql).map_err(sql_err)?;
     let rows = stmt
         .query_map(params![expr, library_id, limit as i64], |r| {
             Ok(FuzzyCandidate { id: r.get(0)?, title: r.get(1)?, creator: r.get(2)? })

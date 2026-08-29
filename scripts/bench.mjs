@@ -262,8 +262,14 @@ const BUDGET = {
   'keyword (2 terms)': 50,
   'chinese keyword': 90,
   'fuzzy (typo)': 20,
+  // A phrase, not a word. This was measured at 38ms while the one-word typo
+  // beside it read 6ms: a trigram phrase query over common trigrams. The
+  // budget is the fixed cost, not the old number.
+  'fuzzy (phrase)': 20,
   'semantic': 20,
-  'hybrid': 45,
+  // Was 45 while fuzzy inside it cost 36ms. Tightened once that was fixed, so
+  // the same mistake cannot pass next time.
+  'hybrid': 25,
   'hybrid + hydrate items': 85,
   'facets': 15,
   'stats': 15,
@@ -549,6 +555,7 @@ async function main() {
   await measure('keyword (2 terms)', `/libraries/${lib}/search?q=diffusion%20alignment&mode=keyword`)
   await measure('chinese keyword', `/libraries/${lib}/search?q=%E6%89%A9%E6%95%A3%E6%A8%A1%E5%9E%8B&mode=keyword`)
   await measure('fuzzy (typo)', `/libraries/${lib}/search?q=transfromer&mode=fuzzy`)
+  await measure('fuzzy (phrase)', `/libraries/${lib}/search?q=diffusion%20model&mode=fuzzy`)
   await measure('semantic', `/libraries/${lib}/search?q=generative%20model%20for%20molecules&mode=semantic`)
   await measure('hybrid', `/libraries/${lib}/search?q=diffusion%20model&mode=hybrid`)
   await measure('tag operator', `/libraries/${lib}/search?q=tag:survey`)

@@ -4409,3 +4409,55 @@ did not test what it said. The self-lint also caught a `// "missing"` fallback
 in the same block before it ever ran (§3.240), and refusing it exposed a real
 bug underneath: an empty word in a `case` pattern matches anything, so a
 missing code would have been read as a known one.
+
+### 3.252 The wrong index for the question
+
+Hybrid search was 45.7ms against a 45ms budget. I assumed keyword, because the
+bench listed keyword at 32.9ms and semantic at 6.8ms — but each mode there is
+measured with a *different query*, so the numbers cannot be subtracted. Asking
+one query in all four modes took ten seconds and said something else entirely:
+keyword 4ms, semantic 5ms, **fuzzy 38ms**, hybrid 44ms.
+
+Fuzzy's stage 1 asks the trigram index for the query as an exact phrase. Over
+a trigram index a phrase is a positional intersection of every trigram in it.
+For one misspelt word those trigrams are rare and it is immediate — 1.6ms. For
+a phrase spanning a space they are all common, and `"diffusion model"` took
+**36ms of the 38ms** to return two rows, while every chunk query beside it
+answered in one.
+
+The same phrase asked of the **word** index takes 0.17ms and returns the same
+two rows — 200× — with a trailing prefix so `"diffusion model"` still reaches a
+paper about diffusion *models*, which the trigram index gave for free. Hybrid
+went 45.7 → 16.5ms and fuzzy 38 → 8.2ms, with recall byte-identical on four
+real queries against 99,823 items.
+
+- **A budget hides in the case nobody measured.** `fuzzy (typo)` used
+  `transfromer` — one word, the cheap branch — so a 20ms budget sat over a
+  38ms operation for as long as the measurement existed. Added
+  `fuzzy (phrase)`, and *tightened* hybrid from 45 to 25 now that it is 16:
+  a budget left at the old number preserves the bug it was set around.
+- **Comparing measurements taken with different inputs is not comparing.**
+  Every mode in the bench uses its own query, which is right for coverage and
+  useless for attribution. One query across all modes is a different question
+  and answers it in seconds.
+
+### 3.253 A recall test on four documents proves nothing
+
+My first fix simply skipped stage 1 for multi-word queries, reasoning that the
+chunks below cover the same ground. Two unit tests said it was fine. A diff of
+real results said it was not: `attention is all you need` no longer returned
+the paper of that name. **The best possible match had dropped out.** The chunk
+queries truncate their candidates in rowid order, so on a real library the
+exact match is not reliably among them — and on a seed of four documents
+nothing truncates, so both tests passed on the broken build.
+
+I checked, which is the only reason I know. Both were deleted and rewritten in
+`tests/fuzzy_recall.rs`, which seeds past the truncation point: decoys sharing
+the query's leading chunk, target added last so it holds the highest rowid and
+is the first thing a truncation loses. Each guard was then confirmed red
+against the specific regression it exists for — one with stage 1 removed, one
+with the trailing prefix removed.
+
+The rule this is the third instance of: **a test that passes on the broken
+implementation is not evidence.** Run it against the break before keeping it.
+Here the break was one I had actually written and nearly shipped.
