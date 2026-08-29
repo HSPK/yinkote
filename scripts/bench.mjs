@@ -249,6 +249,27 @@ const BUDGET = {
   // was tried and shows somebody a library without the duplicates they just
   // created. The budget guards against worse, not against this.
   'duplicates after a write': 300,
+
+  // Everything below printed a number that nothing held it to. That is how a
+  // 4.7x regression in the file browser sat in plain sight for weeks: 7.5ms
+  // became 35ms, was printed every run, and passed. A measurement without a
+  // budget is a number somebody has to notice.
+  //
+  // Set at roughly twice what is measured, deliberately loose: the job is to
+  // catch a plan collapsing, and a threshold near the measurement fails for
+  // machine reasons instead.
+  'keyword (1 term)': 60,
+  'keyword (2 terms)': 50,
+  'chinese keyword': 90,
+  'fuzzy (typo)': 20,
+  'semantic': 20,
+  'hybrid': 45,
+  'hybrid + hydrate items': 85,
+  'facets': 15,
+  'stats': 15,
+  'collections': 15,
+  // 48ms of walking the whole library before a partial index; 3ms after.
+  'file browser page': 20,
 }
 
 const overBudget = []
