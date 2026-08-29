@@ -53,10 +53,11 @@ pub fn tool_catalogue(
     store: &Store,
     search: &Arc<dyn SearchIndex>,
     scrape: &Arc<yk_scrape::ScrapeEngine>,
+    outside: &Arc<yk_scrape::search::SearchEngine>,
     workspace: Option<&Workspace>,
     skills: &Arc<yk_agent::skills::Skills>,
 ) -> Vec<String> {
-    let mut names: Vec<String> = tools(store, search, scrape).iter().map(|t| t.spec().name).collect();
+    let mut names: Vec<String> = tools(store, search, scrape, outside).iter().map(|t| t.spec().name).collect();
     if !skills.is_empty() {
         names.push("read_skill".into());
     }
@@ -74,6 +75,7 @@ pub fn tools(
     store: &Store,
     search: &Arc<dyn SearchIndex>,
     scrape: &Arc<yk_scrape::ScrapeEngine>,
+    outside: &Arc<yk_scrape::search::SearchEngine>,
 ) -> Vec<Arc<dyn Tool>> {
     let mut tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(SearchLibrary { store: store.clone(), search: search.clone() }),
@@ -87,6 +89,7 @@ pub fn tools(
             action: *action,
             store: store.clone(),
             scrape: scrape.clone(),
+            search: outside.clone(),
         }) as Arc<dyn Tool>
     }));
     tools

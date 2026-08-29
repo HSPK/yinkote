@@ -23,6 +23,8 @@ pub struct Services {
     pub search: Arc<dyn SearchIndex>,
     /// Identifier detection and metadata lookup for quick-add.
     pub scrape: Arc<ScrapeEngine>,
+    /// Searching outside the library, as opposed to resolving an identifier.
+    pub outside: Arc<yk_scrape::search::SearchEngine>,
     /// Attachment bytes on disk.
     pub storage: Arc<Storage>,
     pub events: EventBus,
@@ -121,6 +123,10 @@ impl AppState {
     pub fn scrape(&self) -> &Arc<ScrapeEngine> {
         &self.services.scrape
     }
+    /// Searching outside the library, as opposed to resolving an identifier.
+    pub fn outside(&self) -> &Arc<yk_scrape::search::SearchEngine> {
+        &self.services.outside
+    }
     pub fn storage(&self) -> &Arc<Storage> {
         &self.services.storage
     }
@@ -182,6 +188,7 @@ impl AppState {
             self.store(),
             self.search(),
             self.scrape(),
+            self.outside(),
             workspace.as_ref(),
             &skills,
         )

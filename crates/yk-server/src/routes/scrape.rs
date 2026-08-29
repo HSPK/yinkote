@@ -26,6 +26,8 @@ pub fn router() -> Router<App> {
     Router::new()
         .route("/resolve", post(resolve))
         .route("/resolve/sources", get(sources))
+        .route("/search/external", post(search_external))
+        .route("/search/external/sources", get(search_sources))
         .route("/libraries/:lib/quick-add", post(quick_add))
 }
 
@@ -116,6 +118,37 @@ struct Duplicate {
     identifier: String,
     existing_key: Key,
     title: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct SearchBody {
+    query: String,
+    #[serde(default)]
+    sources: Vec<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+/// Search outside the library.
+///
+/// Separate from `/resolve`, which answers "what is this?" about an identifier
+/// somebody already has. This answers "what is there?" about a subject nobody
+/// has an identifier for -- which is what a person means by "search".
+async fn search_external(
+    State(app): State<App>,
+    Json(body): Json<SearchBody>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let out = app.outside().search(&body.query, body.limit.unwrap_or(10), &body.sources).await;
+    // A source that could not answer travels with the results rather than
+    // being dropped: "PubMed did not answer" and "there is nothing" need
+    // opposite responses from the reader.
+    Ok(Json(json!({ "results": out.results, "failed": out.failed })))
+}
+
+/// What can be searched, and what each is good for.
+async fn search_sources(State(app): State<App>) -> ApiResult<Json<serde_json::Value>> {
+    Ok(Json(json!(app.outside().sources())))
 }
 
 async fn quick_add(

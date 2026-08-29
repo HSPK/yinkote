@@ -13,6 +13,7 @@ fn tool(action: Action, store: &Store) -> LibraryAction {
         action,
         store: store.clone(),
         scrape: Arc::new(ScrapeEngine::with_defaults()),
+        search: Arc::new(yk_scrape::search::SearchEngine::with_defaults()),
     }
 }
 

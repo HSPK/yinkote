@@ -4734,3 +4734,60 @@ Both fixed by making each side unambiguous — a fixture the built-in reader
 plainly reads, and a stand-in whose answer would plainly be preferred — and
 then confirmed red by disabling the rule. §3.253 for the third time: **the
 fixture has to be able to produce the failure, not merely the pass.**
+
+### 3.265 A skill that named a tool nobody had built
+
+`literature-search` told the assistant to call `search_external` from the day
+it was written. There was no such tool, and nothing failed: the model asked for
+something it had not been given, got nothing back, and answered from its own
+recollection of the field — which is the one source of metadata this program
+exists to replace. A confident wrong year is worse than no answer, and it
+quietly poisons every citation made from it afterwards.
+
+Nothing else could have caught this. The skill is prose, the tool list is
+built elsewhere, and the two meet only inside a model's context at runtime —
+so the check had to be written for it: **every backticked snake_case name in a
+skill must exist in the catalogue.** Confirmed red by removing the new action,
+which printed exactly the bug that shipped.
+
+The check is deliberately loose in what it collects and strict about shape.
+`--flag`, `DOI`, `10.1/x` and `a b` are all left alone, because a check that
+cries wolf gets switched off, and one that is switched off is worse than none.
+
+Related, and the reason it was possible: `search_library` and `search_external`
+sound like the same thing and are opposite. One answers "what do I already
+own?", the other "what is there?" — and "find me papers on X" means the second.
+A tool list is also a vocabulary, and two names a step apart will be confused.
+
+### 3.266 Searching is not resolving
+
+`/resolve` answers *what is this?* about an identifier somebody already has.
+That was the only outward-facing thing this program could do, and it is not
+what a person means by "search for papers on wastewater surveillance" — they
+have no identifier; finding one is the request.
+
+Four services, asked together and merged: arXiv for preprints, PubMed for
+clinical and public-health work nothing else indexes, Crossref for the version
+of record, OpenAlex for coverage across disciplines. Measured: 19 real results
+in 1.5s. Three things worth keeping:
+
+- **Every source declares its subjects**, which is what lets a question about
+  public health reach PubMed instead of a mathematics preprint server. An empty
+  list means "anything" — not "unknown".
+- **One paper found twice is one result**, and the copy carrying an identifier
+  wins, because that is the copy that can be added. Six sources otherwise
+  return forty rows for twelve papers and leave the reader to merge them.
+- **A source that fails travels with the results.** "PubMed did not answer" and
+  "there is nothing" need opposite responses, and only one means search again.
+  Likewise, naming a source that does not exist is *said* — silently searching
+  everything would be a different answer to the one asked for.
+
+Web of Science, Scopus and Embase are absent on purpose: subscription APIs
+whose key cannot ship with a program anybody can download. Recording *why* is
+what stops it being re-litigated as an oversight.
+
+Verified end to end rather than by unit test alone: the agent ran
+`read_skill → library_overview → search_library → list_collections →
+search_external ×5 → quick_add ×2 → create_collection → file_items`, and the
+items that landed carry real DOIs, real venues and real dates from the
+publisher's record.

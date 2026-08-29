@@ -71,6 +71,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         store,
         search,
         scrape: Arc::new(yk_scrape::ScrapeEngine::with_defaults()),
+            outside: Arc::new(yk_scrape::search::SearchEngine::with_defaults()),
         storage: Arc::new(storage::Storage::new(config.storage_dir())),
         events: EventBus::default(),
     });
@@ -147,7 +148,7 @@ pub fn build_agent(
 
     match agent::provider(&config.agent) {
         Ok(provider) => {
-            let mut tools = agent::tools(&services.store, &services.search, &services.scrape);
+            let mut tools = agent::tools(&services.store, &services.search, &services.scrape, &services.outside);
             if !skills.is_empty() {
                 tools.push(Arc::new(yk_agent::skills::ReadSkill { skills: skills.clone() }));
             }

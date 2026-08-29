@@ -298,6 +298,31 @@ else
     | "tags and venue"')"
 fi
 
+# Searching outside the library is a different question from resolving an
+# identifier, and the skill has been telling the assistant to do it since it
+# was written. Every source names the subjects it covers, which is how a
+# question about public health reaches PubMed and not a maths preprint server.
+SRC="$(j "$BASE/search/external/sources")"
+check "search sources"   "$(echo "$SRC" | jq -r 'length | select(. >= 4)')"
+check "sources are named" "$(echo "$SRC" | jq -r '[.[] | select(.id == "pubmed") | .subjects[] | select(. == "public health")] | length | select(. == 1) | "routed"')"
+
+EXT="$(j -X POST "$BASE/search/external" -d '{"query":"wastewater surveillance public health","sources":["pubmed"],"limit":3}')"
+if [[ "$(echo "$EXT" | jq -r '.results | length')" == "0" ]]; then
+  skip "external search"   "pubmed did not answer"
+  skip "results are addable" "pubmed did not answer"
+else
+  check "external search"  "$(echo "$EXT" | jq -r '.results | length | select(. > 0)')"
+  # A result with nothing to add it by is a row the reader cannot act on.
+  check "results are addable" "$(echo "$EXT" | jq -r '
+    [.results[] | select(has("identifier") and .title != "")] | length
+    | select(. == ('"$(echo "$EXT" | jq -r '.results | length')"')) | "all addable"')"
+fi
+# Asking for a source that does not exist must say so rather than quietly
+# searching everything, which would be a different answer to the one asked for.
+check "unknown source said" "$(j -X POST "$BASE/search/external" \
+                                -d '{"query":"x","sources":["web-of-science"]}' \
+                                | jq -r '.failed | length | select(. == 1) | "named"')"
+
 echo "▸ tags & facets"
 check "tags"             "$(j "$BASE/libraries/$LIB/tags" | jq -r 'length')"
 check "facets"           "$(j "$BASE/libraries/$LIB/facets" | jq -r 'length')"

@@ -48,6 +48,7 @@ pub enum Action {
     TagItems,
     UntagItems,
     QuickAdd,
+    SearchExternal,
     FetchReferences,
     MissingWorks,
 }
@@ -66,6 +67,7 @@ pub const ACTIONS: &[Action] = &[
     Action::TagItems,
     Action::UntagItems,
     Action::QuickAdd,
+    Action::SearchExternal,
     Action::FetchReferences,
     Action::MissingWorks,
 ];
@@ -85,6 +87,7 @@ impl Action {
             Action::TagItems => "tag_items",
             Action::UntagItems => "untag_items",
             Action::QuickAdd => "quick_add",
+            Action::SearchExternal => "search_external",
             Action::FetchReferences => "fetch_references",
             Action::MissingWorks => "missing_works",
         }
@@ -93,7 +96,10 @@ impl Action {
     /// Whether this changes the library. Used to mark the transcript, so a
     /// reader can see at a glance which steps only looked.
     pub fn writes(self) -> bool {
-        !matches!(self, Action::ListCollections | Action::MissingWorks)
+        !matches!(
+            self,
+            Action::ListCollections | Action::MissingWorks | Action::SearchExternal
+        )
     }
 
     fn description(self) -> &'static str {
@@ -128,6 +134,15 @@ impl Action {
                 "Add a work by identifier — a DOI, arXiv id, ISBN, PubMed id or URL. The metadata \
                  is fetched from the publisher, so this is always better than writing the fields \
                  yourself."
+            }
+            Action::SearchExternal => {
+                "Search outside the library for papers on a topic: arXiv, Crossref, PubMed and \
+                 OpenAlex. This is what to use when asked to find papers, survey a field or fill \
+                 a gap -- `search_library` only sees what is already owned. Returns candidates \
+                 with an identifier; add the ones the reader chooses with `quick_add`. Name a \
+                 source to search only that one: `pubmed` for medicine and public health, \
+                 `arxiv` for computer science, physics and mathematics, `crossref` and \
+                 `openalex` for anything published."
             }
             Action::FetchReferences => {
                 "Fetch what a paper cites, from Crossref. The item needs a DOI."
@@ -200,6 +215,24 @@ impl Action {
                 },
                 "required": ["text"],
             }),
+            Action::SearchExternal => json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "What to search for. Be specific: a phrase from the \
+                                        field finds work, a one-word subject finds noise.",
+                    },
+                    "sources": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Which services to ask: arxiv, crossref, pubmed, \
+                                        openalex. Omit to ask all of them.",
+                    },
+                    "limit": { "type": "integer", "description": "Per source, 1-50. Default 10." },
+                },
+                "required": ["query"],
+            }),
             Action::FetchReferences => json!({
                 "type": "object",
                 "properties": { "key": { "type": "string" } },
@@ -220,6 +253,7 @@ pub struct LibraryAction {
     pub action: Action,
     pub store: Store,
     pub scrape: Arc<ScrapeEngine>,
+    pub search: Arc<yk_scrape::search::SearchEngine>,
 }
 
 #[async_trait]
@@ -392,6 +426,25 @@ impl Tool for LibraryAction {
                 })?;
                 let item = self.store.items.create(lib, found.draft).await?;
                 Ok(summarise(&item))
+            }
+
+            Action::SearchExternal => {
+                let query = yk_agent::required_str(&arguments, "query")?;
+                let sources: Vec<String> = arguments["sources"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+                    .unwrap_or_default();
+                let limit = arguments["limit"].as_u64().unwrap_or(10) as usize;
+
+                let out = self.search.search(&query, limit, &sources).await;
+                // The failures travel with the results rather than being
+                // dropped: "PubMed did not answer" is the difference between
+                // "there is nothing" and "we did not look there".
+                Ok(json!({
+                    "results": out.results,
+                    "failed": out.failed,
+                    "hint": "Add the ones the reader chooses with quick_add, using `identifier`.",
+                }))
             }
 
             Action::FetchReferences => {

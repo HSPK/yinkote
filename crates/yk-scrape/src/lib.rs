@@ -13,6 +13,7 @@ pub mod jsonld;
 pub mod mapping;
 pub mod meta;
 pub mod resolver;
+pub mod search;
 
 use std::sync::Arc;
 

@@ -45,8 +45,11 @@ description: Use when asked to find papers on a topic, survey a field, or fill a
 
 # Literature search
 
-Searching for someone means finding what is relevant, judging it, and leaving
-their library better than you found it. Work in this order.
+"Search for papers on X" means search the world, not the library. The library
+is where you start and where the results end up; it is not where the answer
+comes from.
+
+Work in this order.
 
 ## 1. Start with what they already have
 
@@ -55,13 +58,39 @@ they may already own the answer, and what they own tells you the vocabulary of
 their field — the terms in their own titles and tags are better queries than
 the ones you would invent.
 
-## 2. Then search outside
+## 2. Then search outside, with `search_external`
 
-Use `search_external` with several phrasings rather than one. A field usually
-has more than one name for the same idea, and one query finds one of them.
+This is the step that finds new work. `search_library` cannot: it only sees
+what is already owned.
 
-Prefer specific queries over broad ones. "Retrieval-augmented generation
-evaluation" finds work; "AI" finds noise.
+**Never write metadata from memory.** If you have not searched, you do not
+know the year, the venue or the DOI, and a wrong year quietly poisons every
+citation made from it afterwards. Searching is not optional politeness — it is
+the only way you have of being right.
+
+### Choosing where to search
+
+Omit `sources` and all of them are asked, which is right when you do not know
+the field. Name them when you do:
+
+| Field | `sources` |
+| --- | --- |
+| Computer science, physics, mathematics, statistics | `arxiv` — preprints, months ahead of publication |
+| Medicine, public health, epidemiology, nursing, trials | `pubmed` — indexes clinical work nothing else does |
+| Anything published, any discipline | `crossref` — the version of record, by DOI |
+| Cross-disciplinary, citation counts, open access | `openalex` |
+
+Two habits worth keeping:
+
+- **Search several phrasings, not one.** A field usually has more than one name
+  for the same idea, and one query finds one of them. "Wastewater-based
+  epidemiology" and "sewage surveillance" are the same literature.
+- **Be specific.** "Retrieval-augmented generation evaluation" finds work; "AI"
+  finds noise.
+
+If a source is listed under `failed`, say so. "PubMed did not answer" is the
+difference between "there is nothing" and "we did not look there", and only
+one of those means search again.
 
 ## 3. Judge before adding
 
@@ -69,21 +98,27 @@ Report what you found with title, authors, year and venue, and say in one line
 why each is relevant. Do not add things silently — a library filled with
 plausible-looking papers nobody chose is worse than an empty one.
 
-When the user says to add them, use `quick_add` with the DOI or arXiv id.
-Never type the metadata yourself: the publisher's record is better than your
-recollection of it, and a wrong year quietly poisons every citation made from
-it afterwards.
+## 4. Add what they choose
 
-## 4. Leave it findable
+Pass the result's `identifier` to `quick_add`. It is a DOI where there is one,
+so the record comes from the publisher rather than from the search result,
+which is thinner. Adding also queues the PDF, so the paper is there to read.
 
-File what you add into the collection the user named, and tag it with the
-terms they already use — check the overview's tag list rather than inventing a
-new vocabulary alongside theirs.
+## 5. Leave it findable
+
+Make or find the collection with `list_collections` and `create_collection`,
+then `file_items` what you added into it. Tag with `tag_items`, using the terms
+they already use — check the overview's tag list rather than starting a second
+vocabulary alongside theirs.
+
+A paper added to no collection and given no tags is a paper they will never
+find again, and it will be you who put it there.
 
 ## Finishing
 
-Say what you searched, what you added, and what you deliberately left out.
-The last part matters most: it is how they know whether to search again.
+Say what you searched, which sources answered, what you added and where you
+filed it, and what you deliberately left out. The last part matters most: it is
+how they know whether to search again.
 "#;
 
 const SCREENING: &str = r#"---
@@ -178,5 +213,103 @@ mod tests {
         let skills = Skills::load_dir(dir.path());
         assert_eq!(skills.len(), BUILTINS.len());
         assert!(skills.get("literature-search").is_some());
+    }
+}
+
+#[cfg(test)]
+mod tool_names {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// Every `` `name` `` in a skill body that is shaped like a tool call.
+    ///
+    /// Deliberately loose in what it collects and strict about the shape: a
+    /// check that cried wolf on `--flag` or `10.1/x` would be switched off.
+    fn tools_named(body: &str) -> HashSet<String> {
+        body.split('`')
+            .skip(1)
+            .step_by(2)
+            .map(str::trim)
+            .filter(|name| {
+                !name.is_empty()
+                    && name.contains('_')
+                    && name.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                    && !name.starts_with('_')
+                    && !name.ends_with('_')
+            })
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// The names `tools()` builds, without needing a store to ask for them.
+    ///
+    /// The read-only five are listed because they are constructed from
+    /// structs rather than an enum; the rest come from `ACTIONS`, so a tool
+    /// added there is covered without touching this.
+    fn available() -> HashSet<String> {
+        let mut names: HashSet<String> = crate::agent::actions::ACTIONS
+            .iter()
+            .map(|a| a.name().to_string())
+            .collect();
+        for fixed in [
+            "search_library",
+            "get_item",
+            "read_paper",
+            "list_references",
+            "library_overview",
+            "read_skill",
+            "read_file",
+            "write_file",
+            "list_files",
+            "run_command",
+        ] {
+            names.insert(fixed.into());
+        }
+        names
+    }
+
+    /// A skill may only name tools that exist.
+    ///
+    /// `literature-search` told the assistant to call `search_external` from
+    /// the day it was written and there was no such tool. Nothing failed
+    /// loudly: the model asked for a tool it had not been given, got nothing,
+    /// and answered from its own recollection of the field -- which is the one
+    /// source of metadata this program exists to replace.
+    ///
+    /// Nothing else can catch this. The skill is prose, the tool list is built
+    /// elsewhere, and the two meet only inside a model's context at runtime.
+    #[test]
+    fn every_tool_a_skill_names_exists() {
+        let available = available();
+        let mut missing = Vec::new();
+        for (skill, body) in BUILTINS {
+            for named in tools_named(body) {
+                if !available.contains(&named) {
+                    missing.push(format!("{skill} names `{named}`"));
+                }
+            }
+        }
+        missing.sort();
+        assert!(
+            missing.is_empty(),
+            "a skill tells the assistant to call a tool that does not exist:\n  {}",
+            missing.join("\n  ")
+        );
+    }
+
+    #[test]
+    fn a_tool_name_is_told_from_an_ordinary_backtick() {
+        let named = tools_named(
+            "Call `search_external`, then `quick_add`. Not `--flag`, `DOI`, `a b`, \
+             `_leading`, `trailing_` or `10.1/x`.",
+        );
+        assert_eq!(named, ["search_external", "quick_add"].map(String::from).into_iter().collect());
+    }
+
+    /// Without this the check above could be vacuous and nobody would know.
+    #[test]
+    fn the_check_would_notice_one_that_is_missing() {
+        assert!(!available().contains("no_such_tool"));
+        assert!(tools_named("Use `no_such_tool`.").contains("no_such_tool"));
     }
 }
