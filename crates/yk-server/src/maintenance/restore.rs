@@ -178,7 +178,7 @@ async fn merge(
         if task.cancelled() {
             return Ok((out, true));
         }
-        task.progress("Restoring items", u64::from(offset), page.total.max(0) as u64);
+        task.progress("task.restoringItems", u64::from(offset), page.total.max(0) as u64);
 
         // A page at a time, not an item at a time. Asking `get` per item is a
         // hundred thousand round trips on a real library: it takes minutes, and
@@ -241,7 +241,7 @@ async fn merge(
             return Ok((out, true));
         }
         if i % 20 == 0 {
-            task.progress("Restoring files", i as u64, total_files);
+            task.progress("task.restoringFiles", i as u64, total_files);
         }
         let Ok(key) = Key::parse(&key) else {
             out.failed += 1;

@@ -281,11 +281,11 @@ mod tests {
         // spinner that could equally mean "stuck".
         let tasks = Tasks::default();
         let task = tasks.start("import", "Reading…");
-        task.progress("Writing items", 40, 120);
+        task.progress("task.writingItems", 40, 120);
 
         let seen = tasks.get(&task.snapshot().id).unwrap();
         assert_eq!((seen.done, seen.total), (40, 120));
-        assert_eq!(seen.message, "Writing items");
+        assert_eq!(seen.message, "task.writingItems");
     }
 
     #[test]

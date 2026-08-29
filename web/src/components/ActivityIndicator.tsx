@@ -8,6 +8,7 @@
  *  Only while something is running. A permanent "0 jobs" is noise.
  */
 import { useEffect, useState } from 'react'
+import { taskMessage } from '../lib/format'
 
 import { api } from '../api/client'
 import type { Task } from '../api/types'
@@ -59,7 +60,7 @@ export function ActivityIndicator() {
   return (
     <span
       className="activity"
-      title={running.map((task) => `${task.kind}: ${task.message}`).join('\n')}
+      title={running.map((task) => `${task.kind}: ${taskMessage(t, task.message)}`).join('\n')}
     >
       <span className="activity-spin" />
       <span>{label}</span>

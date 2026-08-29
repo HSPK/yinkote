@@ -216,7 +216,7 @@ async fn put_connector(
 /// so the task's `total` stays zero, which the interface reads as "spinner,
 /// not bar". Claiming a percentage nobody can compute would be worse.
 async fn reindex(State(app): State<App>, Path(lib): Path<i64>) -> Json<Value> {
-    let task = app.tasks().start("reindex", "Rebuilding the search index");
+    let task = app.tasks().start("reindex", "task.reindexing");
     let running = app.clone();
     let handle = task.clone();
     tokio::spawn(async move {

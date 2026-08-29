@@ -2,10 +2,13 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 import type { Item } from '../api/types'
+import { enUS } from '../i18n/en-US'
+import { zhCN } from '../i18n/zh-CN'
 import {
   compact,
   creatorName,
   creatorSummary,
+  taskMessage,
   displayTitle,
   elapsed,
   shortDate,
@@ -223,5 +226,33 @@ describe('nothing names an item by hand any more', () => {
       }
     }
     expect(offenders, 'use displayTitle(item, fallback) instead').toEqual([])
+  })
+})
+
+describe('a task’s progress line', () => {
+  const t = ((key: string) => enUS[key as keyof typeof enUS] ?? key) as never
+
+  it('translates the code the server sends', () => {
+    // Four surfaces print this — the status bar, the jobs page, the activity
+    // indicator and the import panels — and all four used to show the
+    // server's English to a reader of any language.
+    expect(taskMessage(t, 'task.importingItems')).toBe(enUS['task.importingItems'])
+    expect(taskMessage(t, 'task.reindexing')).toBe(enUS['task.reindexing'])
+  })
+
+  it('leaves anything it does not know alone', () => {
+    // A task recorded by an older server still has a sentence in it, and a
+    // sentence beats a bare catalogue key on screen.
+    expect(taskMessage(t, 'Importing items')).toBe('Importing items')
+    expect(taskMessage(t, '')).toBe('')
+  })
+
+  it('has a catalogue entry for every code it claims to know', () => {
+    // The set here and the catalogue are two lists that must not drift: a code
+    // in one and not the other renders as the key itself.
+    for (const key of ['task.importingItems', 'task.restoringFiles', 'task.packing']) {
+      expect(enUS[key as keyof typeof enUS], `${key} is missing`).toBeTruthy()
+      expect(zhCN[key as keyof typeof zhCN], `${key} is missing from zh-CN`).toBeTruthy()
+    }
   })
 })

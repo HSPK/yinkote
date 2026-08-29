@@ -10,6 +10,7 @@
  *  the columns, rows under it, and exactly one thing that scrolls.
  */
 import { useCallback, useEffect, useState } from 'react'
+import { taskMessage } from '../lib/format'
 
 import { api } from '../api/client'
 import type { Task } from '../api/types'
@@ -117,7 +118,7 @@ export function TasksPage() {
               <div className="cell">{t(`tasks.kind.${task.kind}` as never) || task.kind}</div>
               <div className="cell dim">
                 {task.phase === 'running'
-                  ? `${task.message}${pct === null ? '' : ` · ${pct}%`}`
+                  ? `${taskMessage(t, task.message)}${pct === null ? '' : ` · ${pct}%`}`
                   : t(`tasks.phase.${task.phase}` as never)}
               </div>
               <div className="cell dim" title={outcome(task, t)}>

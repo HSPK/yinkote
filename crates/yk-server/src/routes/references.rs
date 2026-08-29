@@ -66,8 +66,8 @@ async fn start_harvest(
         return Err(Error::invalid("every paper with a DOI has been asked about").into());
     }
 
-    let task = app.tasks().start("harvest", "Fetching reference lists");
-    task.progress("Fetching reference lists", 0, pending.len() as u64);
+    let task = app.tasks().start("harvest", "task.fetchingReferences");
+    task.progress("task.fetchingReferences", 0, pending.len() as u64);
 
     let worker = app.clone();
     let handle = task.clone();
@@ -137,7 +137,7 @@ async fn run_harvest(
         }
 
         done += 1;
-        task.progress("Fetching reference lists", done, total);
+        task.progress("task.fetchingReferences", done, total);
         task.detail(json!(progress));
         tokio::time::sleep(POLITE_PAUSE).await;
     }

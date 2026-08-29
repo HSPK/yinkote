@@ -39,7 +39,7 @@ pub fn router() -> Router<App> {
 /// to remember which maintenance actions block and which do not will get it
 /// wrong on the one that grew.
 async fn run_backup(State(app): State<App>) -> Json<serde_json::Value> {
-    let task = app.tasks().start("backup", "Copying the library");
+    let task = app.tasks().start("backup", "task.backingUp");
     let running = app.clone();
     let handle = task.clone();
     tokio::spawn(async move {
@@ -64,7 +64,7 @@ async fn check_integrity(State(app): State<App>) -> ApiResult<Json<serde_json::V
 /// Started rather than awaited: nine seconds for the library this was measured
 /// on, and a bigger one is minutes. The answer is a task to watch.
 async fn export_all(State(app): State<App>) -> Json<serde_json::Value> {
-    let task = app.tasks().start("export", "Packing the library");
+    let task = app.tasks().start("export", "task.packing");
     let running = app.clone();
     let handle = task.clone();
     tokio::spawn(async move {
@@ -88,7 +88,7 @@ async fn import_archive(
     Json(body): Json<ArchivePath>,
 ) -> Json<serde_json::Value> {
     let path = std::path::PathBuf::from(body.path.trim());
-    let task = app.tasks().start("import", "Reading the archive");
+    let task = app.tasks().start("import", "task.readingArchive");
     let running = app.clone();
     let handle = task.clone();
     tokio::spawn(async move {

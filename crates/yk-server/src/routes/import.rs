@@ -55,7 +55,7 @@ async fn run(
     Path(lib): Path<i64>,
     Json(body): Json<Source>,
 ) -> Json<serde_json::Value> {
-    let task = app.tasks().start("zotero", "Reading the Zotero library");
+    let task = app.tasks().start("zotero", "task.readingZotero");
     let worker = app.clone();
     let handle = task.clone();
     let path = std::path::PathBuf::from(&body.path);
@@ -79,7 +79,7 @@ async fn import(
     let library = tokio::task::spawn_blocking(move || yk_import::zotero::read(&path))
         .await
         .map_err(|e| Error::internal(e.to_string()))??;
-    task.progress("Filing collections", 0, library.items.len() as u64);
+    task.progress("task.filingCollections", 0, library.items.len() as u64);
 
     // Collections first: an item's membership is meaningless until they exist.
     // Parents before children, so a nested collection has something to hang on.
@@ -140,15 +140,15 @@ async fn import(
                 },
             }
         }
-        task.progress("Importing items", added + updated + failed, total as u64);
+        task.progress("task.importingItems", added + updated + failed, total as u64);
         task.detail(json!({ "added": added, "updated": updated, "failed": failed }));
     }
 
-    task.progress("Importing files", added + updated + failed, total as u64);
+    task.progress("task.importingFiles", added + updated + failed, total as u64);
     let files = import_attachments(app, lib, &library.attachments).await;
-    task.progress("Importing notes", added + updated + failed, total as u64);
+    task.progress("task.importingNotes", added + updated + failed, total as u64);
     let notes = import_notes(app, lib, &library.notes).await;
-    task.progress("Importing annotations", added + updated + failed, total as u64);
+    task.progress("task.importingAnnotations", added + updated + failed, total as u64);
     let annotations = import_annotations(app, lib, &library).await;
 
     // What `announce` does, spelled out: it answers in the HTTP error type, and

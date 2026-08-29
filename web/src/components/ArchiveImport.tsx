@@ -9,6 +9,7 @@
  *  already in the library is left exactly as it is.
  */
 import { useState } from 'react'
+import { taskMessage } from '../lib/format'
 
 import { api } from '../api/client'
 import { useT } from '../i18n'
@@ -28,7 +29,7 @@ export function ArchiveImport() {
   /** What a running job should say. A percentage only when it knows one. */
   const progressText = (task: import('../api/types').Task) => {
     const pct = percentOf(task)
-    return pct === null ? task.message : `${task.message} · ${pct}%`
+    return pct === null ? taskMessage(t, task.message) : `${taskMessage(t, task.message)} · ${pct}%`
   }
 
   const run = async () => {

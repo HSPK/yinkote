@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { taskMessage } from '../lib/format'
 
 import { api } from '../api/client'
 import type { ImportPreview, ImportResult } from '../api/types'
@@ -45,9 +46,12 @@ export function ZoteroImport() {
       const { task } = await api.import.zotero(library, path.trim())
       // Watched, not awaited: a real Zotero library takes minutes, and this is
       // the first thing somebody does with the program.
-      const state = await follow(task.id, (t) => {
-        const pct = percentOf(t)
-        setProgress(pct === null ? t.message : `${t.message} · ${pct}%`)
+      // The callback's argument was also called `t`, which shadowed the
+      // translator — harmless until the progress line needed translating.
+      const state = await follow(task.id, (job) => {
+        const pct = percentOf(job)
+        const line = taskMessage(t, job.message)
+        setProgress(pct === null ? line : `${line} · ${pct}%`)
       })
       setProgress(null)
       if (!state || state.phase === 'failed') {

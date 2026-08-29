@@ -4331,3 +4331,32 @@ timeout / unreachable / tooLarge），后面跟上原始文本；
 
 三条测试，第三条是反例：**这个版本不认识的词要原样显示**——
 既不能变成空白格，也不能变成一个没翻译出来的词条键。
+
+### 3.249 A job that narrates in the server's own language
+
+`/tasks` carried `"Importing items"`, `"Reindexing"`, `"Restoring files"` —
+fourteen English sentences written where the work happens. Four surfaces print
+that string straight to the screen: the jobs page, the activity indicator's
+tooltip, and both import panels. In a program whose rule is that every string a
+reader sees comes from a catalogue, the longest-running, most-watched text in
+the product had never been through one.
+
+The fix is §3.248 one layer up: the server names *what happened*, the client
+decides how to say it. Fourteen literals became codes (`task.importingItems`);
+`taskMessage(t, message)` translates a code it knows and **returns anything
+else unchanged**, so a job recorded by an older server still reads as a
+sentence rather than collapsing to a bare key. That passthrough is the half
+that needs a test — "translate everything" passes without it.
+
+Two things this round is worth remembering for:
+
+- **Shadowing hides until the name is needed.** `ZoteroImport` called its
+  progress callback's argument `t`, over the translator also called `t`. Legal,
+  invisible, and harmless right up to the line that had to translate — where it
+  produced `Cannot find name`. The compiler caught it only because the fix
+  reached for the shadowed name.
+- **Sweep by shape, not by a list** (§3.215 again). The smoke check does not
+  enumerate the fourteen codes; it asserts no job message contains a space.
+  A list would have to be extended by whoever adds the fifteenth job, which is
+  exactly the person who won't. Verified against a synthetic sentence before
+  being kept, per §3.239.

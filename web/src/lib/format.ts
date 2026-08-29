@@ -1,4 +1,5 @@
 import type { Creator, Item } from '../api/types'
+import type { MessageKey } from '../i18n'
 
 export function creatorName(c: Creator): string {
   if (c.name) return c.name
@@ -32,6 +33,40 @@ export function displayTitle(item: Item, untitled: string): string {
   if (typeof marked === 'string' && marked.trim()) return marked.trim()
   return untitled
 }
+
+/**
+ * A task's progress line, translated.
+ *
+ * The server sends a code — `task.importingItems` — and this turns it into a
+ * sentence. It used to send the sentence itself, in English, and four surfaces
+ * printed it verbatim: the status bar, the jobs page, the activity indicator
+ * and the import panels. A product whose rule is that every user-visible
+ * string comes from a catalogue was showing a Chinese reader "Importing
+ * items".
+ *
+ * Anything that is not a known code is returned unchanged, so a task recorded
+ * by an older server still reads as words rather than as a bare key.
+ */
+export function taskMessage(t: (key: MessageKey) => string, message: string): string {
+  return TASK_MESSAGES.has(message) ? t(message as MessageKey) : message
+}
+
+const TASK_MESSAGES = new Set([
+  'task.readingZotero',
+  'task.reindexing',
+  'task.backingUp',
+  'task.packing',
+  'task.readingArchive',
+  'task.fetchingReferences',
+  'task.filingCollections',
+  'task.importingAnnotations',
+  'task.importingFiles',
+  'task.importingItems',
+  'task.importingNotes',
+  'task.restoringFiles',
+  'task.restoringItems',
+  'task.writingItems',
+])
 
 export function year(item: Item): string {
   const m = /\d{4}/.exec(String(item.date ?? ''))

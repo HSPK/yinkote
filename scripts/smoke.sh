@@ -742,6 +742,14 @@ check "reindex is a job"  "$(j "$BASE/tasks/$RIDX" | jq -r '.kind | select(. == 
 check "reindex is honest" "$(j "$BASE/tasks/$RIDX" | jq -r '.total | select(. == 0) | "uncountable"')"
 
 check "cancel is honest"  "$(j -X POST "$BASE/tasks/t999999/cancel" | jq -r 'select(.cancelled == false) | "no such task"')"
+
+# Every job's message is shown on four surfaces, so it must be a code the
+# catalogue can translate, not a sentence in the server's own language. Swept
+# by shape -- a code has no spaces -- rather than by a list of known jobs,
+# because the next job added would not be on the list.
+check "jobs speak codes"  "$(j "$BASE/tasks" | jq -r '
+  [.tasks[] | select(.message != null and .message != "") | select(.message | test(" "))]
+  | length | select(. == 0) | "all coded"')"
 check "archive opens"     "$(python3 - "$DATA/exports/$EXPNAME" <<'PY'
 import zipfile, sqlite3, sys, tempfile, os, json
 z = zipfile.ZipFile(sys.argv[1])
