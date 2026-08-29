@@ -8,7 +8,7 @@ import { api } from '../api/client'
 import { displayTitle } from '../lib/format'
 import type { Collection, Item, SmartCollection, Tag } from '../api/types'
 import { hasChosenColour, TAG_COLOURS } from '../lib/tags'
-import { t } from '../i18n'
+import { t, useI18n } from '../i18n'
 import { exportName, saveText } from '../lib/download'
 import { useStore } from '../state/store'
 import { confirmAction, promptFor, toast, withToast, type MenuItem } from '../ui'
@@ -20,6 +20,15 @@ import {
   newItem,
   reindex,
 } from './actions'
+
+/** Which language the assistant writes in.
+ *
+ *  The workbench's own, because somebody reading the interface in Chinese
+ *  wants the summary in Chinese and should not have to say so every time.
+ *  `both` stays available from the settings page for people who read in two. */
+function summaryLanguage(): string {
+  return useI18n.getState().locale === 'zh-CN' ? 'zh' : 'en'
+}
 
 export function itemMenu(item: Item): MenuItem[] {
   const store = useStore.getState()
@@ -155,11 +164,28 @@ export function itemMenu(item: Item): MenuItem[] {
       // The note carries the same fact as a tag, since a toast lasts seconds
       // and the note lasts years.
       onSelect: () =>
-        withToast(() => store.summarise(item.key), {
+        withToast(() => store.summarise(item.key, summaryLanguage()), {
           pending: t('summary.working'),
           success: (truncated) => (truncated ? t('summary.partial') : t('summary.done')),
           failure: t('summary.failed'),
         }),
+    },
+    {
+      // Separate from a summary on purpose. A summary answers "should I read
+      // this?"; a close reading answers "what did they do?", and only makes
+      // sense when the library holds the paper — so it refuses rather than
+      // reading the abstract and calling it an analysis.
+      label: t('detail.closeReading'),
+      onSelect: () =>
+        withToast(() => store.closeReading(item.key, summaryLanguage()), {
+          pending: t('summary.working'),
+          success: (truncated) => (truncated ? t('summary.partial') : t('summary.done')),
+          failure: t('summary.failed'),
+        }),
+    },
+    {
+      label: t('note.add'),
+      onSelect: () => void store.addNote(item.key),
     },
     {},
     {

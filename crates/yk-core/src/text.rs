@@ -190,6 +190,7 @@ pub const NOTE_TITLE_CHARS: usize = 60;
 /// Tags are stripped rather than parsed: the input is a note body, and the
 /// only question being asked of it is what its first line says.
 pub fn note_title(html: &str, limit: usize) -> String {
+    let html = first_meaningful_line(html);
     let mut out = String::new();
     let mut tag = String::new();
     let mut in_tag = false;
@@ -241,6 +242,34 @@ pub fn note_title(html: &str, limit: usize) -> String {
         Some((cut, _)) => format!("{}…", trimmed[..cut].trim_end()),
         None => trimmed,
     }
+}
+
+/// The first line of a note that says something, rather than labelling it.
+///
+/// Notes are markdown here — the editor stores markdown and the assistant
+/// writes it — and a heading is a name for what follows, not the thing itself.
+/// A bilingual summary opens with `## English`, and a list of notes titled
+/// "## English" tells the reader nothing at all.
+///
+/// A heading is kept only as a fallback, for a note that is nothing else.
+/// HTML notes arrive as one long line and are unaffected.
+fn first_meaningful_line(text: &str) -> &str {
+    let mut heading = "";
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix('#') {
+            let label = rest.trim_start_matches('#').trim();
+            if heading.is_empty() && !label.is_empty() {
+                heading = label;
+            }
+            continue;
+        }
+        return line;
+    }
+    heading
 }
 
 /// Whether a tag closes off a line of text.

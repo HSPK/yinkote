@@ -201,6 +201,13 @@ export const Icon = {
   ),
 
   /** A plain page: some other file. */
+  Note: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="M3.4 2.6h9.2v10.8H3.4z" />
+      <path d="M5.6 5.6h4.8M5.6 8h4.8M5.6 10.4h3" />
+    </Svg>
+  ),
+
   File: (p: IconProps) => (
     <Svg {...p}>
       <path d="M9.2 1.8H4.4a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7.2a1 1 0 0 0 1-1V5.2z" />

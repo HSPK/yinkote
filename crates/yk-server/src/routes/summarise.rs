@@ -89,10 +89,48 @@ pub fn router() -> Router<App> {
 }
 
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(deny_unknown_fields, default)]
 struct SummariseBody {
     /// What to emphasise, e.g. "focus on the method". Optional.
     focus: Option<String>,
+    /// Which language to write in. Absent means the workbench's own.
+    language: Option<String>,
+}
+
+/// The language a summary is written in.
+///
+/// Named rather than free text so the prompt cannot be steered through this
+/// field, and so the two the product actually supports are the two on offer.
+/// A researcher reading in Chinese wants the summary in Chinese; the same
+/// person may want English for a paper they will quote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Language {
+    English,
+    Chinese,
+    /// Both, one after the other, for somebody who reads in both.
+    Both,
+}
+
+impl Language {
+    pub fn parse(raw: Option<&str>) -> Self {
+        match raw.map(str::trim).unwrap_or_default().to_lowercase().as_str() {
+            "zh" | "zh-cn" | "chinese" => Language::Chinese,
+            "both" | "bilingual" => Language::Both,
+            _ => Language::English,
+        }
+    }
+
+    /// What the model is told. Explicit even for English, because a model
+    /// given a Chinese paper will otherwise answer in Chinese.
+    pub fn instruction(self) -> &'static str {
+        match self {
+            Language::English => "Write in English, whatever language the paper is in.",
+            Language::Chinese => "用中文写，无论论文是什么语言。",
+            Language::Both => {
+                "Write it twice: first in English under a line reading `## English`, then the                  same summary in Chinese under a line reading `## 中文`. Do not translate word                  for word -- write each so it reads naturally on its own."
+            }
+        }
+    }
 }
 
 async fn summarise(
@@ -107,8 +145,20 @@ async fn summarise(
         Error::invalid("no model is configured; set agent.endpoint and agent.model")
     })?;
 
+    // The paper itself when the library holds it. Everything here used to be
+    // written from the abstract, which is already a summary -- so the result
+    // was a summary of a summary, and read like one.
+    let paper = crate::paper::read(&app, lib, &item).await;
+    let language = Language::parse(body.language.as_deref());
+
     let turn = agent
-        .run(lib, vec![ChatMessage::new("user", prompt(&item, body.focus.as_deref()))])
+        .run(
+            lib,
+            vec![ChatMessage::new(
+                "user",
+                prompt(&item, body.focus.as_deref(), language, &paper.material(&item)),
+            )],
+        )
         .await?;
 
     if turn.reply.trim().is_empty() {
@@ -154,7 +204,14 @@ async fn summarise(
     })
     .await?;
 
-    Ok(Json(json!({ "note": note, "model": agent.model(), "truncated": turn.truncated })))
+    Ok(Json(json!({
+        "note": note,
+        "model": agent.model(),
+        "truncated": turn.truncated,
+        // Whether it read the paper or only its abstract. The difference is
+        // the difference between a summary worth keeping and a paraphrase.
+        "readInFull": paper.read_in_full(),
+    })))
 }
 
 /// What the model is asked.
@@ -163,13 +220,15 @@ async fn summarise(
 /// up: it already has the item, and a tool round-trip to fetch what the caller
 /// is holding is latency for nothing. Searching the library is still available
 /// for context the item itself does not carry.
-fn prompt(item: &Item, focus: Option<&str>) -> String {
+fn prompt(item: &Item, focus: Option<&str>, language: Language, material: &str) -> String {
     let mut out = String::from(
         "Summarise this item for a researcher's own notes. Three or four sentences: what it \
          does, how, and why it matters. Do not repeat the title. Do not invent findings that \
          are not in the material given. If the material is too thin to summarise honestly, \
-         say so in one sentence instead of padding.\n\n",
+         say so in one sentence instead of padding.\n",
     );
+    out.push_str(language.instruction());
+    out.push_str("\n\n");
 
     let creators: Vec<String> = item.creators.iter().map(|c| c.display()).collect();
     for (label, value) in [
@@ -178,7 +237,6 @@ fn prompt(item: &Item, focus: Option<&str>) -> String {
         ("Date", item.field("date").unwrap_or_default()),
         ("Publication", item.field("publicationTitle").unwrap_or_default()),
         ("DOI", item.field("DOI").unwrap_or_default()),
-        ("Abstract", item.field("abstractNote").unwrap_or_default()),
     ] {
         if !value.is_empty() {
             out.push_str(&format!("{label}: {value}\n"));
@@ -189,6 +247,12 @@ fn prompt(item: &Item, focus: Option<&str>) -> String {
     }
     if let Some(focus) = focus.map(str::trim).filter(|f| !f.is_empty()) {
         out.push_str(&format!("\nThe reader asked you to focus on: {focus}\n"));
+    }
+    // Last, and labelled by the caller as full text or abstract, because the
+    // model must not describe an abstract as though it had read the paper.
+    if !material.is_empty() {
+        out.push('\n');
+        out.push_str(material);
     }
     out
 }
@@ -228,9 +292,14 @@ mod tests {
         }
     }
 
+    /// What `paper::read` hands over when there is no file: the abstract,
+    /// labelled as the abstract.
+    const ABSTRACT: &str = "Abstract only -- the full text is not in the library, so do not \
+                            claim to have read the paper:\nWe propose the Transformer.";
+
     #[test]
     fn the_prompt_carries_the_metadata_rather_than_making_the_agent_fetch_it() {
-        let text = prompt(&item(), None);
+        let text = prompt(&item(), None, Language::English, ABSTRACT);
         assert!(text.contains("Attention Is All You Need"));
         assert!(text.contains("We propose the Transformer."));
         assert!(text.contains("Vaswani"));
@@ -240,21 +309,21 @@ mod tests {
     fn empty_fields_are_left_out_rather_than_sent_blank() {
         // "DOI: " teaches a model that blanks are normal and invites it to fill
         // them in.
-        let text = prompt(&item(), None);
+        let text = prompt(&item(), None, Language::English, ABSTRACT);
         assert!(!text.contains("DOI:"));
         assert!(!text.contains("Publication:"));
     }
 
     #[test]
     fn a_focus_is_passed_through_but_a_blank_one_is_not() {
-        assert!(prompt(&item(), Some("the method")).contains("focus on: the method"));
-        assert!(!prompt(&item(), Some("   ")).contains("focus on"));
-        assert!(!prompt(&item(), None).contains("focus on"));
+        assert!(prompt(&item(), Some("the method"), Language::English, ABSTRACT).contains("focus on: the method"));
+        assert!(!prompt(&item(), Some("   "), Language::English, ABSTRACT).contains("focus on"));
+        assert!(!prompt(&item(), None, Language::English, ABSTRACT).contains("focus on"));
     }
 
     #[test]
     fn the_model_is_told_not_to_pad_a_thin_record() {
-        assert!(prompt(&item(), None).contains("too thin"));
+        assert!(prompt(&item(), None, Language::English, ABSTRACT).contains("too thin"));
     }
 
     /// Replacing a summary must rewrite the title too.
@@ -324,5 +393,46 @@ mod tests {
         assert_eq!(draft.fields.get("title"), patch["fields"].get("title"));
         assert_eq!(serde_json::to_value(&draft.tags).unwrap(), patch["tags"]);
         assert_eq!(draft.item_type, "note");
+    }
+
+    /// The paper, not its abstract. Everything here was written from the
+    /// abstract, which is already a summary.
+    #[test]
+    fn the_full_text_is_what_the_model_is_given_when_the_library_has_it() {
+        let full = "Full text of the paper:\nSection 1. We train on eight GPUs for twelve hours.";
+        let text = prompt(&item(), None, Language::English, full);
+        assert!(text.contains("eight GPUs"), "the paper itself must reach the model");
+        // And the metadata no longer repeats the abstract, which arrives as
+        // material or not at all.
+        assert!(!text.contains("Abstract:"));
+    }
+
+    /// A model handed a Chinese paper answers in Chinese unless told, so every
+    /// choice is stated -- including the default.
+    #[test]
+    fn the_language_is_always_stated() {
+        for language in [Language::English, Language::Chinese, Language::Both] {
+            let text = prompt(&item(), None, language, ABSTRACT);
+            assert!(!text.is_empty());
+            assert!(
+                text.contains("English") || text.contains("中文"),
+                "{language:?} said nothing about language"
+            );
+        }
+        assert!(prompt(&item(), None, Language::Chinese, ABSTRACT).contains("用中文写"));
+        let both = prompt(&item(), None, Language::Both, ABSTRACT);
+        assert!(both.contains("## English") && both.contains("## 中文"));
+    }
+
+    #[test]
+    fn a_language_is_read_from_the_names_a_client_would_send() {
+        assert_eq!(Language::parse(Some("zh-CN")), Language::Chinese);
+        assert_eq!(Language::parse(Some("Chinese")), Language::Chinese);
+        assert_eq!(Language::parse(Some("both")), Language::Both);
+        assert_eq!(Language::parse(Some("en")), Language::English);
+        // Anything unrecognised is English rather than an error: a summary in
+        // the wrong language beats no summary.
+        assert_eq!(Language::parse(Some("klingon")), Language::English);
+        assert_eq!(Language::parse(None), Language::English);
     }
 }

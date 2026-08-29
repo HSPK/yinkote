@@ -2657,6 +2657,52 @@ option {
 .note-row:hover { color: var(--fg); }
 .note-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Starting a note is a row in the same list, not a button elsewhere: the place
+   you look to read one is the place you reach for to write one. */
+.note-row.add { color: var(--fg-mute); }
+.note-row.add:hover { color: var(--accent); }
+.note-row.add .glyph { width: 11px; height: 11px; flex: none; }
+
+/* ── the note surface ─────────────────────────────────────────────────────
+   A note is written over minutes, so it is a tab and not a dialog, and it
+   fills the surface: an editor that occupies a third of the pane invites
+   short notes. */
+.note-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.note-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.note-modes { display: flex; gap: 4px; }
+.note-state { font: 10px var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+.note-editor {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 16px;
+  background: var(--bg);
+  border: 0;
+  outline: 0;
+  color: var(--fg);
+  /* Monospace, because what is stored is markdown and the alignment of a list
+     or a table is part of reading it. */
+  font: 12px/1.65 var(--mono);
+  resize: none;
+  tab-size: 2;
+}
+.note-preview {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
+  /* Bounded like prose, because a summary set across a 2000px pane is
+     unreadable however well it is rendered. */
+  max-width: 78ch;
+}
+
 /* Marked, because a summary the model wrote and a note the user wrote are
    different things to trust. */
 .note-badge {

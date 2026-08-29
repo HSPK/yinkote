@@ -14,6 +14,7 @@ import { ItemTable } from '../components/ItemTable'
 import { PluginsPage } from '../pages/PluginsPage'
 import { SettingsPage } from '../pages/SettingsPage'
 import { CollectionEditorHost } from '../components/CollectionEditorHost'
+import { NoteView } from '../pages/NoteView'
 import { ReaderView } from '../pages/ReaderView'
 import { StatusPage } from '../pages/StatusPage'
 import type { IconName } from '../ui'
@@ -68,6 +69,13 @@ export const TABS: Record<TabKind, TabDefinition> = {
     search: 'collections',
   },
   chat: { Body: ChatView, icon: 'Chat', labelKey: 'sidebar.chat', Footer: ChatFooter, search: 'none' },
+  note: {
+    Body: NoteView,
+    icon: 'Note',
+    labelKey: 'note.title',
+    withDetail: true,
+    search: 'none',
+  },
   reader: {
     Body: ReaderView,
     icon: 'Library',

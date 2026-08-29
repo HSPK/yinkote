@@ -20,7 +20,8 @@ mod thumbnails;
 mod scrape;
 mod search;
 mod smart;
-mod summarise;
+pub mod close_reading;
+pub mod summarise;
 mod system;
 
 use axum::Router;
@@ -52,6 +53,7 @@ pub fn router() -> Router<App> {
         .merge(scrape::router())
         .merge(smart::router())
         .merge(summarise::router())
+        .merge(close_reading::router())
         .merge(plugins::router())
         .merge(reader::router())
         .merge(reveal::router())

@@ -1,0 +1,13 @@
+[package]
+name = "yk-pdf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+yk-core.workspace = true
+pdf-extract = "0.12"
+tracing.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

@@ -35,7 +35,7 @@ import {
   type TabKind,
 } from '../lib/tabs'
 import { inferMode } from '../lib/query'
-import { useOverlays } from '../ui/overlays'
+import { toast, useOverlays } from '../ui/overlays'
 import type {
   BadgeDescriptor,
   BadgeValue,
@@ -115,6 +115,10 @@ export interface State extends Scope, PrefsSlice, SidebarSlice, ChatSlice {
   activateTab: (id: string) => void
   keepTab: (id: string) => void
   openReader: (itemKey: string, keep?: boolean) => void
+  /** Open a note for writing. */
+  openNote: (noteKey: string, title?: string, keep?: boolean) => void
+  /** Start a note under a paper and open it. Resolves to the new note's key. */
+  addNote: (itemKey: string) => Promise<string | null>
   /** Show the relationship graph around an item. */
   openGraph: (itemKey: string, keep?: boolean) => void
   /** Show an item in the detail pane, whether or not the current list holds it.
@@ -567,6 +571,39 @@ export const useStore = create<State>((set, get, store) => ({
       target: itemKey,
       preview: !keep,
     })
+  },
+
+  /** A note is not a PDF, and the reader has nothing to show for one.
+   *
+   *  Clicking a note used to open it in the PDF reader, which found no
+   *  attachment and said "no file" — the summaries the assistant had been
+   *  writing were, in practice, unreadable. */
+  openNote(noteKey, title, keep = false) {
+    get().openTab({
+      id: tabId('note', noteKey),
+      kind: 'note',
+      title: title ?? t('note.title'),
+      target: noteKey,
+      preview: !keep,
+    })
+  },
+
+  /** Kept beside `openNote` because starting a note and opening one are the
+   *  same gesture to the person doing it: there is nothing to open yet. */
+  async addNote(itemKey) {
+    try {
+      const { created } = await api.items.create(get().library, [
+        { itemType: 'note', note: '', parentKey: itemKey },
+      ])
+      const note = created[0]
+      if (!note) throw new Error('the note was not created')
+      get().openNote(note.key, t('note.title'), true)
+      await get().refresh()
+      return note.key
+    } catch (e: unknown) {
+      toast.fromError(t('note.addFailed'), e)
+      return null
+    }
   },
 
 

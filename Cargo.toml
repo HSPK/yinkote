@@ -17,6 +17,7 @@ yk-plugin = { path = "crates/yk-plugin" }
 yk-scrape = { path = "crates/yk-scrape" }
 yk-cite = { path = "crates/yk-cite" }
 yk-ai = { path = "crates/yk-ai" }
+yk-pdf = { path = "crates/yk-pdf" }
 
 anyhow = "1"
 thiserror = "2"

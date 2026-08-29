@@ -419,10 +419,18 @@ export const api = {
     ),
 
   /** Summarise an item into a note child. */
-  summarise: (lib: number, key: string, focus?: string) =>
-    request<{ note: Item; model: string; truncated: boolean }>(
+  /** A close reading of the paper itself; refuses when there is no readable
+   *  PDF, rather than analysing an abstract and calling it a reading. */
+  closeReading: (lib: number, key: string, language?: string, focus?: string) =>
+    request<{ note: Item; model: string; truncated: boolean; charsRead: number; partial: boolean }>(
+      `/libraries/${lib}/items/${key}/close-reading`,
+      { method: 'POST', ...json({ language, focus }) },
+    ),
+
+  summarise: (lib: number, key: string, language?: string, focus?: string) =>
+    request<{ note: Item; model: string; truncated: boolean; readInFull: boolean }>(
       `/libraries/${lib}/items/${key}/summarise`,
-      { method: 'POST', ...json({ focus }) },
+      { method: 'POST', ...json({ language, focus }) },
     ),
 
   files: {

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useCapped } from '../lib/useCapped'
 
 import { compact } from '../lib/format'
 import { beginDrag, dropZone, endDrag } from '../lib/dnd'
@@ -20,6 +21,10 @@ const SIDEBAR_LIMIT = 12
  *  click away and the search box finds any of them by name. */
 const TAG_LIMIT = 10
 
+/** Conversations accumulate faster than anything else in the sidebar — one per
+ *  question asked — and unbounded they pushed every other group off screen. */
+const CHAT_LIMIT = 10
+
 export function Sidebar() {
   const t = useT()
   const view = useStore((s) => s.view)
@@ -39,7 +44,6 @@ export function Sidebar() {
   const tagItems = useStore((s) => s.tagItems)
   const trashItems = useStore((s) => s.trashItems)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
-  const [tagsExpanded, setTagsExpanded] = useState(false)
 
   /** A drop target, with the shared highlight and error reporting applied. */
   const zone = (
@@ -70,7 +74,8 @@ export function Sidebar() {
   // browser that can search and sort.
   const shownSmart = smartCollections.slice(0, SIDEBAR_LIMIT)
   const shownTree = tree.slice(0, SIDEBAR_LIMIT)
-  const shownTags = tagsExpanded ? tags : tags.slice(0, TAG_LIMIT)
+  const shownTags = useCapped(tags, TAG_LIMIT)
+  const shownChats = useCapped(conversations, CHAT_LIMIT)
 
   return (
     <nav className="sidebar-nav">
@@ -247,7 +252,7 @@ export function Sidebar() {
             : t('sidebar.tags')}
         </div>
         <div className="tag-cloud">
-          {shownTags.map((tag) => (
+          {shownTags.shown.map((tag) => (
             <button
               key={tag.name}
               className="tag-chip"
@@ -271,13 +276,13 @@ export function Sidebar() {
           {tags.length === 0 && (
             <span className="empty" style={{ padding: 0 }}>{t('sidebar.noTags')}</span>
           )}
-          {tags.length > shownTags.length && (
-            <button className="tag-chip more" onClick={() => setTagsExpanded(true)}>
-              {t('sidebar.more', { count: tags.length - shownTags.length })}
+          {shownTags.hidden > 0 && (
+            <button className="tag-chip more" onClick={shownTags.expand}>
+              {t('sidebar.more', { count: shownTags.hidden })}
             </button>
           )}
-          {tagsExpanded && tags.length > TAG_LIMIT && (
-            <button className="tag-chip more" onClick={() => setTagsExpanded(false)}>
+          {shownTags.expanded && shownTags.overflows && (
+            <button className="tag-chip more" onClick={shownTags.collapse}>
               {t('sidebar.less')}
             </button>
           )}
@@ -294,7 +299,7 @@ export function Sidebar() {
         {conversations.length === 0 && (
           <div className="empty" style={{ padding: '8px 12px' }}>{t('chat.empty')}</div>
         )}
-        {conversations.map((c) => (
+        {shownChats.shown.map((c) => (
           <button
             key={c.key}
             className="nav-item"
@@ -328,6 +333,16 @@ export function Sidebar() {
             <span className="count">{c.messageCount || ''}</span>
           </button>
         ))}
+        {shownChats.hidden > 0 && (
+          <button className="nav-more" onClick={shownChats.expand}>
+            {t('sidebar.more', { count: shownChats.hidden })}
+          </button>
+        )}
+        {shownChats.expanded && shownChats.overflows && (
+          <button className="nav-more" onClick={shownChats.collapse}>
+            {t('sidebar.less')}
+          </button>
+        )}
       </div>
     </nav>
   )

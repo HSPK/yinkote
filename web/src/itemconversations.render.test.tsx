@@ -209,9 +209,14 @@ describe("a paper's notes", () => {
     expect(rows[1]?.querySelector('.note-badge')).toBeNull()
   })
 
-  it('says nothing at all when there are none', async () => {
+  /// The section used to disappear when a paper had no notes, so the one
+  /// place you would go to write your first note was the one place that was
+  /// not there until you already had one.
+  it('still offers a way to write the first one', async () => {
     children = []
     await render()
-    expect(container.querySelector('.note-list')).toBeNull()
+    const add = container.querySelector('.note-row.add')
+    expect(add, 'a paper with no notes must still offer to take one').not.toBeNull()
+    expect(container.querySelectorAll('.note-row')).toHaveLength(1)
   })
 })

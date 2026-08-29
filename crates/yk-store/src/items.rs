@@ -435,6 +435,38 @@ fn coalesce(sets: Vec<Vec<i64>>) -> Vec<Vec<i64>> {
 /// a reload.
 ///
 /// Idempotent, so applying it on the way in and on the way out costs nothing.
+/// Give a note the title its own first line implies.
+///
+/// A note has no title of its own to type — the text *is* the note — so every
+/// list that shows one has to derive it. Four places did, separately, and the
+/// two generic paths did not: a note written by hand stayed untitled forever
+/// and showed as a blank row everywhere it appeared.
+///
+/// Only for notes, only when there is no title already, and only from text
+/// that is actually there — so an explicit title is never overwritten and an
+/// empty note is not given a title made of nothing.
+/// `previous_body` is the note's text before this change, when there was one.
+/// It is how "a title we derived" is told from "a title somebody typed"
+/// exactly, rather than guessed at: the first is what the old text implied.
+pub fn retitle_note(item: &mut yk_core::model::Item, previous_body: Option<&str>) {
+    if item.item_type != "note" {
+        return;
+    }
+    let title_of = |body: &str| yk_core::text::note_title(body, yk_core::text::NOTE_TITLE_CHARS);
+
+    let body = item.fields.get("note").and_then(|v| v.as_str()).unwrap_or_default();
+    let derived = title_of(body);
+    if derived.is_empty() {
+        return;
+    }
+
+    let current = item.fields.get("title").and_then(|v| v.as_str()).unwrap_or_default();
+    let ours = previous_body.is_some_and(|was| title_of(was) == current);
+    if current.is_empty() || ours {
+        item.fields.insert("title".into(), serde_json::Value::String(derived));
+    }
+}
+
 pub fn normalise_tags(tags: &[ItemTag]) -> Vec<ItemTag> {
     let mut out: Vec<ItemTag> = Vec::with_capacity(tags.len());
     for t in tags {
@@ -540,7 +572,10 @@ fn insert(tx: &Connection, library_id: i64, draft: ItemDraft, version: i64) -> R
     // raw text.
     let tags = normalise_tags(&draft.tags);
     let collections = draft.collections.clone();
-    let item = draft.into_item(key, library_id, version);
+    let mut item = draft.into_item(key, library_id, version);
+    // No previous text, so this only fills a title that is not there: an
+    // explicit one, like a summary's, is kept.
+    retitle_note(&mut item, None);
     let d = denorm(&item);
 
     tx.execute(
@@ -598,6 +633,9 @@ fn apply_patch(item: &mut Item, patch: ItemPatch) {
     if let Some(t) = patch.item_type {
         item.item_type = t;
     }
+    // Captured before the fields are merged: the title the old text implied is
+    // the only reliable sign that the title was derived rather than typed.
+    let was = item.fields.get("note").and_then(|v| v.as_str()).unwrap_or_default().to_string();
     if let Some(fields) = patch.fields {
         for (k, v) in fields {
             if v.is_null() {
@@ -621,6 +659,8 @@ fn apply_patch(item: &mut Item, patch: ItemPatch) {
     if let Some(d) = patch.deleted {
         item.deleted = d;
     }
+    // After the fields, so editing a note's first line renames it.
+    retitle_note(item, Some(&was));
 }
 
 // ---------------------------------------------------------------------------

@@ -71,7 +71,9 @@ export interface ChatSlice {
   removeConversation: (key: string) => Promise<void>
   sendMessage: (text: string, mentions?: string[]) => Promise<void>
   askAbout: (itemKey: string) => Promise<void>
-  summarise: (itemKey: string) => Promise<boolean>
+  summarise: (itemKey: string, language?: string) => Promise<boolean>
+  /** Read one paper closely. Resolves false when the model was cut short. */
+  closeReading: (itemKey: string, language?: string) => Promise<boolean>
 }
 
 export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get) => ({
@@ -283,8 +285,14 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
    *  Returns whether the model ran out of steps. The answer used to be thrown
    *  away, so a summary that stops mid-thought was announced as "Summary
    *  added" like any other. */
-  async summarise(itemKey) {
-    const { truncated } = await api.summarise(get().library, itemKey)
+  async summarise(itemKey, language) {
+    const { truncated } = await api.summarise(get().library, itemKey, language)
+    await get().refresh()
+    return truncated
+  },
+
+  async closeReading(itemKey, language) {
+    const { truncated } = await api.closeReading(get().library, itemKey, language)
     await get().refresh()
     return truncated
   },

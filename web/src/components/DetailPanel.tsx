@@ -7,7 +7,7 @@ import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
 import { useSchemaLabel, useT } from '../i18n'
 import { useDebounced } from '../lib/useDebounced'
-import { toast } from '../ui'
+import { Icon, toast } from '../ui'
 import { Thumbnail } from './Thumbnail'
 
 /** Fields worth a multi-line editor. */
@@ -451,7 +451,8 @@ function ItemNotes({ itemKey: selected }: { itemKey: string }) {
   const t = useT()
   const itemKey = useDebounced(selected)
   const library = useStore((s) => s.library)
-  const openReader = useStore((s) => s.openReader)
+  const openNote = useStore((s) => s.openNote)
+  const addNote = useStore((s) => s.addNote)
   const [notes, setNotes] = useState<Item[]>([])
 
   useEffect(() => {
@@ -469,8 +470,9 @@ function ItemNotes({ itemKey: selected }: { itemKey: string }) {
     }
   }, [library, itemKey])
 
-  if (!notes.length) return null
-
+  // Shown even with nothing in it. This returned null when a paper had no
+  // notes, so the one place you would go to write your first note was the one
+  // place that disappeared until you already had one.
   return (
     <>
       <dt>{t('detail.notes')}</dt>
@@ -482,7 +484,7 @@ function ItemNotes({ itemKey: selected }: { itemKey: string }) {
               <button
                 key={note.key}
                 className="note-row"
-                onClick={() => openReader(note.key)}
+                onClick={() => openNote(note.key, plainText(String(note.note ?? '')).slice(0, 40))}
                 title={plainText(String(note.note ?? ''))}
               >
                 {/* Marked, because a summary the model wrote and a note the
@@ -492,6 +494,10 @@ function ItemNotes({ itemKey: selected }: { itemKey: string }) {
               </button>
             )
           })}
+          <button className="note-row add" onClick={() => void addNote(selected)}>
+            <Icon.Plus className="glyph" />
+            <span className="note-text">{t('note.add')}</span>
+          </button>
         </div>
       </dd>
     </>

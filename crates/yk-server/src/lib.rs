@@ -28,6 +28,7 @@ pub mod storage;
 pub mod state;
 pub mod naming;
 pub mod notes;
+pub mod paper;
 pub mod runs;
 pub mod tasks;
 mod workers;

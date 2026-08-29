@@ -4614,3 +4614,72 @@ instead of reporting. Also `access reported` asserted `private` when
 `protected` is equally safe — it named one of the two right answers rather than
 the wrong one, and failed the moment a server was configured the other safe
 way.
+
+### 3.260 Summarising a summary
+
+Every AI feature read the abstract, because nothing on the server could open a
+PDF. An abstract is already a summary, so summarising one produces something
+that reads like a summary and says nothing the abstract did not. The library
+had the paper the whole time.
+
+`yk-pdf` reads it — 65,370 characters from a real paper in 89ms — and
+`server::paper` is the one place that decides which attachment is "the paper"
+and what to do when it cannot be read. Both callers would otherwise have
+answered those two questions separately and disagreed.
+
+Reading is best-effort by nature and the failures are not errors: a scan has no
+text layer, and a downloaded PDF is exactly the kind of file that is subtly
+malformed (`pdf-extract` panics on some, so the call is wrapped). What matters
+is that the *caller* chooses:
+
+- `summarise` falls back to the abstract and **labels it as the abstract in the
+  prompt**, so the model does not claim to have read the paper, and reports
+  `readInFull` so the reader knows which they got.
+- `close-reading` refuses — 422, verified live. A close reading of an abstract
+  is a fabrication with headings on it, and it would be filed beside the real
+  ones with nothing to tell them apart.
+
+`is_useful()` rather than `is_empty()`: a scanned page yields a handful of
+stray glyphs, so a caller testing emptiness feeds the model noise and calls it
+the paper.
+
+### 3.261 An autosave that erased the note
+
+`NoteView` saves on a pause, because a note nobody remembered to save is a note
+that was not written. Written the obvious way, the save-on-exit effect
+depends on `text`, so its cleanup runs on **every keystroke** carrying the text
+from before it — and the first of those fires when the fetch resolves, saving
+the empty string the editor was born with over the note that had just loaded.
+
+A render test caught it on the first run: `{ fields: { note: '' } }`. Now a ref
+and no dependencies, so the cleanup runs once, on the real unmount, with the
+current text.
+
+Two more from the same feature:
+
+- **A section that vanishes when it is empty.** `ItemNotes` returned null with
+  no notes, so the one place you would go to write your first note was the one
+  place that was not there until you already had one. Its test asserted that —
+  the old behaviour, written down.
+- **A note is not a PDF.** Clicking one called `openReader`, which found no
+  attachment and said "no file": every summary the assistant had written was,
+  in practice, unopenable.
+
+### 3.262 Deriving a title in four places and none of the two that matter
+
+A note has no title to type — the text *is* the note — so every list derives
+one. Four call sites did, separately, and neither `create` nor `update` did:
+a note written by hand was untitled forever and showed as a blank row
+everywhere. Now derived once in the store, so every path agrees.
+
+The subtlety is telling a title we derived from one somebody typed, so that
+editing the first line renames the note without overwriting a real title. My
+first rule guessed with prefix comparisons and got it wrong. The exact test is
+to capture the title the **previous** body implied and replace only when the
+current one equals it — no marker field, no guessing.
+
+And `note_title` understood HTML but not markdown, which is what notes are here
+now. A bilingual summary opens `## English`, so it was titled "## English" in
+every list. A heading names what follows; the title is the first line that says
+something, with the heading kept only as a fallback for a note that is nothing
+else.
