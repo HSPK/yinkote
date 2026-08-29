@@ -698,6 +698,27 @@ j -X DELETE "$BASE/libraries/$LIB/items" -d "{\"keys\":[\"$TRP\"]}" > /dev/null
 check "group is gone"     "$(j "$BASE/libraries/$LIB/duplicates" \
                              | jq -r --arg a "$DA" '[.groups[] | select(any(.[]; .key == $a))] | length | select(. == 0) | "resolved"')"
 
+# Deleting an item for good has to take its bytes with it, and that rests on an
+# ordering nothing states: `forget_files` runs *before* the rows are deleted,
+# because it reads the items to learn their filenames. Reverse those two lines
+# and every file ever deleted stays on disk for ever, silently.
+#
+# Deletes these two keys rather than emptying the trash: this suite shares one
+# library, and a check that destroys everything in the trash breaks whichever
+# check happens to run next.
+FCP=$(j -X POST "$BASE/libraries/$LIB/items" \
+        -d '{"itemType":"journalArticle","title":"File bytes probe"}' | jq -r '.created[0].key')
+FCA=$(j -X POST "$BASE/libraries/$LIB/items" \
+        -d "{\"itemType\":\"attachment\",\"parentKey\":\"$FCP\",\"filename\":\"bytes-probe.pdf\",\"contentType\":\"application/pdf\",\"linkMode\":\"imported_file\"}" \
+        | jq -r '.created[0].key')
+printf '%%PDF-1.4\ntrailer<</Root 1 0 R>>\n%%%%EOF\n' > /tmp/yk-bytes-probe.pdf
+curl -sS -o /dev/null -X PUT "$BASE/libraries/$LIB/files/$FCA" \
+  -H 'Content-Type: application/pdf' --data-binary @/tmp/yk-bytes-probe.pdf
+check "file is on disk"    "$(find "$SERVING/storage" -name 'bytes-probe.pdf' 2>/dev/null | head -1)"
+j -X POST "$BASE/libraries/$LIB/items/delete" -d "{\"keys\":[\"$FCP\",\"$FCA\"]}" > /dev/null
+check "bytes went too"     "$([[ -z "$(find "$SERVING/storage" -name 'bytes-probe.pdf' 2>/dev/null)" ]] && echo gone)"
+rm -f /tmp/yk-bytes-probe.pdf
+
 echo "▸ word integration"
 # The protocol every word processor uses. The point of the whole design is that
 # inserting a citation renumbers the ones after it, so that is what is checked.
