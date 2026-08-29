@@ -4308,3 +4308,26 @@ publisher"，smoke 精确地报出 `ris keeps chapter` 和 `csljson keeps thesis
 这里防的是每次点击都要付的钱。
 
 验证过预算真的会失败：临时改成 1ms，基准退出码 1 并指名那一条。
+
+### 3.248 下载失败时，界面在念 reqwest 的英文
+
+用户很早就抱怨过下载页。回头看那一列写的是什么：
+`fetch failed: error sending request for url (https://…)`——
+**reqwest 自己的句子**。它是开发者英语、永远进不了词条表，
+而且**没有说清到底出了什么事**：域名解析不了、404、403、文件太大，
+在这一列里长得一模一样。
+
+而这几件事对用户意味着完全不同的动作：
+"文件已不存在"是去修链接，"连不上"是去看网络，"文件过大"是**永远不会变**。
+
+按 §3.208 已经立过的规矩办：**原因是代码，不是句子**。
+服务端把失败归成七个词（notFound / refused / throttled / serverError /
+timeout / unreachable / tooLarge），后面跟上原始文本；
+界面翻译那个词，把服务端原话放在 hover 上——
+**翻译不能把细节扔掉**，那是排查顽固链接的人真正要的东西。
+
+拿三种真实失败验过：httpbin 的 403 → `refused: 403 Forbidden`，
+404 → `notFound: 404 Not Found`，不存在的域名 → `unreachable: …`。
+
+三条测试，第三条是反例：**这个版本不认识的词要原样显示**——
+既不能变成空白格，也不能变成一个没翻译出来的词条键。

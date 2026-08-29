@@ -12,6 +12,7 @@ import { act } from 'react'
 
 import { App } from './App'
 import type { Download } from './api/types'
+import { enUS } from './i18n/en-US'
 import { emptyScope } from './state/scope'
 import { useStore } from './state/store'
 
@@ -174,5 +175,57 @@ describe('download queue', () => {
     const buttons = rows().map((r) => [...r.querySelectorAll('button')].map((b) => b.textContent))
     expect(buttons[0]?.some((label) => label?.includes('Retry'))).toBe(true)
     expect(buttons[1]?.some((label) => label?.includes('Retry'))).toBe(false)
+  })
+})
+
+describe('why a download failed', () => {
+  const failed = (id: number, error: string, title: string): Download => ({
+    id,
+    itemKey: 'ZZZZ0000',
+    url: 'https://example.org/x.pdf',
+    title,
+    state: 'failed',
+    error,
+    bytes: 0,
+    attempts: 1,
+    updatedAt: 0,
+  })
+
+  it('says it in the reader\u2019s language, not reqwest\u2019s', async () => {
+    // The list used to print "fetch failed: error sending request for url
+    // (https://\u2026)" \u2014 developer English, never in a catalogue, and silent
+    // about which of several quite different things went wrong.
+    queue = [
+      failed(1, 'notFound: 404 Not Found', 'Gone'),
+      failed(2, 'unreachable: dns error', 'Offline'),
+      failed(3, 'tooLarge: file is too large', 'Huge'),
+    ]
+    await render()
+
+    const text = container.textContent ?? ''
+    expect(text).toContain(enUS['downloads.why.notFound'])
+    expect(text).toContain(enUS['downloads.why.unreachable'])
+    expect(text).toContain(enUS['downloads.why.tooLarge'])
+    expect(text, 'the raw sentence is still on screen').not.toContain('dns error')
+  })
+
+  it('keeps the server\u2019s own words on hover', async () => {
+    // Translating must not throw the detail away: it is what somebody chasing
+    // a stubborn link actually needs.
+    queue = [failed(1, 'notFound: 404 Not Found', 'Gone')]
+    await render()
+
+    expect(container.querySelector('.download-error')?.getAttribute('title')).toBe(
+      'notFound: 404 Not Found',
+    )
+  })
+
+  it('shows an unrecognised failure as it came', async () => {
+    // A word this build does not know must not become a blank cell or a raw
+    // catalogue key; the sentence is better than nothing.
+    queue = [failed(1, 'something entirely new', 'Odd')]
+    await render()
+
+    expect(container.textContent ?? '').toContain('something entirely new')
   })
 })

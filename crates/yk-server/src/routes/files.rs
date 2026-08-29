@@ -306,6 +306,24 @@ fn absolute(href: &str, base: &str) -> String {
     format!("{dir}/{href}")
 }
 
+/// Why a download failed, as a word the interface can translate.
+///
+/// The list used to show reqwest's own sentence — "fetch failed: error sending
+/// request for url (…)" — which is developer English, is never in the
+/// catalogues, and does not say which of the several quite different things
+/// went wrong. "Not found" means fix the link; "unreachable" means check the
+/// network; "too large" means nothing will ever change. The raw text is kept
+/// after the word, for the person who wants it.
+fn why_failed(e: &reqwest::Error) -> &'static str {
+    if e.is_timeout() {
+        "timeout"
+    } else if e.is_connect() || e.is_request() {
+        "unreachable"
+    } else {
+        "failed"
+    }
+}
+
 async fn download_file(url: &str) -> Result<(Vec<u8>, Option<String>)> {
     let response = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
@@ -315,17 +333,28 @@ async fn download_file(url: &str) -> Result<(Vec<u8>, Option<String>)> {
         .get(url)
         .send()
         .await
-        .map_err(|e| Error::internal(format!("fetch failed: {e}")))?;
+        .map_err(|e| Error::internal(format!("{}: {e}", why_failed(&e))))?;
 
     if !response.status().is_success() {
-        return Err(Error::invalid(format!("fetch returned {}", response.status())));
+        // Named, because these mean different things to the person looking at
+        // the list: a 404 is a dead link to fix, a 403 is a paywall that no
+        // amount of retrying will get past.
+        let status = response.status();
+        let word = match status.as_u16() {
+            404 | 410 => "notFound",
+            401 | 403 | 451 => "refused",
+            429 => "throttled",
+            500..=599 => "serverError",
+            _ => "failed",
+        };
+        return Err(Error::invalid(format!("{word}: {status}")));
     }
 
     // Trust the declared length enough to refuse early, and check again after:
     // a server may lie or omit it, and streaming an unbounded body would be the
     // one place a remote host could fill the disk.
     if response.content_length().is_some_and(|n| n > MAX_BYTES) {
-        return Err(Error::invalid("file is too large"));
+        return Err(Error::invalid("tooLarge: file is too large"));
     }
 
     let content_type = response
@@ -336,7 +365,7 @@ async fn download_file(url: &str) -> Result<(Vec<u8>, Option<String>)> {
 
     let bytes = response.bytes().await.map_err(|e| Error::internal(e.to_string()))?;
     if bytes.len() as u64 > MAX_BYTES {
-        return Err(Error::invalid("file is too large"));
+        return Err(Error::invalid("tooLarge: file is too large"));
     }
     Ok((bytes.to_vec(), content_type))
 }

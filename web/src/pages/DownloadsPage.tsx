@@ -42,6 +42,24 @@ function sameQueue(a: Download[], b: Download[]): boolean {
   })
 }
 
+/** The leading word of a failure, translated; anything else shown as it came. */
+const FAILURE_WORDS = [
+  'notFound',
+  'refused',
+  'throttled',
+  'serverError',
+  'timeout',
+  'unreachable',
+  'tooLarge',
+] as const
+
+function failureText(t: ReturnType<typeof useT>, error: string): string {
+  const word = error.split(':')[0]?.trim() ?? ''
+  return (FAILURE_WORDS as readonly string[]).includes(word)
+    ? t(`downloads.why.${word}` as Parameters<typeof t>[0])
+    : error
+}
+
 export function DownloadsPage() {
   const t = useT()
   const library = useStore((s) => s.library)
@@ -157,8 +175,13 @@ export function DownloadsPage() {
                   decision to retry is made from. One line, full text on hover —
                   a message that wraps breaks the rhythm of every row under it. */}
               {row.error && (
+                // Translated from the word the server puts first, with the
+                // server's own sentence on hover. It used to print reqwest's
+                // "error sending request for url (…)" — developer English,
+                // never in a catalogue, and silent about which of several
+                // quite different things went wrong.
                 <span className="download-error" title={row.error}>
-                  {row.error}
+                  {failureText(t, row.error)}
                 </span>
               )}
             </div>
