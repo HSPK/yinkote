@@ -135,6 +135,11 @@ fn bibtex_entry(raw: &str) -> Result<ItemDraft, String> {
     let inner = body[open + 1..].trim_end().trim_end_matches('}');
     let mut draft = ItemDraft::new(item_type_for_bibtex(entry_type));
     let mut seen_any = false;
+    // Held rather than written as they arrive: BibTeX keeps the year and the
+    // month in separate fields, and the library stores one date. Exporting and
+    // re-importing used to return `2021` for a paper published in March,
+    // because `month` was read and dropped.
+    let mut month: Option<u32> = None;
 
     for (name, value) in bibtex_fields(inner) {
         let value = unbrace(&value);
@@ -161,6 +166,7 @@ fn bibtex_entry(raw: &str) -> Result<ItemDraft, String> {
             "journal" | "journaltitle" => draft = draft.with_field("publicationTitle", value),
             "booktitle" => draft = draft.with_field("bookTitle", value),
             "year" => draft = draft.with_field("date", value),
+            "month" => month = bibtex_month(&value),
             "volume" => draft = draft.with_field("volume", value),
             "number" => draft = draft.with_field("issue", value),
             // `10--20` is BibTeX's en dash; the library stores a plain range.
@@ -188,12 +194,42 @@ fn bibtex_entry(raw: &str) -> Result<ItemDraft, String> {
     if !seen_any {
         return Err("no fields".into());
     }
+    // Only when the year is a bare year: anything richer already carries more
+    // than the month would add, and overwriting it would lose the day.
+    let bare_year = draft
+        .fields
+        .get("date")
+        .and_then(|d| d.as_str())
+        .filter(|y| y.len() == 4 && y.chars().all(|c| c.is_ascii_digit()))
+        .map(str::to_string);
+    if let (Some(m), Some(year)) = (month, bare_year) {
+        draft = draft.with_field("date", format!("{year}-{m:02}").as_str());
+    }
     // A reference with neither a title nor an author is not one; importing it
     // makes a blank row somebody has to find and delete.
     if draft.fields.get("title").is_none() && draft.creators.is_empty() {
         return Err("neither a title nor an author".into());
     }
     Ok(draft)
+}
+
+/// BibTeX months: the three-letter macros, the full names, and plain numbers.
+///
+/// Anything else is left alone rather than guessed at — a month nobody can
+/// read is a smaller loss than one read wrongly.
+fn bibtex_month(value: &str) -> Option<u32> {
+    let text = value.trim().to_ascii_lowercase();
+    if let Ok(n) = text.parse::<u32>() {
+        return (1..=12).contains(&n).then_some(n);
+    }
+    const NAMES: [&str; 12] = [
+        "january", "february", "march", "april", "may", "june", "july", "august", "september",
+        "october", "november", "december",
+    ];
+    NAMES
+        .iter()
+        .position(|full| full.starts_with(&text) && text.len() >= 3)
+        .map(|i| i as u32 + 1)
 }
 
 /// `name = value` pairs, splitting on the commas that are between fields.
@@ -600,5 +636,33 @@ mod tests {
         let parsed = bibtex("@article{empty, year = {2019} }");
         assert!(parsed.items.is_empty());
         assert_eq!(parsed.rejected.len(), 1);
+    }
+
+    /// The month has to come back, or the round trip loses it.
+    ///
+    /// BibTeX keeps year and month apart and the library stores one date, so
+    /// `month` was read and dropped: exporting a March paper and importing it
+    /// again returned a bare 2021.
+    #[test]
+    fn a_bibtex_month_rejoins_the_year() {
+        for (written, expected) in
+            [("mar", "2021-03"), ("{mar}", "2021-03"), ("3", "2021-03"), ("March", "2021-03")]
+        {
+            let text = format!("@article{{k, title = {{T}}, year = {{2021}}, month = {written},}}");
+            let drafts = parse(&text).items;
+            assert_eq!(
+                drafts[0].fields.get("date").and_then(|d| d.as_str()),
+                Some(expected),
+                "month written as {written}",
+            );
+        }
+    }
+
+    /// A month nobody can read leaves the year alone rather than guessing.
+    #[test]
+    fn an_unreadable_month_is_ignored() {
+        let text = "@article{k, title = {T}, year = {2021}, month = {spring},}";
+        let drafts = parse(text).items;
+        assert_eq!(drafts[0].fields.get("date").and_then(|d| d.as_str()), Some("2021"));
     }
 }

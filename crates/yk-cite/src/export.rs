@@ -111,7 +111,13 @@ fn bibtex(item: &Item) -> String {
         "bookSection" | "conferencePaper" => field("booktitle", container(item)),
         _ => field("journal", container(item)),
     }
-    field("year", &crate::year(item));
+    // Only the year used to be written, so every record lost its month on the
+    // way out — and a BibTeX file is how a library is handed to a co-author.
+    // Braced (`{mar}`) rather than as the bare macro: every parser accepts it,
+    // and `field` already escapes and skips empties.
+    let (year, month, _) = crate::date_parts(item);
+    field("year", &year);
+    field("month", month.map_or("", |m| crate::BIBTEX_MONTHS[m as usize - 1]));
     field("volume", item.field("volume").unwrap_or_default());
     field("number", item.field("issue").unwrap_or_default());
     field("pages", &item.field("pages").unwrap_or_default().replace('-', "--"));
@@ -325,14 +331,19 @@ fn csl(item: &Item) -> serde_json::Value {
         }
     }
 
-    let year = crate::year(item);
-    if !year.is_empty() {
-        if let Ok(y) = year.parse::<i64>() {
-            out.insert(
-                "issued".into(),
-                serde_json::json!({ "date-parts": [[y]] }),
-            );
+    // CSL date-parts take year, month and day; emitting only the year turned
+    // every dated record into a bare year on the way out, and CSL is the
+    // format people move a library with.
+    let (year, month, day) = crate::date_parts(item);
+    if let Ok(y) = year.parse::<i64>() {
+        let mut parts = vec![serde_json::json!(y)];
+        if let Some(m) = month {
+            parts.push(serde_json::json!(m));
+            if let Some(d) = day {
+                parts.push(serde_json::json!(d));
+            }
         }
+        out.insert("issued".into(), serde_json::json!({ "date-parts": [parts] }));
     }
 
     serde_json::Value::Object(out)
@@ -532,5 +543,45 @@ mod tests {
         assert_eq!(Export::parse(" ris "), Some(Export::Ris));
         assert_eq!(Export::parse("csl-json"), Some(Export::CslJson));
         assert_eq!(Export::parse("zotero-rdf"), None, "not supported, and it must say so");
+    }
+
+    fn dated(date: &str) -> Item {
+        ItemDraft::new("journalArticle")
+            .with_field("title", "A Paper")
+            .with_field("date", date)
+            .into_item(Key::generate(), 1, 1)
+    }
+
+    /// A full date must survive an export.
+    ///
+    /// Only the year was written, so handing a colleague a BibTeX file — which
+    /// is how a library is handed over — quietly reduced every record to its
+    /// year. RIS already carried `DA`; these two did not.
+    #[test]
+    fn a_month_reaches_bibtex_and_csl() {
+        let item = dated("2021-03-04");
+        assert!(bibtex(&item).contains("month = {mar}"), "{}", bibtex(&item));
+        assert_eq!(csl(&item)["issued"], serde_json::json!({ "date-parts": [[2021, 3, 4]] }));
+    }
+
+    /// A year on its own must not gain a month it never had.
+    #[test]
+    fn a_bare_year_stays_a_bare_year() {
+        let item = dated("2021");
+        assert!(!bibtex(&item).contains("month"), "{}", bibtex(&item));
+        assert_eq!(csl(&item)["issued"], serde_json::json!({ "date-parts": [[2021]] }));
+    }
+
+    /// And a date nobody can read safely is left as a year.
+    ///
+    /// `June 2017` and `06/07/2017` both occur in real libraries, and the
+    /// second is a day in one country and a month in another. A missing month
+    /// is a smaller loss than a wrong one.
+    #[test]
+    fn an_ambiguous_date_yields_no_month() {
+        for text in ["June 2017", "2017/06/12", "06/07/2017"] {
+            let item = dated(text);
+            assert!(!bibtex(&item).contains("month"), "{text}: {}", bibtex(&item));
+        }
     }
 }

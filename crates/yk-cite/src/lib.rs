@@ -311,6 +311,31 @@ fn year(item: &Item) -> String {
         .unwrap_or_default()
 }
 
+/// Year, month and day, when the date field carries them.
+///
+/// Only the strict `YYYY-MM-DD` and `YYYY-MM` shapes are read past the year.
+/// The field also holds `June 2017`, `2017/06/12` and worse, and guessing at
+/// those is how a European day becomes an American month; a missing month is
+/// a smaller loss than a wrong one.
+fn date_parts(item: &Item) -> (String, Option<u32>, Option<u32>) {
+    let year = year(item);
+    if year.is_empty() {
+        return (year, None, None);
+    }
+    let date = item.field("date").unwrap_or_default();
+    let Some(rest) = date.strip_prefix(year.as_str()) else {
+        return (year, None, None);
+    };
+    let mut bits = rest.trim_start_matches('-').split('-');
+    let month = bits.next().and_then(|m| m.parse::<u32>().ok()).filter(|m| (1..=12).contains(m));
+    let day = bits.next().and_then(|d| d.parse::<u32>().ok()).filter(|d| (1..=31).contains(d));
+    (year, month, month.and(day))
+}
+
+/// BibTeX writes months as three-letter macros, unbraced: `month = mar`.
+const BIBTEX_MONTHS: [&str; 12] =
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
 /// Just the surnames, for an in-text citation.
 fn surnames(item: &Item) -> Vec<String> {
     item.creators
