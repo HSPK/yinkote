@@ -144,6 +144,9 @@ describe('the detail pane', () => {
       useStore.getState().openTab({ id: tabId('collections'), kind: 'collections', title: '' })
     })
     await render()
-    expect(container.querySelector('.detail-pane')?.textContent).toContain('Papers')
+    const named = container.querySelector('.detail-pane .detail-title-edit') as
+      | HTMLInputElement
+      | null
+    expect(named?.value).toBe('Papers')
   })
 })

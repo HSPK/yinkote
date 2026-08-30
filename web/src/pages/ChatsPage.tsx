@@ -22,7 +22,7 @@ export function ChatsPage() {
   const conversations = useStore((s) => s.conversations)
   const openConversation = useStore((s) => s.openConversation)
   const openTab = useStore((s) => s.openTab)
-  const current = useStore((s) => s.conversation)
+  const inspected = useStore((s) => s.inspectedChat)
 
   const filter = useStore((s) => s.filter)
   const [sort, setSort] = useState<SortKey>('updated')
@@ -79,7 +79,11 @@ export function ChatsPage() {
           <div
             key={c.key}
             className="row chats-grid"
-            data-selected={current === c.key}
+            data-selected={inspected === c.key}
+            // A click inspects, a double-click opens — the same pair the
+            // collection browser uses, so browsing a list never costs you the
+            // conversation you had in front of you.
+            onClick={() => useStore.setState({ inspectedChat: c.key })}
             onDoubleClick={() => open(c.key, c.title)}
             onContextMenu={contextMenu(() => [
               { label: t('menu.open'), onSelect: () => open(c.key, c.title) },

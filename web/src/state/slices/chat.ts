@@ -40,6 +40,12 @@ export interface ChatSlice {
   /** A question is in flight. */
   asking: boolean
   conversation: string | null
+  /** Which conversation the history browser is showing in the detail pane.
+   *
+   *  Separate from `conversation`, which is the one *open* in a chat tab:
+   *  looking at a row in a list should not change what another tab is
+   *  showing. Selecting to inspect and selecting to open are different acts. */
+  inspectedChat: string | null
   messages: Message[]
   /** Whether the thread has more above what is loaded. */
   hasOlder: boolean
@@ -80,6 +86,7 @@ export interface ChatSlice {
 
 export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get) => ({
   conversations: [],
+  inspectedChat: null,
   agent: null,
   asking: false,
   conversation: null,

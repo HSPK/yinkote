@@ -181,6 +181,28 @@ describe('the conversation browser', () => {
     expect(rows.join(' ')).toContain('9')
   })
 
+  it('describes the clicked conversation without opening it', async () => {
+    await show('chats', { conversations: threads })
+
+    const row = [...container.querySelectorAll('.chats-grid.row')].find((r) =>
+      (r.textContent ?? '').includes('Wastewater'),
+    )
+    await act(async () => {
+      row?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    // Inspected, not opened: the conversation a chat tab is showing must not
+    // change because somebody clicked a row in a list.
+    expect(useStore.getState().inspectedChat).toBe(
+      threads.find((c) => c.title === 'Wastewater')?.key,
+    )
+    expect(useStore.getState().conversation).not.toBe(useStore.getState().inspectedChat)
+
+    const detail = container.querySelector('.detail-pane') ?? container.querySelector('.pane:last-child')
+    const name = detail?.querySelector('.detail-title-edit') as HTMLInputElement | null
+    expect(name?.value).toBe('Wastewater')
+  })
+
   it('opens newest first, because that is the one you were just in', async () => {
     await show('chats', { conversations: [...threads].reverse() })
 

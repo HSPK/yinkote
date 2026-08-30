@@ -2696,6 +2696,32 @@ option {
 
 /* A metric and the sentence that attributes it, one per line: the columns show
    the number, this shows where it came from. */
+/* A title you can type into, that does not look like a form field until you
+   do. Renaming is the commonest edit and deserves to be where the name is. */
+.detail-title-edit {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 3px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.detail-title-edit:hover { border-color: var(--line); }
+.detail-title-edit:focus { border-color: var(--accent); background: var(--bg-1); outline: none; }
+
+/* The opening questions of a conversation, which is what identifies it long
+   after the title has stopped meaning anything. */
+.asked-list { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.asked-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--fg-mute);
+}
+
 .metric-list { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .metric-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .metric-source { font-size: 10px; line-height: 1.35; min-width: 0; }

@@ -120,9 +120,11 @@ describe('the collection browser', () => {
 
     expect(rowNamed('Reading').getAttribute('data-selected')).toBe('true')
     // The pane belongs to the surface in front, so here it must describe a
-    // collection rather than whichever item is still selected elsewhere.
+    // collection rather than whichever item is still selected elsewhere. The
+    // name is in a box you can type into, so it is read as a value.
     const detail = container.querySelector('.pane:last-child')
-    expect(detail?.textContent).toContain('Reading')
+    const name = detail?.querySelector('.detail-title-edit') as HTMLInputElement | null
+    expect(name?.value).toBe('Reading')
   })
 
   it('shows a smart collection with the query that defines it', async () => {

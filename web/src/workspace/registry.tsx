@@ -20,6 +20,7 @@ import { ReaderView } from '../pages/ReaderView'
 import { StatusPage } from '../pages/StatusPage'
 import type { IconName } from '../ui'
 import { CollectionDetail } from '../components/CollectionDetail'
+import { ConversationDetail } from '../components/ConversationDetail'
 import {
   ChatFooter,
   ChatsFooter,
@@ -75,6 +76,8 @@ export const TABS: Record<TabKind, TabDefinition> = {
     Body: ChatsPage,
     icon: 'Chat',
     labelKey: 'chats.title',
+    withDetail: true,
+    Detail: ConversationDetail,
     Footer: ChatsFooter,
     // Searching filters the list in place, as it does for collections.
     search: 'collections',

@@ -5623,3 +5623,24 @@ takes both with it rather than sliding one under the other.
 
 **One description, read by everything that draws it.** That is the rule
 `lib/columns.ts` exists to enforce, and the header was the only reader.
+
+### 3.307 Inspecting and opening are different acts
+
+The conversation browser needed a detail pane, and the obvious way to say
+"which one" was the store's `conversation` — the same field the collection
+browser's counterpart uses. It would have been wrong: `conversation` is the one
+*open* in a chat tab, so clicking a row in a list would have changed what
+another tab was showing.
+
+A separate `inspectedChat` instead. The distinction is worth naming because the
+two look identical in a list — a highlighted row — and only differ in what they
+cost: a click that inspects is free to undo, a click that opens is not.
+
+The collection browser gets away with reusing `collection` because there
+selecting genuinely is scoping. That is a fact about collections, not a
+pattern to copy.
+
+Also: making a detail pane's title editable broke two tests that read the name
+out of `textContent`. The name lives in a field now, so it is read as a value.
+Worth doing rather than working around — renaming is the commonest edit there
+is, and sending somebody to an editor tab to change one word is a detour.

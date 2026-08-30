@@ -123,6 +123,7 @@ export function CollectionsFooter() {
         available={COLLECTION_COLUMNS}
         label={(c) => t(c.labelKey)}
       />
+      <DetailToggle />
     </>
   )
 }
@@ -172,5 +173,11 @@ export function ChatsFooter() {
   const t = useT()
   const conversations = useStore((s) => s.conversations)
   const turns = conversations.reduce((n, c) => n + c.messageCount, 0)
-  return <span>{t('chats.footer', { count: conversations.length, turns })}</span>
+  return (
+    <>
+      <span>{t('chats.footer', { count: conversations.length, turns })}</span>
+      <span className="spacer" />
+      <DetailToggle />
+    </>
+  )
 }
