@@ -132,6 +132,26 @@ describe('the collection browser', () => {
     expect(cells('.browser-grid.row')[0]).toContain('Older')
   })
 
+  it('lines the rows up with the headings', async () => {
+    await show('collections', { collections: shelves })
+
+    // The header carried the chosen columns and the rows fell back to the
+    // stylesheet's fixed five, so every cell sat under the wrong heading. It
+    // showed up when the detail panel opened, because that is when the pane
+    // narrows enough for the two track lists to disagree visibly.
+    const head = container.querySelector('.table-head.browser-grid') as HTMLElement
+    const rows = [...container.querySelectorAll('.browser-grid.row')] as HTMLElement[]
+
+    expect(head, 'no header rendered').toBeTruthy()
+    expect(rows.length).toBeGreaterThan(0)
+    for (const row of rows) {
+      expect(row.style.gridTemplateColumns, 'a row does not use the header tracks').toBe(
+        head.style.gridTemplateColumns,
+      )
+    }
+    expect(head.style.gridTemplateColumns).not.toBe('')
+  })
+
   it('drops a column the user has turned off', async () => {
     await show('collections', {
       collections: shelves,

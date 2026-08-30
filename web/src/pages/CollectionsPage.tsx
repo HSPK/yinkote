@@ -5,6 +5,7 @@ import { collectionColour, collectionIcon } from '../lib/collections'
 import {
   COLLECTION_COLUMNS,
   gridTemplate,
+  totalColumnWidth,
   visibleColumns,
   type ColumnDef,
 } from '../lib/columns'
@@ -115,6 +116,11 @@ export function CollectionsPage() {
     [order],
   )
   const template = useMemo(() => `${gridTemplate(columns, widths)} 28px`, [columns, widths])
+  // As the item table does: the columns have real widths, so the content can
+  // be wider than the pane. Head and rows sit in one scroller at one width, or
+  // they drift apart the moment the pane narrows -- which is what opening the
+  // detail panel does, and why the rows looked staggered.
+  const width = useMemo(() => totalColumnWidth(columns, widths) + 28, [columns, widths])
 
   /** One cell's contents. Kept beside the catalogue so adding a column is one
    *  entry there and one arm here, rather than a new row layout. */
@@ -166,7 +172,11 @@ export function CollectionsPage() {
 
   return (
     <div className="collections-browser">
-      <div className="table-head browser-grid" style={{ gridTemplateColumns: template }}>
+      <div className="browser-scroll">
+      <div
+        className="table-head browser-grid"
+        style={{ gridTemplateColumns: template, minWidth: width }}
+      >
         {columns.map((c) =>
           c.sort ? (
             <span key={c.id}>{header(c.sort, t(c.labelKey))}</span>
@@ -179,7 +189,7 @@ export function CollectionsPage() {
         <span />
       </div>
 
-      <div className="browser-body">
+      <div className="browser-body" style={{ minWidth: width }}>
         {visible.length === 0 && <Empty>{t('collections.none')}</Empty>}
         {visible.map((entry) => {
           const Glyph = collectionIcon(entry.icon, entry.smart ? 'Smart' : 'Folder')
@@ -190,6 +200,10 @@ export function CollectionsPage() {
             <div
               key={entry.key}
               className="row browser-grid"
+              // The same tracks as the header. Set on the header alone, the
+              // rows fell back to the stylesheet's five fixed columns and no
+              // cell lined up with its heading.
+              style={{ gridTemplateColumns: template }}
               data-colour={collectionColour(entry.color)}
               data-selected={collection === entry.key}
               // A click inspects; opening a tab is a deliberate second gesture,
@@ -220,6 +234,7 @@ export function CollectionsPage() {
             </div>
           )
         })}
+      </div>
       </div>
     </div>
   )

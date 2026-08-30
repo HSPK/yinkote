@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { failureText } from './lib/errors'
 
 import { CommandPalette } from './components/CommandPalette'
 import { DetailPanel } from './components/DetailPanel'
@@ -128,7 +127,6 @@ export function App() {
   const t = useT()
   const ready = useStore((s) => s.ready)
   const needsKey = useStore((s) => s.needsKey)
-  const error = useStore((s) => s.error)
   const tabs = useStore((s) => s.tabs)
   const activeTab = useStore((s) => s.activeTab)
   const layout = useStore((s) => s.layout)
@@ -161,11 +159,11 @@ export function App() {
   return (
     <div className="app">
       <TopBar />
-      {error && (
-        <div className="banner" title={error.detail}>
-          {failureText(t, error)}
-        </div>
-      )}
+      {/* The failure is reported in the status bar, with the detail on its
+          title. A banner here said the same words a second time and, because
+          `.app` is a three-row grid, took the row the workspace lives in --
+          so "Failed to fetch" filled the window and pushed the library out of
+          it. One report, in the place that has room for it. */}
 
       <div className="workspace">
         <div className="pane sidebar" style={{ width: layout.sidebar }}>

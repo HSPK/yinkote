@@ -714,14 +714,6 @@ button { cursor: pointer; }
 .toolbtn:hover { color: var(--fg); border-color: var(--line-2); background: var(--bg-3); }
 .toolbtn[data-active='true'] { color: #fff; background: var(--accent-dim); border-color: var(--accent); }
 
-.banner {
-  padding: 4px 10px;
-  background: #3a1e1e;
-  border-bottom: 1px solid var(--err);
-  color: #ffc9c7;
-  font: 11px/1.6 var(--mono);
-}
-
 /* ─── controls ───────────────────────────────────────────────────────────── */
 
 .ctl {
@@ -1701,7 +1693,20 @@ option {
 
 .name-cell { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .name-cell .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.browser-body { flex: 1; min-height: 0; overflow: auto; }
+/* One sideways scroller for the head and the rows together, so a column that
+   does not fit takes both with it. Separate scrollers let the header sit still
+   while the rows moved under it. */
+.browser-scroll {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.browser-body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: visible; }
 
 .browser-body .row {
   position: static;

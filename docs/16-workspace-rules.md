@@ -5594,3 +5594,32 @@ and reported four failures that were nothing but slowness.
 **A tool that maintains its own fixtures will fight anybody tidying up.** Worth
 saying out loud to whoever asked for the clean library, rather than cleaning it
 twice and letting them find out.
+
+### 3.305 A conditional child in a fixed grid takes somebody else's row
+
+"Failed to fetch" filled the window. Not a long message, not a styling
+accident: `.app` declares three grid rows — topbar, `1fr`, status bar — and the
+error banner was a fourth child rendered conditionally. It took the `1fr` row,
+the workspace fell into the status bar's row, and a one-line message became the
+whole screen.
+
+The banner said exactly what the status bar already said, so it went. But the
+lesson is about the layout, not the duplication: **a conditional child of a
+grid with a fixed template is placed by position, and every sibling after it
+moves up one.** The failure is invisible until the child renders, which for an
+error banner means it is invisible until something has already gone wrong.
+
+### 3.306 The header had the columns and the rows had the stylesheet
+
+The collection browser's rows were staggered against their headings, and worse
+when the detail panel was open. When I gave collections a column picker I set
+`gridTemplateColumns` on the header from the chosen columns — and left the rows
+to the stylesheet's fixed five tracks. They agreed only while the defaults
+happened to match, and a narrower pane made the disagreement obvious.
+
+Two corrections. The rows are given the same tracks, and head and body now sit
+in one sideways scroller as the item table's do, so a column that does not fit
+takes both with it rather than sliding one under the other.
+
+**One description, read by everything that draws it.** That is the rule
+`lib/columns.ts` exists to enforce, and the header was the only reader.
