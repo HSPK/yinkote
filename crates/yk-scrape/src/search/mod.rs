@@ -227,26 +227,43 @@ impl SearchEngine {
         )
         .await;
 
-        // Folded in source order, so the same query gives the same answer
-        // whatever the network did that minute.
+        // Separated first, so the failures are reported whatever the merge
+        // does with the results.
+        let mut lists: Vec<Vec<Found>> = Vec::new();
         for (id, answer) in answers {
             match answer {
-                Ok(found) => {
-                    for hit in found {
-                        match out.results.iter_mut().find(|r| r.same_as(&hit)) {
-                            // Two services, one paper. The copy carrying an
-                            // identifier wins, because that is the one that
-                            // can actually be added.
-                            Some(existing) if existing.identifier.is_none() => *existing = hit,
-                            Some(_) => {}
-                            None => out.results.push(hit),
-                        }
-                    }
-                }
-                // One service being down must not empty the answer: three
-                // sources answering is still a search, and naming the missing
-                // one is what lets somebody judge the gap.
+                Ok(found) => lists.push(found),
+                // One service being down must not empty the answer: the
+                // sources that answered are still a search, and naming the
+                // missing one is what lets somebody judge the gap.
                 Err(e) => out.failed.push(Failure { source: id.into(), problem: e.to_string() }),
+            }
+        }
+
+        // Round by round, not source by source.
+        //
+        // Concatenating in source order puts every one of the first service's
+        // results above every one of the second's, however bad they are. Asked
+        // for maternal screen exposure and child development, arXiv answered
+        // with astrotourism and multi-armed bandits and those came *above*
+        // PubMed's and Crossref's on-topic papers, because arXiv is first in
+        // the list. Nobody scrolls past that.
+        //
+        // Each service ranks its own results and none of them can rank another
+        // service's, so the only ordering available without inventing a score
+        // is: every source's best, then every source's second. A source with
+        // nothing to say contributes nothing to the front.
+        let depth = lists.iter().map(Vec::len).max().unwrap_or(0);
+        for rank in 0..depth {
+            for list in &lists {
+                let Some(hit) = list.get(rank) else { continue };
+                match out.results.iter_mut().find(|r| r.same_as(hit)) {
+                    // Two services, one paper. The copy carrying an identifier
+                    // wins, because that is the one that can actually be added.
+                    Some(existing) if existing.identifier.is_none() => *existing = hit.clone(),
+                    Some(_) => {}
+                    None => out.results.push(hit.clone()),
+                }
             }
         }
         out
@@ -337,6 +354,44 @@ mod tests {
         assert_eq!(out.results.len(), 1);
         // And the copy that can actually be added is the one kept.
         assert_eq!(out.results[0].identifier.as_deref(), Some("10.1/x"));
+    }
+
+    /// Every source's best before any source's second.
+    ///
+    /// Concatenating in source order put arXiv's answer to a public-health
+    /// question -- astrotourism, and a paper on multi-armed bandits -- above
+    /// PubMed's and Crossref's on-topic papers, purely because arXiv is first
+    /// in the list. Nobody scrolls past that.
+    #[tokio::test]
+    async fn the_best_of_each_source_comes_first() {
+        let engine = SearchEngine::new(vec![
+            std::sync::Arc::new(Canned(
+                "arxiv",
+                vec![found("Astrotourism", Some("1"), "arxiv"), found("Bandits", Some("2"), "arxiv")],
+            )),
+            std::sync::Arc::new(Canned(
+                "pubmed",
+                vec![found("Screen time and children", Some("3"), "pubmed")],
+            )),
+        ]);
+        let out = engine.search("screen exposure", 10, &[]).await;
+        let order: Vec<&str> = out.results.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(order, vec!["Astrotourism", "Screen time and children", "Bandits"]);
+    }
+
+    /// A source with less to say must not leave a hole at the front.
+    #[tokio::test]
+    async fn a_short_list_does_not_hold_up_the_others() {
+        let engine = SearchEngine::new(vec![
+            std::sync::Arc::new(Canned("a", vec![found("A1", Some("1"), "a")])),
+            std::sync::Arc::new(Canned(
+                "b",
+                vec![found("B1", Some("2"), "b"), found("B2", Some("3"), "b"), found("B3", Some("4"), "b")],
+            )),
+        ]);
+        let out = engine.search("x", 10, &[]).await;
+        let order: Vec<&str> = out.results.iter().map(|r| r.title.as_str()).collect();
+        assert_eq!(order, vec!["A1", "B1", "B2", "B3"]);
     }
 
     #[tokio::test]

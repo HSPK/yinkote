@@ -71,6 +71,8 @@ export interface ChatSlice {
   removeConversation: (key: string) => Promise<void>
   sendMessage: (text: string, mentions?: string[]) => Promise<void>
   askAbout: (itemKey: string) => Promise<void>
+  /** Ask the last question again, after a turn that failed. */
+  retry: () => Promise<void>
   summarise: (itemKey: string, language?: string) => Promise<boolean>
   /** Read one paper closely. Resolves false when the model was cut short. */
   closeReading: (itemKey: string, language?: string) => Promise<boolean>
@@ -285,6 +287,21 @@ export const createChatSlice: StateCreator<State, [], [], ChatSlice> = (set, get
    *  Returns whether the model ran out of steps. The answer used to be thrown
    *  away, so a summary that stops mid-thought was announced as "Summary
    *  added" like any other. */
+  /** Ask the last question again.
+   *
+   *  A failed turn told the reader "the model is busy, try again in a moment"
+   *  and gave them nothing to try again *with* -- they had to retype the
+   *  question, and a long one typed into a box that just lost it is a question
+   *  people abandon. The text is still in the thread; this sends it again. */
+  async retry() {
+    const s = get()
+    if (!s.conversation || s.asking) return
+    // The last thing the reader said, which is what the failed turn was for.
+    const asked = [...s.messages].reverse().find((m) => m.role === 'user')
+    if (!asked?.content) return
+    await get().sendMessage(asked.content, asked.mentions ?? [])
+  },
+
   async summarise(itemKey, language) {
     const { truncated } = await api.summarise(get().library, itemKey, language)
     await get().refresh()

@@ -220,8 +220,15 @@ impl Action {
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "What to search for. Be specific: a phrase from the \
-                                        field finds work, a one-word subject finds noise.",
+                        "description": "The terms the literature uses, not the sentence the \
+                                        reader typed. These services match words: \"maternal \
+                                        prenatal postnatal screen exposure child development \
+                                        outcomes\" returns papers about chemical exposure, \
+                                        because the rarer words drown \"screen\", while \
+                                        \"screen time young children development\" returns the \
+                                        right papers from every source. Search two or three \
+                                        phrasings -- a field usually has more than one name for \
+                                        the same idea.",
                     },
                     "sources": {
                         "type": "array",

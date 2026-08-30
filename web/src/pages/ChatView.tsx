@@ -218,6 +218,7 @@ export function ChatView() {
   const conversations = useStore((s) => s.conversations)
   const messages = useStore((s) => s.messages)
   const sendMessage = useStore((s) => s.sendMessage)
+  const retry = useStore((s) => s.retry)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   // Papers named with `@`, kept beside the text rather than inside it: the
@@ -393,8 +394,16 @@ export function ChatView() {
               // The class of failure from the catalogue; the server's own
               // words stay on the element, which is where they belong. A
               // throttled model used to put raw JSON in the chat.
+              //
+              // And a way to act on it. "Try again in a moment" with nothing
+              // to try again *with* made the reader retype the question --
+              // and a long one, typed into a box that has just lost it, is a
+              // question people abandon.
               <div className="bubble-note" title={entry.error}>
-                {agentProblem(t, entry.problem) || entry.error}
+                <span>{agentProblem(t, entry.problem) || entry.error}</span>
+                <button className="bubble-retry" onClick={() => void retry()}>
+                  {t('chat.retry')}
+                </button>
               </div>
             )
           }

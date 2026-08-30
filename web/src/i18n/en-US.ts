@@ -11,6 +11,7 @@ export const enUS: Record<MessageKey, string> = {
   'agent.unreachable': 'The model could not be reached',
   'app.connecting': 'Connecting to Yinkote…',
 
+  'chat.retry': 'Try again',
   'embedder.localHash': 'Offline word-shape matching. Finds papers that share wording; will not find one phrased differently. Set an embeddings endpoint for true semantic search.',
   'embedder.remote': 'A real embedding model: finds papers by meaning, not only by shared wording.',
   'failure.not_found': 'Not found',

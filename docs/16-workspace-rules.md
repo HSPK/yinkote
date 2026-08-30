@@ -5301,3 +5301,62 @@ confident wrong answer. The next round should print `EXP2NAME` and the import's
 since by hand it works.
 
 A single run passes: 277 checks, 2 skips.
+
+### 3.290 "Try again in a moment" with nothing to try again with
+
+A reader asked for literature on maternal and child screen exposure and got
+back *The model is busy right now — try again in a moment*, with no button, no
+reason, and no way to act. To try again they had to retype the question — and a
+long question, typed into a box that has just lost it, is a question people
+abandon.
+
+§3.272 replaced raw JSON in that bubble with a sentence in the reader's
+language, and stopped one step short: a failure the reader cannot act on is
+only an apology. The text is still in the thread, so the retry sends it again.
+
+The reason was reachable — on the element's `title` — which is to say
+effectively nowhere. Hover is not an affordance on a message you are reading.
+
+### 3.291 The first source's worst beat the last source's best
+
+The same report: the results were not what was asked for. Two causes, and only
+one of them was the model's.
+
+**Merged in source order.** Every one of arXiv's results sat above every one of
+PubMed's, because arXiv is first in the list — so a public-health question was
+answered with *astrotourism* and a paper on multi-armed bandits, above
+Crossref's and PubMed's on-topic ones. Nobody scrolls past that.
+
+Each service ranks its own results and none can rank another's, so without
+inventing a score the only honest ordering is round-robin: every source's best,
+then every source's second. A source with nothing to say now contributes
+nothing to the front.
+
+**The query was the reader's sentence.** These services match words, and
+`maternal prenatal postnatal screen exposure child development outcomes`
+returns papers about *chemical* exposure — the rarer words drown "screen".
+Measured: `screen time young children development` returns the right paper from
+all four sources. That is the model's job, and the guidance for it lived in the
+skill, which has to be *read*; it is now in the tool description, which is in
+front of the model on every turn, with that exact pair of queries as the
+example.
+
+Worth separating: the sources were never at fault. It would have been easy to
+conclude the search was broken and go rewriting it.
+
+### 3.292 Two puzzles closed by instrumenting instead of reasoning
+
+§3.289 owed an explanation for two back-to-back failures. Both were answered by
+printing values from inside a failing run, which is what it said to do:
+
+- **`archive restores`** — already fixed by §3.288. The lock contention *was*
+  the whole cause; the run I diagnosed it on still had the old binary.
+- **`trashed child shows`** — the probe items were never created:
+  `parent=null child=null`. The listing was never at fault, and I had spent
+  three rounds theorising about window sizes and sort order, twice "fixing" it.
+
+The semantic checks are now a named *skip* when the embedding queue has not
+reached this run's items. That precondition is a background worker catching up —
+not something the suite controls, exactly like the model being rate-limited —
+and I had tuned its timeout three times before noticing that tuning was the
+wrong move.

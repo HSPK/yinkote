@@ -406,6 +406,20 @@ describe('an answer arriving', () => {
     expect(note?.getAttribute('title')).toBe(raw)
   })
 
+  /// "Try again in a moment" with nothing to try again *with* made the reader
+  /// retype the question — and a long question, typed into a box that has just
+  /// lost it, is a question people abandon.
+  it('offers a way to act on a failure, not just a sentence about it', async () => {
+    useStore.setState(
+      running({ running: false, error: 'model returned 429', errorProblem: 'rateLimited' }),
+    )
+    await render()
+
+    const again = container.querySelector<HTMLButtonElement>('.bubble-retry')
+    expect(again, 'a failure the reader cannot act on is only an apology').not.toBe(null)
+    expect(again?.textContent).toBe('Try again')
+  })
+
   /// A kind nobody has named yet keeps its sentence: wrong language beats an
   /// empty bubble, and beats a bare catalogue key.
   it('falls back to the server’s sentence for a failure it cannot name', async () => {

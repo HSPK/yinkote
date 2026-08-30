@@ -2659,6 +2659,21 @@ option {
 
 /* Starting a note is a row in the same list, not a button elsewhere: the place
    you look to read one is the place you reach for to write one. */
+/* A failure the reader can act on. The message said "try again in a moment"
+   and gave them nothing to try again with. */
+.bubble-note { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bubble-retry {
+  padding: 1px 7px;
+  background: var(--bg-3);
+  border: 1px solid var(--line-2);
+  color: var(--fg);
+  font: 10px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+.bubble-retry:hover { border-color: var(--accent); color: var(--accent); }
+
 .note-row.add { color: var(--fg-mute); }
 .note-row.add:hover { color: var(--accent); }
 .note-row.add .glyph { width: 11px; height: 11px; flex: none; }
