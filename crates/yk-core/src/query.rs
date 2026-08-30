@@ -226,4 +226,11 @@ pub struct SearchStats {
     pub embedded: i64,
     pub dimensions: usize,
     pub provider: String,
+    /// Pages the text index occupies. Reported because it is the only way to
+    /// see the index drifting: a search that has grown slower over months
+    /// looks like a search that was always this slow.
+    #[serde(rename = "textIndexPages", default)]
+    pub text_index_pages: i64,
+    #[serde(rename = "trigramIndexPages", default)]
+    pub trigram_index_pages: i64,
 }

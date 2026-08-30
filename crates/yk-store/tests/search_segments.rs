@@ -1,4 +1,4 @@
-//! The search index needs merging, and nothing was doing it.
+//! The search index needs compacting, and what was doing it did not work.
 //!
 //! Every write appends to an FTS5 index, and the pages accumulate. Measured on
 //! a real 100,000-item library after a few weeks of ordinary use: the index's
@@ -14,6 +14,18 @@
 //! which keeps a small index tidy and is why this has to be provoked to be
 //! tested at all — and why it still went wrong on a library of a hundred
 //! thousand.
+//!
+//! One honest limitation. These tests cannot tell the *incremental* merge
+//! apart from `optimize`: at four hundred items both gather the index into a
+//! single segment, which is why the version of this file that tested the
+//! incremental merge passed for several rounds while that merge was achieving
+//! nothing on the real library. The difference only appears in the multi-level
+//! shape a large index reaches over months, and the evidence for it is the
+//! measurement recorded on `compact_search_indexes` — 19,362 pages to 6,350,
+//! and a keyword search from 26.6ms to 22.2ms.
+//!
+//! So what is guarded here is narrower than the bug that prompted it: that
+//! compaction compacts, and that the index still answers afterwards.
 
 use yk_core::model::ItemDraft;
 use yk_store::Store;
@@ -55,18 +67,17 @@ async fn writing_spreads_the_index_out_and_merging_gathers_it_back() {
     write_one_at_a_time(&store, lib, 400).await;
     let spread = pages(&store);
 
-    // `merge` is bounded on purpose -- a full `optimize` on the real library
-    // took 41 seconds holding the write lock -- so once is not always enough.
-    // That is why it runs on a timer rather than being called once.
-    for _ in 0..40 {
-        store.db().merge_search_segments().await.unwrap();
-    }
+    store.db().compact_search_indexes().await.unwrap();
     let gathered = pages(&store);
 
-    assert!(
-        gathered < spread,
-        "merging did nothing: {spread} pages before, {gathered} after"
-    );
+    assert!(gathered < spread, "compaction did nothing: {spread} pages before and after");
+
+    // And it reached the bottom rather than merely moving towards it. Pages
+    // cannot fall below the size of the text itself, so the assertion is not a
+    // ratio but a fixed point: compacting a compacted index changes nothing.
+    // An implementation that leaves work behind keeps shrinking here.
+    store.db().compact_search_indexes().await.unwrap();
+    assert_eq!(pages(&store), gathered, "compaction left work behind for a second pass");
 
     // And it is still the same index afterwards, which is what would matter if
     // a merge ever lost anything.
@@ -80,7 +91,8 @@ async fn writing_spreads_the_index_out_and_merging_gathers_it_back() {
 }
 
 /// It must be safe to run on a timer, which means costing nothing when there
-/// is nothing to do.
+/// is nothing to do. Measured on the real library: a second `optimize` on a
+/// compacted index takes 0.00s and reports a single change.
 #[tokio::test]
 async fn merging_an_already_merged_index_is_harmless() {
     let store = Store::in_memory().unwrap();
@@ -88,7 +100,7 @@ async fn merging_an_already_merged_index_is_harmless() {
     write_one_at_a_time(&store, lib, 20).await;
 
     for _ in 0..5 {
-        store.db().merge_search_segments().await.unwrap();
+        store.db().compact_search_indexes().await.unwrap();
     }
     // And the index still answers afterwards, which is the thing that would
     // matter if a merge ever corrupted it.
@@ -108,5 +120,5 @@ async fn merging_an_already_merged_index_is_harmless() {
 #[tokio::test]
 async fn merging_an_empty_library_is_not_an_error() {
     let store = Store::in_memory().unwrap();
-    store.db().merge_search_segments().await.unwrap();
+    store.db().compact_search_indexes().await.unwrap();
 }

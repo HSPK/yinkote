@@ -136,6 +136,33 @@ impl SqliteCollectionRepository {
             .unwrap_or(-1)
     }
 
+    /// Fresh membership, remembered counts.
+    ///
+    /// Everything in `C_SELECT` except the correlated count, which is the part
+    /// worth deferring. A collection the cache has never seen reports zero
+    /// until the recompute behind this request lands — honest for the case
+    /// that produces one, which is a collection that has just been created.
+    async fn reconcile(&self, library_id: i64, cached: Vec<Collection>) -> Result<Vec<Collection>> {
+        let counts: std::collections::HashMap<String, i64> =
+            cached.into_iter().map(|c| (c.key.to_string(), c.item_count)).collect();
+        self.db
+            .call(move |c| {
+                let mut stmt = c.prepare_cached(SKELETON).map_err(sql_err)?;
+                let rows: Vec<Collection> = stmt
+                    .query_map(params![library_id], |r| {
+                        let mut collection = map_skeleton(r)?;
+                        collection.item_count =
+                            counts.get(collection.key.as_str()).copied().unwrap_or(0);
+                        Ok(collection)
+                    })
+                    .map_err(sql_err)?
+                    .collect::<rusqlite::Result<_>>()
+                    .map_err(sql_err)?;
+                Ok(rows)
+            })
+            .await
+    }
+
     /// Read the list and remember it, with what it cost.
     async fn recompute(
         &self,
@@ -185,6 +212,30 @@ const C_SELECT: &str = "SELECT c.id, c.key, c.library_id, c.name, p.key, c.sort_
                  SELECT d.id FROM collections d JOIN sub ON d.parent_id = sub.id) \
              SELECT id FROM sub)) \
      FROM collections c LEFT JOIN collections p ON p.id = c.parent_id";
+
+/// The same rows as `C_SELECT` without the count, which is the expensive half.
+const SKELETON: &str = "SELECT c.id, c.key, c.library_id, c.name, p.key, c.sort_index, \
+     c.color, c.icon, c.version, c.date_added, c.date_modified \
+     FROM collections c LEFT JOIN collections p ON p.id = c.parent_id \
+     WHERE c.library_id=?1 ORDER BY c.sort_index, c.name";
+
+/// Everything but `item_count`, which the caller fills in.
+fn map_skeleton(r: &rusqlite::Row<'_>) -> rusqlite::Result<Collection> {
+    let parent: Option<String> = r.get(4)?;
+    Ok(Collection {
+        key: Key::parse(&r.get::<_, String>(1)?).unwrap_or_else(|_| Key::generate()),
+        library_id: r.get(2)?,
+        name: r.get(3)?,
+        parent_key: parent.and_then(|p| Key::parse(&p).ok()),
+        sort_index: r.get(5)?,
+        color: r.get(6)?,
+        icon: r.get(7)?,
+        version: r.get(8)?,
+        date_added: r.get(9)?,
+        date_modified: r.get(10)?,
+        item_count: 0,
+    })
+}
 
 fn map_collection(r: &rusqlite::Row<'_>) -> rusqlite::Result<Collection> {
     let parent: Option<String> = r.get(4)?;
@@ -240,12 +291,24 @@ impl CollectionRepository for SqliteCollectionRepository {
             Answer::Stale(rows) => {
                 if self.listing.claim(&key) {
                     let this = self.clone();
+                    let key = key.clone();
                     tokio::spawn(async move {
                         let _ = this.recompute(library_id, key.clone(), version).await;
                         this.listing.release(&key);
                     });
                 }
-                return Ok(rows);
+                // The counts may lag; *which collections exist* may not. A
+                // stale listing was handed back whole, so a collection created
+                // a moment ago was absent from the very next request and one
+                // just deleted was still there — the sidebar disagreeing with
+                // the library about what it contains, until some later edit
+                // happened to refresh it.
+                //
+                // Only the per-collection live-item count is expensive (60,000
+                // memberships, 27ms); the rows themselves are a plain read. So
+                // the rows are re-read and the cached counts are carried over
+                // by key, which keeps the saving and drops the lie.
+                return self.reconcile(library_id, rows).await;
             }
             Answer::Missing => {}
         }
@@ -687,5 +750,79 @@ impl TagRepository for SqliteTagRepository {
                     .map_err(sql_err)
             })
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use yk_core::ports::CollectionRepository;
+
+    /// A stale listing may be out of date about counts. It may not be out of
+    /// date about what exists.
+    ///
+    /// The listing is cached against the library version and, when recomputing
+    /// it is slow, the previous one is handed back while a fresh one is built
+    /// behind the request. That is right for the number beside a name and
+    /// wrong for the names: a collection created a moment earlier was missing
+    /// from the very next listing, and one just deleted was still in it.
+    ///
+    /// It surfaced as an intermittent smoke failure — "colour saved" reading
+    /// empty — because whether the cache defers depends on whether the last
+    /// recompute crossed 20ms, so it appeared only once the library was big
+    /// enough. The test does not wait for that: it seeds the cache with an
+    /// expensive, out-of-date entry, which is exactly the state being
+    /// described.
+    #[tokio::test]
+    async fn a_deferred_listing_still_knows_what_exists() {
+        // Through `Store` so the schema and the default library are set up
+        // the one way they are everywhere else, with a repository of our own
+        // beside it because the cache being described is a private field.
+        let store = crate::Store::in_memory().unwrap();
+        let lib = store.default_library;
+        let repo = SqliteCollectionRepository::new(store.db().clone());
+
+        let first = repo
+            .create(lib, CollectionDraft { name: "Already here".into(), ..Default::default() })
+            .await
+            .unwrap();
+        let listing = repo.list(lib).await.unwrap();
+        assert_eq!(listing.len(), 1);
+
+        // Say the last recompute was expensive, and that what we hold is from
+        // an older version of the library. Both are true of a real library
+        // between an edit and the refresh behind it.
+        repo.listing.put_timed(
+            format!("collections:{lib}"),
+            0,
+            listing,
+            Duration::from_millis(500),
+        );
+
+        let second = repo
+            .create(lib, CollectionDraft { name: "Just made".into(), ..Default::default() })
+            .await
+            .unwrap();
+
+        let names: Vec<String> =
+            repo.list(lib).await.unwrap().into_iter().map(|c| c.name).collect();
+        assert!(
+            names.iter().any(|n| n == "Just made"),
+            "a collection that exists was missing from the listing: {names:?}"
+        );
+        assert!(names.iter().any(|n| n == "Already here"), "the older one was dropped");
+
+        // And a deletion is honoured just as promptly.
+        repo.delete(lib, &first.key, false).await.unwrap();
+        repo.listing.put_timed(
+            format!("collections:{lib}"),
+            0,
+            vec![first.clone(), second.clone()],
+            Duration::from_millis(500),
+        );
+        let names: Vec<String> =
+            repo.list(lib).await.unwrap().into_iter().map(|c| c.name).collect();
+        assert!(!names.iter().any(|n| n == "Already here"), "a deleted collection was listed");
     }
 }

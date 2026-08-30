@@ -5473,3 +5473,70 @@ question — the fallback guarantees something always resolves. It now skips whe
 no resolution came from arXiv, which is the condition the check actually needs.
 Same rule as the throttled model: a precondition outside the suite's control is
 a named skip, and a skip that names the reason is not a hole.
+
+### 3.300 The index housekeeping ran every thirty minutes and did nothing
+
+Search had drifted back to where it was before §3.254 fixed it: keyword 29.3ms
+against the 24.3ms recorded then, Chinese 45.9ms against 31.2ms. The worker
+that exists to prevent exactly this was running, succeeding, and logging
+nothing wrong.
+
+It ran FTS5's *incremental* merge, `('merge', 64)`, on the reasoning that a
+bounded slice repeated often beats one long lock. Measured on a copy of the
+real library, it does not work at all:
+
+    slice 1: 19,372 -> 19,362 pages
+    slice 2..40: one change each, nothing moved
+
+Incremental merge only combines segments within a level that has enough of
+them. An index fragmented across ten levels gives it nothing to do — while
+leaving plenty for `optimize`, which took the same index to 6,350 pages in
+2.8s, the trigram index 23,420 to 5,287 in 3.9s, and a keyword search from
+26.6ms to 22.2ms. On the live server after the change: `fts 19362 -> 6350,
+trigram 23411 -> 5287`, and 2-term keyword 21.3ms -> 12.8ms.
+
+The reason `optimize` is safe on a timer is the number I nearly did not
+measure: **a second call on a compacted index takes 0.00s**. The seconds are
+only ever spent when they buy something.
+
+Three things to carry:
+
+- **A worker that succeeds is not a worker that works.** This is §3.282 again
+  in a new place, and the tell was the same — nothing measured the effect. The
+  worker now reads the page count before and after and logs the change, and
+  `/search/stats` reports it so drift is visible rather than merely slow.
+- **The unit test passed on the broken implementation.** At four hundred items
+  incremental merge and `optimize` both gather the index into one segment; the
+  difference only exists in the multi-level shape a large index reaches over
+  months. The test file now says so, rather than implying it proves more than
+  it does.
+- **A bounded-work argument needs the bound measured.** "41 seconds holding the
+  write lock" was in the comment justifying the incremental merge. The real
+  figure was 2.8s, and the alternative's real figure was zero work done.
+
+### 3.301 A stale list may lie about counts, not about what exists
+
+`colour saved` failed: a collection was created, the very next listing did not
+contain it, and the check read empty. Not a colour bug at all.
+
+The listing is cached against the library version and, when recomputing is
+slow, the previous one is handed back whole while a fresh one is built behind
+the request. The reasoning was sound and is written down: a count beside a name
+being one out for a moment is invisible, and recomputing 60,000 memberships
+inside every request after every edit is not.
+
+But what was deferred was the whole answer, so *membership* went stale too — a
+collection made a moment ago missing, one just deleted still listed. The
+sidebar disagreeing with the library about what it contains.
+
+**Split the expensive part from the true part.** Only the per-collection live
+count costs anything; the rows are a plain read. The stale path now re-reads
+the rows and carries the cached counts across by key, which keeps the saving
+and drops the lie.
+
+Two lessons beyond the fix. This was intermittent for a reason that looks like
+flakiness and is not: whether the cache defers depends on whether the last
+recompute crossed 20ms, so it only began failing once the library was big
+enough — **an "intermittent" failure is often a threshold nobody named**. And
+the test does not wait for that condition, it seeds it: an expensive,
+out-of-date cache entry is a state, not a race.

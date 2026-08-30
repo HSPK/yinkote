@@ -555,7 +555,18 @@ impl SearchIndex for SearchEngine {
             let filter = ItemFilter { library_id: library.id, ..Default::default() };
             documents += self.store.items.count(&filter).await?;
         }
-        Ok(SearchStats { documents, embedded: self.vectors.read().len() as i64, dimensions, provider })
+        // Cheap: a count over the index's own storage table, which is the
+        // number this is about.
+        let (text_index_pages, trigram_index_pages) =
+            self.store.db().search_index_pages().await.unwrap_or((0, 0));
+        Ok(SearchStats {
+            documents,
+            embedded: self.vectors.read().len() as i64,
+            dimensions,
+            provider,
+            text_index_pages,
+            trigram_index_pages,
+        })
     }
 
     async fn embed_pending(&self, batch: u32) -> Result<u32> {

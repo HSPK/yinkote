@@ -1638,6 +1638,20 @@ check "stats items"      "$(j "$BASE/stats" | jq -r .items)"
 check "search stats"     "$(j "$BASE/search/stats" | jq -r .documents)"
 check "embedded vectors" "$(j "$BASE/search/stats" | jq -r .embedded)"
 
+# How spread out the search index is. Reported because it is invisible
+# otherwise: an index that has drifted answers every query correctly, just
+# slower, so nothing fails and the library quietly gets worse.
+#
+# The threshold is generous on purpose -- a page per document is far past
+# anything healthy, and this library sits near a fifteenth of that compacted.
+# It is here to catch the housekeeping stopping altogether, which is what
+# happened: the timer ran the *incremental* merge, which on this library moved
+# 19,372 pages to 19,362 and then nothing, while succeeding every time.
+STATS="$(j "$BASE/search/stats")"
+check "index pages known" "$(echo "$STATS" | jq -r '.textIndexPages | select(. > 0)')"
+check "index is compact"  "$(echo "$STATS" | jq -r '
+  select(.textIndexPages < .documents) | "compact"')"
+
 # ─── clear up after ourselves ──────────────────────────────────────────────
 #
 # The database is kept between runs, and every run used to leave its fixtures

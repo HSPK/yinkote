@@ -53,10 +53,29 @@ fn keep_statistics_current(app: App) {
                 }
                 // And the full-text index's own housekeeping, which `PRAGMA
                 // optimize` does not do despite the name: every write appends
-                // a segment and nothing merged them, so search got slower for
+                // a segment and nothing gathers them, so search got slower for
                 // as long as the library was used.
-                if let Err(error) = app.store().db().merge_search_segments().await {
-                    tracing::debug!(%error, "could not merge search segments");
+                //
+                // Reported rather than assumed. This ran the *incremental*
+                // merge for several rounds, which on a real library moved
+                // 19,372 pages to 19,362 and then did nothing at all — a
+                // worker that runs, succeeds and achieves nothing looks
+                // exactly like one that works.
+                match app.store().db().search_index_pages().await {
+                    Ok(before) => {
+                        if let Err(error) = app.store().db().compact_search_indexes().await {
+                            tracing::debug!(%error, "could not compact the search indexes");
+                        } else if let Ok(after) = app.store().db().search_index_pages().await {
+                            if after != before {
+                                tracing::info!(
+                                    fts = format!("{} -> {}", before.0, after.0),
+                                    trigram = format!("{} -> {}", before.1, after.1),
+                                    "compacted the search indexes"
+                                );
+                            }
+                        }
+                    }
+                    Err(error) => tracing::debug!(%error, "could not measure the search indexes"),
                 }
             }
             // Often enough to follow a big import, rare enough to be invisible.
