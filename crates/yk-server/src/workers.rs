@@ -150,6 +150,22 @@ fn embedding_worker(app: App) {
 
     tokio::spawn(async move {
         loop {
+            // Not while a bulk write is going. The statistics worker and the
+            // checkpoint worker both stand aside for one; this is the worker
+            // that writes *most often* and it did not, so an import competed
+            // with it for the write lock on every batch and lost:
+            // `import-archive` failed outright with "database is locked" on a
+            // library whose embedding queue was not empty, which is any
+            // library still catching up.
+            //
+            // Restoring an archive is the operation somebody reaches for after
+            // losing something, so it is the last one that should be fragile.
+            // Nothing is lost by waiting: the imported items land in the same
+            // queue and are embedded when it finishes.
+            if app.tasks().bulk_write_running() {
+                tokio::time::sleep(idle).await;
+                continue;
+            }
             let started = std::time::Instant::now();
             match app.search().embed_pending(batch).await {
                 Ok(0) => tokio::time::sleep(idle).await,

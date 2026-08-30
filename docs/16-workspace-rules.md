@@ -5247,3 +5247,57 @@ back to back, and `marker destroyed` and `archive restores` failed — the
 documented consequence of a suite that shares one library with the run before
 it. A single clean run passed. The rule holds; I should read the file I keep
 appending to.
+
+### 3.288 Restore failed because the embedding worker would not stand aside
+
+Running the suite twice — which §3.287 said not to do, and which I did anyway —
+turned out to be worth doing. `import-archive` failed outright:
+
+```
+storage error: database is locked (sqlite DatabaseBusy/5)
+```
+
+The statistics worker stands aside for a bulk write. The checkpoint worker
+stands aside. The **embedding worker** — the one that writes most often, and
+the only one with a permanent backlog on a library still catching up — did not.
+So an import competed with it for the write lock on every batch and lost.
+
+Restoring an archive is the operation somebody reaches for *after* losing
+something. It is the last one that should be fragile, and this failed in a way
+nobody would see until they needed it: a task that reports `failed` with a
+SQLite message, long after whoever asked for it has walked away.
+
+Nothing is lost by waiting: the imported items land in the same queue and are
+embedded when it finishes.
+
+Guarded by a source rule rather than a behavioural test, because reproducing it
+needs a real server, a populated queue and a race. The rule lists the workers
+that write and asserts each asks `bulk_write_running` — plus a second test that
+the list still describes the file, so a worker renamed away does not silently
+stop being checked. Confirmed red by removing the new guard clause.
+
+Verified afterwards with every step checked: create a marker, export, confirm
+the export contains it, destroy it, confirm 404, import, and get
+`items: 1` with the marker back. **Every step**, because an earlier attempt
+skipped confirming the delete and reported `items: 0` — which I nearly recorded
+as a second bug when it was a probe that had deleted nothing.
+
+### 3.289 What is still owed
+
+Two consecutive runs still fail on `archive restores` and `marker is back`,
+with the import reporting `done` and `items: 0`. What is *established* rather
+than guessed:
+
+- The lock failure is fixed; the import now completes.
+- The export is sound: the archive produced in the failing conditions contains
+  the marker (checked by opening the zip and querying `db.sqlite`).
+- By hand, with every step verified, restore works and reports `items: 1`.
+
+So something about the suite's second pass, not the export and not the lock. It
+is written down here rather than guessed at, because three rounds have now
+shown that reasoning about this instead of instrumenting it produces a
+confident wrong answer. The next round should print `EXP2NAME` and the import's
+`result` from inside a failing second run rather than reproducing it by hand,
+since by hand it works.
+
+A single run passes: 277 checks, 2 skips.
