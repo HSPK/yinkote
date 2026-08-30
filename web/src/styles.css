@@ -1685,7 +1685,16 @@ option {
    other is impossible rather than merely noticeable. */
 .browser-grid {
   display: grid;
+  /* Overridden inline from the chosen columns; this is the fallback for a
+     render with no store behind it. */
   grid-template-columns: minmax(0, 2fr) 84px 64px minmax(0, 2fr) 28px;
+  align-items: center;
+  gap: 0;
+}
+
+.chats-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) 64px 116px 116px 28px;
   align-items: center;
   gap: 0;
 }

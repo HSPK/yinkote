@@ -91,7 +91,7 @@ describe('the column picker', () => {
     // The reported bug: the menu captured the order when it opened, so the
     // second choice was made against a list that predated the first.
     await open()
-    const before = useStore.getState().columnOrder
+    const before = useStore.getState().columnOrders.items
     const off = [...container.querySelectorAll('.column-toggle')].filter(
       (b) => !(b as HTMLElement).dataset.checked,
     )
@@ -104,7 +104,7 @@ describe('the column picker', () => {
       )
     ])
 
-    const after = useStore.getState().columnOrder
+    const after = useStore.getState().columnOrders.items
     expect(after.length, `${before.length} -> ${after.length}`).toBe(before.length + 2)
   })
 
@@ -113,9 +113,9 @@ describe('the column picker', () => {
     const on = [...container.querySelectorAll('.column-toggle')].filter(
       (b) => (b as HTMLElement).dataset.checked,
     )
-    const before = useStore.getState().columnOrder.length
+    const before = useStore.getState().columnOrders.items.length
     await click(on[on.length - 1])
-    expect(useStore.getState().columnOrder.length).toBe(before - 1)
+    expect(useStore.getState().columnOrders.items.length).toBe(before - 1)
   })
 })
 

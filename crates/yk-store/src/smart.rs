@@ -9,7 +9,8 @@ use yk_core::{Error, Key, Result};
 use crate::db::{sql_err, write_tx, Db};
 
 const SELECT: &str = "SELECT key, library_id, name, query, mode, sort, direction, sort_index, \
-                      color, icon, version FROM smart_collections";
+                      color, icon, version, date_added, date_modified \
+                      FROM smart_collections";
 
 fn map(r: &rusqlite::Row<'_>) -> rusqlite::Result<SmartCollection> {
     Ok(SmartCollection {
@@ -24,6 +25,8 @@ fn map(r: &rusqlite::Row<'_>) -> rusqlite::Result<SmartCollection> {
         color: r.get(8)?,
         icon: r.get(9)?,
         version: r.get(10)?,
+        date_added: r.get(11)?,
+        date_modified: r.get(12)?,
         item_count: None,
         item_count_approximate: false,
     })
@@ -126,8 +129,8 @@ impl SmartCollectionRepository for SqliteSmartCollectionRepository {
                 tx.execute(
                     "INSERT INTO smart_collections
                        (library_id, key, name, query, mode, sort, direction, sort_index,
-                        color, icon, version)
-                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+                        color, icon, version, date_added, date_modified)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?12)",
                     params![
                         library_id,
                         key.as_str(),
@@ -139,7 +142,8 @@ impl SmartCollectionRepository for SqliteSmartCollectionRepository {
                         sort_index,
                         draft.color.as_deref(),
                         draft.icon.as_deref(),
-                        version
+                        version,
+                        yk_core::now_ms()
                     ],
                 )
                 .map_err(sql_err)?;
@@ -227,8 +231,8 @@ impl SmartCollectionRepository for SqliteSmartCollectionRepository {
 
                 let version = bump(&tx, library_id)?;
                 tx.execute(
-                    "UPDATE smart_collections SET version=?1 WHERE id=?2",
-                    params![version, id],
+                    "UPDATE smart_collections SET version=?1, date_modified=?2 WHERE id=?3",
+                    params![version, yk_core::now_ms(), id],
                 )
                 .map_err(sql_err)?;
 

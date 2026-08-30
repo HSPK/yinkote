@@ -10,6 +10,8 @@ const collection = (key: string, name: string, parentKey?: string, sortIndex = 0
   parentKey,
   sortIndex,
   version: 1,
+  dateAdded: 0,
+  dateModified: 0,
   itemCount: 0,
 })
 

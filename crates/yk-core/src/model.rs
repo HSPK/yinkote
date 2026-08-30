@@ -360,6 +360,13 @@ pub struct Collection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     pub version: i64,
+    /// Milliseconds since the epoch, as on items. Zero means unknown: rows
+    /// that predate `015_collection_dates.sql` recorded nothing, and inventing
+    /// a date would make every old collection look new.
+    #[serde(rename = "dateAdded", default)]
+    pub date_added: i64,
+    #[serde(rename = "dateModified", default)]
+    pub date_modified: i64,
     /// Number of items directly in this collection.
     #[serde(rename = "itemCount", default)]
     pub item_count: i64,
@@ -437,6 +444,11 @@ pub struct SmartCollection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     pub version: i64,
+    /// As on `Collection`: zero means unknown.
+    #[serde(rename = "dateAdded", default)]
+    pub date_added: i64,
+    #[serde(rename = "dateModified", default)]
+    pub date_modified: i64,
     /// Filled in on demand; `None` when not evaluated.
     #[serde(rename = "itemCount", skip_serializing_if = "Option::is_none")]
     pub item_count: Option<i64>,

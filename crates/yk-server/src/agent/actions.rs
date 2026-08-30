@@ -347,12 +347,21 @@ impl Tool for LibraryAction {
 
             Action::FileItems => {
                 let collection = key_of(&arguments, "collectionKey")?;
-                let n = self
-                    .store
-                    .items
-                    .add_to_collection(lib, &collection, &keys_of(&arguments)?)
-                    .await?;
-                Ok(json!({ "filed": n }))
+                let keys = keys_of(&arguments)?;
+                let n = self.store.items.add_to_collection(lib, &collection, &keys).await?;
+
+                // The same courtesy the route does, for the same reason: an
+                // assistant asked to file twenty papers has been asked to put
+                // twenty readable papers on a shelf.
+                let mut filed = Vec::with_capacity(keys.len());
+                for k in &keys {
+                    if let Ok(item) = self.store.items.get(lib, k).await {
+                        filed.push(item);
+                    }
+                }
+                let queued =
+                    crate::routes::files::queue_missing_files(&self.store, lib, &filed).await;
+                Ok(json!({ "filed": n, "queued": queued }))
             }
 
             Action::UnfileItems => {

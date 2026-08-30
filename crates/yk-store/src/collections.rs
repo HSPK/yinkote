@@ -176,7 +176,7 @@ impl SqliteCollectionRepository {
 /// `DISTINCT`, because a paper filed in both a collection and its child is one
 /// paper, and the list shows it once.
 const C_SELECT: &str = "SELECT c.id, c.key, c.library_id, c.name, p.key, c.sort_index, \
-     c.color, c.icon, c.version, \
+     c.color, c.icon, c.version, c.date_added, c.date_modified, \
      (SELECT count(DISTINCT ci.item_id) \
         FROM collection_items ci JOIN items i ON i.id = ci.item_id \
        WHERE i.deleted = 0 AND ci.collection_id IN ( \
@@ -197,7 +197,9 @@ fn map_collection(r: &rusqlite::Row<'_>) -> rusqlite::Result<Collection> {
         color: r.get(6)?,
         icon: r.get(7)?,
         version: r.get(8)?,
-        item_count: r.get(9)?,
+        date_added: r.get(9)?,
+        date_modified: r.get(10)?,
+        item_count: r.get(11)?,
     })
 }
 
@@ -300,6 +302,7 @@ impl CollectionRepository for SqliteCollectionRepository {
                     None => None,
                 };
                 let version = bump(&tx, library_id)?;
+                let now = yk_core::now_ms();
                 let key = draft.key.clone().unwrap_or_else(Key::generate);
                 let sort_index = draft.sort_index.unwrap_or_else(|| {
                     tx.query_row(
@@ -312,8 +315,9 @@ impl CollectionRepository for SqliteCollectionRepository {
                 });
                 tx.execute(
                     "INSERT INTO collections
-                       (library_id, key, parent_id, name, sort_index, color, icon, version)
-                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                       (library_id, key, parent_id, name, sort_index, color, icon, version,
+                        date_added, date_modified)
+                     VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?9)",
                     params![
                         library_id,
                         key.as_str(),
@@ -322,7 +326,8 @@ impl CollectionRepository for SqliteCollectionRepository {
                         sort_index,
                         draft.color.as_deref(),
                         draft.icon.as_deref(),
-                        version
+                        version,
+                        now
                     ],
                 )
                 .map_err(sql_err)?;
@@ -336,6 +341,8 @@ impl CollectionRepository for SqliteCollectionRepository {
                     color: draft.color,
                     icon: draft.icon,
                     version,
+                    date_added: now,
+                    date_modified: now,
                     item_count: 0,
                 })
             })
@@ -418,8 +425,11 @@ impl CollectionRepository for SqliteCollectionRepository {
                 }
 
                 let version = bump(&tx, library_id)?;
-                tx.execute("UPDATE collections SET version=?1 WHERE id=?2", params![version, id])
-                    .map_err(sql_err)?;
+                tx.execute(
+                    "UPDATE collections SET version=?1, date_modified=?2 WHERE id=?3",
+                    params![version, yk_core::now_ms(), id],
+                )
+                .map_err(sql_err)?;
 
                 let sql = format!("{C_SELECT} WHERE c.id=?1");
                 let out = tx

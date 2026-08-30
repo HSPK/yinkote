@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { useT } from '../i18n'
-import { allColumns, badgeColumn } from '../lib/columns'
+import { COLLECTION_COLUMNS, allColumns, badgeColumn, type ColumnDef, type TableId } from '../lib/columns'
 import { useStore } from '../state/store'
 import { ColumnPicker } from '../components/ColumnPicker'
 import { Icon } from '../ui'
@@ -31,6 +31,45 @@ function DetailToggle() {
   )
 }
 
+/**
+ * The button that opens a table's column picker.
+ *
+ * Shared, because the collection browser wants exactly this and a second copy
+ * would be a second place to fix the stale-popover bug ColumnPicker documents.
+ */
+function ColumnButton({
+  table,
+  available,
+  label,
+}: {
+  table: TableId
+  available: ColumnDef[]
+  label: (c: ColumnDef) => string
+}) {
+  const t = useT()
+  const [picking, setPicking] = useState(false)
+  return (
+    <span className="column-anchor">
+      <button
+        className="icon-btn"
+        data-active={picking}
+        title={t('table.columns')}
+        onClick={() => setPicking((p) => !p)}
+      >
+        <Icon.Columns size={12} />
+      </button>
+      {picking && (
+        <ColumnPicker
+          table={table}
+          available={available}
+          label={label}
+          onClose={() => setPicking(false)}
+        />
+      )}
+    </span>
+  )
+}
+
 export function LibraryFooter() {
   const t = useT()
   const items = useStore((s) => s.items)
@@ -40,7 +79,6 @@ export function LibraryFooter() {
   const loading = useStore((s) => s.loading)
   const loadingMore = useStore((s) => s.loadingMore)
   const badgeDefs = useStore((s) => s.badgeDefs)
-  const [picking, setPicking] = useState(false)
 
   const available = allColumns(badgeDefs.map((b) => badgeColumn(b)))
   const label = (c: { id: string; labelKey: Parameters<typeof t>[0] }) =>
@@ -64,23 +102,7 @@ export function LibraryFooter() {
       {(loading || loadingMore) && <span className="dim">{t('table.loading')}</span>}
       <span className="spacer" />
 
-      <span className="column-anchor">
-        <button
-          className="icon-btn"
-          data-active={picking}
-          title={t('table.columns')}
-          onClick={() => setPicking((p) => !p)}
-        >
-          <Icon.Columns size={12} />
-        </button>
-        {picking && (
-          <ColumnPicker
-            available={available}
-            label={label}
-            onClose={() => setPicking(false)}
-          />
-        )}
-      </span>
+      <ColumnButton table="items" available={available} label={label} />
       <DetailToggle />
     </>
   )
@@ -91,9 +113,17 @@ export function CollectionsFooter() {
   const collections = useStore((s) => s.collections)
   const smart = useStore((s) => s.smartCollections)
   return (
-    <span>
-      {t('collections.footer', { plain: collections.length, smart: smart.length })}
-    </span>
+    <>
+      <span>
+        {t('collections.footer', { plain: collections.length, smart: smart.length })}
+      </span>
+      <span className="spacer" />
+      <ColumnButton
+        table="collections"
+        available={COLLECTION_COLUMNS}
+        label={(c) => t(c.labelKey)}
+      />
+    </>
   )
 }
 
@@ -136,4 +166,11 @@ export function ReaderFooter() {
       <DetailToggle />
     </>
   )
+}
+
+export function ChatsFooter() {
+  const t = useT()
+  const conversations = useStore((s) => s.conversations)
+  const turns = conversations.reduce((n, c) => n + c.messageCount, 0)
+  return <span>{t('chats.footer', { count: conversations.length, turns })}</span>
 }

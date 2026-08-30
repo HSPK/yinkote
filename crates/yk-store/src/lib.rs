@@ -371,6 +371,44 @@ mod tests {
         assert!(kept.collections.is_empty(), "it is still filed on a shelf that is gone");
     }
 
+    /// A collection records when it was made, and says so when it changes.
+    ///
+    /// The browser can sort by these, and a column that reads back the same
+    /// number for everything is indistinguishable from one that works until
+    /// somebody sorts by it. So this asserts a real clock value and a real
+    /// ordering, not merely that the field is present.
+    #[tokio::test]
+    async fn a_collection_remembers_when_it_was_made() {
+        let s = store();
+        let lib = s.default_library;
+        let before = yk_core::now_ms();
+        let shelf = s
+            .collections
+            .create(lib, CollectionDraft { name: "Dated".into(), ..Default::default() })
+            .await
+            .unwrap();
+
+        assert!(shelf.date_added >= before, "created with no clock reading");
+        assert_eq!(shelf.date_added, shelf.date_modified, "untouched, yet already modified");
+
+        // Read back, because the value that matters is the stored one and not
+        // the one the create call happened to return.
+        let read = s.collections.get(lib, &shelf.key).await.unwrap();
+        assert_eq!(read.date_added, shelf.date_added, "the date did not survive the write");
+
+        let renamed = s
+            .collections
+            .update(
+                lib,
+                &shelf.key,
+                CollectionPatch { name: Some("Redated".into()), ..Default::default() },
+            )
+            .await
+            .unwrap();
+        assert_eq!(renamed.date_added, shelf.date_added, "renaming moved the creation date");
+        assert!(renamed.date_modified >= shelf.date_modified, "an edit left it looking untouched");
+    }
+
     /// A shelf inside a deleted one is moved up, not stranded.
     ///
     /// Stranding it would leave a shelf whose parent does not exist: it draws

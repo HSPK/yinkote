@@ -9,9 +9,16 @@ import type { DragPayload } from '../lib/dnd'
 import { buildTree } from '../lib/tree'
 import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
-import { Icon, contextMenu, confirmAction, promptFor, withToast } from '../ui'
+import { Icon, contextMenu, withToast } from '../ui'
 import { newCollection } from './actions'
-import { collectionMenu, libraryMenu, smartMenu, tagMenu, trashMenu } from './menus' 
+import {
+  collectionMenu,
+  conversationMenu,
+  libraryMenu,
+  smartMenu,
+  tagMenu,
+  trashMenu,
+} from './menus' 
 import { useT } from '../i18n'
 
 /** How many rows each sidebar group shows before offering the rest elsewhere. */
@@ -64,8 +71,6 @@ export function Sidebar() {
   const downloadCount = useStore((s) => s.downloadCount)
   const openConversation = useStore((s) => s.openConversation)
   const newConversation = useStore((s) => s.newConversation)
-  const renameConversation = useStore((s) => s.renameConversation)
-  const removeConversation = useStore((s) => s.removeConversation)
 
   const tree = useMemo(() => buildTree(collections), [collections])
 
@@ -75,7 +80,9 @@ export function Sidebar() {
   const shownSmart = smartCollections.slice(0, SIDEBAR_LIMIT)
   const shownTree = tree.slice(0, SIDEBAR_LIMIT)
   const shownTags = useCapped(tags, TAG_LIMIT)
-  const shownChats = useCapped(conversations, CHAT_LIMIT)
+  // Capped, not expandable: the overflow goes to the history browser now, the
+  // same gesture collections use.
+  const shownChats = conversations.slice(0, CHAT_LIMIT)
 
   return (
     <nav className="sidebar-nav">
@@ -299,33 +306,13 @@ export function Sidebar() {
         {conversations.length === 0 && (
           <div className="empty" style={{ padding: '8px 12px' }}>{t('chat.empty')}</div>
         )}
-        {shownChats.shown.map((c) => (
+        {shownChats.map((c) => (
           <button
             key={c.key}
             className="nav-item"
             data-active={activeTab === tabId('chat', c.key)}
             onClick={() => void openConversation(c.key)}
-            onContextMenu={contextMenu(() => [
-              {
-                label: t('menu.rename'),
-                run: async () => {
-                  const title = await promptFor(t('chat.rename'), {
-                    label: t('dialog.name'),
-                    defaultValue: c.title,
-                  })
-                  if (title) await renameConversation(c.key, title)
-                },
-              },
-              {
-                label: t('menu.delete'),
-                danger: true,
-                run: async () => {
-                  if (await confirmAction(t('chat.confirmDelete', { name: c.title || t('chat.untitled') }))) {
-                    await removeConversation(c.key)
-                  }
-                },
-              },
-            ])}
+            onContextMenu={contextMenu(() => conversationMenu(c))}
             title={c.title || t('chat.untitled')}
           >
             <Icon.Chat className="glyph" />
@@ -333,16 +320,12 @@ export function Sidebar() {
             <span className="count">{c.messageCount || ''}</span>
           </button>
         ))}
-        {shownChats.hidden > 0 && (
-          <button className="nav-more" onClick={shownChats.expand}>
-            {t('sidebar.more', { count: shownChats.hidden })}
-          </button>
-        )}
-        {shownChats.expanded && shownChats.overflows && (
-          <button className="nav-more" onClick={shownChats.collapse}>
-            {t('sidebar.less')}
-          </button>
-        )}
+        <button
+          className="nav-more"
+          onClick={() => openTab({ id: tabId('chats'), kind: 'chats', title: '' })}
+        >
+          {t('sidebar.browseAll')}
+        </button>
       </div>
     </nav>
   )

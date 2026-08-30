@@ -15,6 +15,7 @@ export type TabKind =
   | 'library'
   | 'collections'
   | 'chat'
+  | 'chats'
   | 'reader'
   | 'note'
   | 'graph'

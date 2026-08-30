@@ -6,7 +6,7 @@
  */
 import { api } from '../api/client'
 import { displayTitle } from '../lib/format'
-import type { Collection, Item, SmartCollection, Tag } from '../api/types'
+import type { Collection, Conversation, Item, SmartCollection, Tag } from '../api/types'
 import { hasChosenColour, TAG_COLOURS } from '../lib/tags'
 import { t, useI18n } from '../i18n'
 import { exportName, saveText } from '../lib/download'
@@ -442,6 +442,36 @@ export function trashMenu(): MenuItem[] {
             success: t('toast.emptied'),
             failure: t('toast.emptyFailed'),
           })
+        }
+      },
+    },
+  ]
+}
+
+/** What can be done to a conversation, wherever it is listed.
+ *
+ *  The sidebar wrote this inline; the history browser needs exactly the same
+ *  three actions, and a menu that agrees in one place and not the other is how
+ *  "delete" ends up asking for confirmation on one surface only. */
+export function conversationMenu(c: Conversation): MenuItem[] {
+  const store = useStore.getState()
+  return [
+    {
+      label: t('menu.rename'),
+      onSelect: async () => {
+        const title = await promptFor(t('chat.rename'), {
+          label: t('dialog.name'),
+          defaultValue: c.title,
+        })
+        if (title) await store.renameConversation(c.key, title)
+      },
+    },
+    {
+      label: t('menu.delete'),
+      danger: true,
+      onSelect: async () => {
+        if (await confirmAction(t('chat.confirmDelete', { name: c.title || t('chat.untitled') }))) {
+          await store.removeConversation(c.key)
         }
       },
     },

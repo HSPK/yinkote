@@ -378,13 +378,25 @@ async fn add_to_collection(
 ) -> ApiResult<Json<serde_json::Value>> {
     let keys = parse_keys(&body.keys)?;
     let n = app.store().items.add_to_collection(lib, &key(&ckey)?, &keys).await?;
+
+    // Filing a paper means meaning to read it, so anything here without a copy
+    // gets one fetched. Read back rather than trusting the request: the caller
+    // sent keys, and whether a file is already held is the store's answer.
+    let mut filed = Vec::with_capacity(keys.len());
+    for k in &keys {
+        if let Ok(item) = app.store().items.get(lib, k).await {
+            filed.push(item);
+        }
+    }
+    let queued = super::files::queue_missing_files(app.store(), lib, &filed).await;
+
     let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
         library_id: lib,
         keys: keys.clone(),
         version,
     })
     .await?;
-    Ok(Json(json!({ "added": n, "version": version })))
+    Ok(Json(json!({ "added": n, "queued": queued, "version": version })))
 }
 
 /// Take items out of a collection without deleting them.

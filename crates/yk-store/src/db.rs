@@ -29,6 +29,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("012_attachment_rank", include_str!("../migrations/012_attachment_rank.sql")),
     ("013_attachment_browse", include_str!("../migrations/013_attachment_browse.sql")),
     ("014_ranked_search_join", include_str!("../migrations/014_ranked_search_join.sql")),
+    ("015_collection_dates", include_str!("../migrations/015_collection_dates.sql")),
 ];
 
 /// Handle to the SQLite database.

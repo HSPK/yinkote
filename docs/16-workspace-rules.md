@@ -5397,3 +5397,79 @@ the second command had nothing to do with my intent.
 the count a destructive call returns and compare it to the number you meant;
 a tidy-up that reports more than it should have touched is the same class of
 evidence as a test that passes on a broken build (§3.253).
+
+### 3.295 "Left tidy" asked about items, and collections piled up for 300 runs
+
+The tidy step ends with an invariant rather than a list, precisely so a fixture
+nobody remembered would still be caught (§3.163). It passed every run while
+this library grew to 672 collections, 666 of them smoke leftovers — one "Smoke
+Test" and one "Smoke appearance" per run, for about three hundred runs.
+
+The invariant asks `/duplicates`, which only ever sees items. So the check was
+sound and its subject was half the problem. A general-sounding name — "left
+tidy" — covered a specific question, and nothing in the wording said which.
+
+The replacement takes a snapshot of the collection keys at the start of the run
+and deletes anything not on it at the end, then asserts the count came back.
+Rot-proof for the same reason the duplicate check was meant to be: it describes
+what should be true rather than listing what to clean, and it needs no edit when
+a fixture is added.
+
+Worth stating generally: **when a check passes forever, ask what it looks at,
+not whether it works.** Something that has never failed has either never been
+wrong or never been watching.
+
+### 3.296 A migration that is not on the list does nothing
+
+`015_collection_dates.sql` existed, was correct, and was not in `db.rs`'s
+`include_str!` table — so the column was never added and eight collection tests
+failed at once with "table collections has no column named date_added".
+
+Nothing subtle, and it cost two minutes because the failure was loud and
+specific. Recorded because the opposite is what usually happens: the quiet
+version of this is a migration that runs on a fresh database (where some other
+statement happens to create the column) and not on an upgrade. Adding the file
+is half the change; the list is the other half.
+
+### 3.297 A menu item whose handler is spelled wrong is a dead menu item
+
+Moving the sidebar's conversation menu into `menus.ts` immediately failed to
+compile: the two items carried `run:`, and `MenuItem` calls `onSelect`. So
+"Rename…" and "Delete" on a conversation had done nothing since `1e9d8c5` —
+they highlighted, closed the menu, and returned.
+
+TypeScript did not catch it in place because `contextMenu` takes
+`MenuItem[] | (() => MenuItem[])`, and excess-property checking is weakened
+against a union. The type was right there and still said nothing.
+
+Two lessons. **Moving code into a typed home is a check** — the error appeared
+the moment the array had a declared type instead of an inferred one. And the
+class needs a guard of its own, since "the button does nothing" is invisible to
+every test that does not click it: `menus.handlers.test.ts` now asserts every
+labelled item has `onSelect` or a submenu, and it goes red against `run:`.
+
+### 3.298 Filing now changes the item, and a shared fixture noticed
+
+Filing queues the file for anything without a copy, which is what was asked
+for. It also means filing *mutates the item* — a PDF appears a few seconds
+later — and that broke `no marks, no key`, a check nine hundred lines away
+asserting a particular item carries no `attachments`.
+
+The coupling was `FKEY=$(… items?limit=1 …)`: the filing block took whatever
+item happened to be first, which was the attachment-marks subject. Two fixtures
+were the same row by accident, and only a new side effect revealed it.
+
+**A fixture obtained by "whatever is there" belongs to whoever else is using
+it.** The filing block now creates its own item, deliberately with no address,
+so nothing can be queued for it and no later check can be surprised.
+
+### 3.299 One source answering is not both sources agreeing
+
+`merged from both` failed: the arXiv API was unavailable, the page resolved on
+its own, and one resolution carrying a venue but no tags is not a merge.
+
+The existing guard skipped only when *nothing* resolved, which is the wrong
+question — the fallback guarantees something always resolves. It now skips when
+no resolution came from arXiv, which is the condition the check actually needs.
+Same rule as the throttled model: a precondition outside the suite's control is
+a named skip, and a skip that names the reason is not a hole.

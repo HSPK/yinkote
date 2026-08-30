@@ -39,6 +39,39 @@ export const BUILTIN_COLUMNS: ColumnDef[] = [
 
 export const DEFAULT_VISIBLE = ['title', 'author', 'year', 'type', 'tags', 'attachments', 'modified']
 
+/**
+ * Which table a set of columns belongs to.
+ *
+ * The collection browser wanted the same show/hide/reorder behaviour as the
+ * item table, and the choice was to copy the machinery or to say which table is
+ * being described. Copying would have meant two pickers, two persisted
+ * settings and two chances to fix a bug once.
+ */
+export type TableId = 'items' | 'collections'
+
+export const COLLECTION_COLUMNS: ColumnDef[] = [
+  { id: 'name', labelKey: 'dialog.name', sort: 'name', width: 0, min: 160 },
+  { id: 'kind', labelKey: 'collections.kind', sort: 'kind', width: 96, min: 64 },
+  { id: 'items', labelKey: 'collections.items', sort: 'items', width: 72, min: 52 },
+  { id: 'created', labelKey: 'table.added', sort: 'created', width: 116, min: 72 },
+  { id: 'modified', labelKey: 'table.modified', sort: 'modified', width: 116, min: 72 },
+  { id: 'rule', labelKey: 'collections.rule', sort: null, width: 0, min: 100 },
+]
+
+export const COLLECTION_DEFAULT_VISIBLE = ['name', 'kind', 'items', 'created', 'rule']
+
+/** What each table shows before anybody changes it. */
+export const DEFAULT_COLUMNS: Record<TableId, string[]> = {
+  items: DEFAULT_VISIBLE,
+  collections: COLLECTION_DEFAULT_VISIBLE,
+}
+
+export const CATALOGUE: Record<TableId, ColumnDef[]> = {
+  items: BUILTIN_COLUMNS,
+  collections: COLLECTION_COLUMNS,
+}
+
+
 /** A plugin's badge contribution, turned into a column. */
 export function badgeColumn(badge: {
   id: string

@@ -264,7 +264,7 @@ export function ItemTable() {
   const total = useStore((s) => s.total)
 
   const badgeDefs = useStore((s) => s.badgeDefs)
-  const order = useStore((s) => s.columnOrder)
+  const order = useStore((s) => s.columnOrders.items)
   const widths = useStore((s) => s.columnWidths)
   const setColumnWidth = useStore((s) => s.setColumnWidth)
   const setColumnOrder = useStore((s) => s.setColumnOrder)
@@ -292,17 +292,17 @@ export function ItemTable() {
   // Reads the live order at click time: a menu's items are captured when it
   // opens, so anything acting on `order` from the closure would be stale.
   const reorder = (id: string, delta: number) =>
-    setColumnOrder(moveColumn(useStore.getState().columnOrder, id, delta))
+    setColumnOrder('items', moveColumn(useStore.getState().columnOrders.items, id, delta))
 
   const headerMenu = (c: ColumnDef): MenuItem[] => [
     { label: t('table.moveLeft'), onSelect: () => reorder(c.id, -1) },
     { label: t('table.moveRight'), onSelect: () => reorder(c.id, 1) },
     {},
-    { label: t('table.hideColumn'), onSelect: () => setColumnOrder(hideColumn(c.id)) },
+    { label: t('table.hideColumn'), onSelect: () => setColumnOrder('items', hideColumn(c.id)) },
   ]
 
   const hideColumn = (id: string) =>
-    toggleColumn(useStore.getState().columnOrder, id, available)
+    toggleColumn(useStore.getState().columnOrders.items, id, available)
 
   // Resizing tracks the pointer on the window so the drag survives leaving the
   // 5px grip, which is otherwise almost impossible to stay inside.

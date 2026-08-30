@@ -3,6 +3,7 @@ import type { ComponentType } from 'react'
 import type { MessageKey } from '../i18n'
 import type { TabKind } from '../lib/tabs'
 import { ChatView } from '../pages/ChatView'
+import { ChatsPage } from '../pages/ChatsPage'
 import { CollectionsPage } from '../pages/CollectionsPage'
 import { DownloadsPage } from '../pages/DownloadsPage'
 import { FilesPage } from '../pages/FilesPage'
@@ -21,6 +22,7 @@ import type { IconName } from '../ui'
 import { CollectionDetail } from '../components/CollectionDetail'
 import {
   ChatFooter,
+  ChatsFooter,
   CollectionsFooter,
   GapsFooter,
   GraphFooter,
@@ -69,6 +71,14 @@ export const TABS: Record<TabKind, TabDefinition> = {
     search: 'collections',
   },
   chat: { Body: ChatView, icon: 'Chat', labelKey: 'sidebar.chat', Footer: ChatFooter, search: 'none' },
+  chats: {
+    Body: ChatsPage,
+    icon: 'Chat',
+    labelKey: 'chats.title',
+    Footer: ChatsFooter,
+    // Searching filters the list in place, as it does for collections.
+    search: 'collections',
+  },
   note: {
     Body: NoteView,
     icon: 'Note',

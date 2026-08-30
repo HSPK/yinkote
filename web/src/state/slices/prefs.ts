@@ -9,7 +9,7 @@ import type { StateCreator } from 'zustand'
 
 import { api } from '../../api/client'
 import { detectLocale, useI18n, type Locale } from '../../i18n'
-import { DEFAULT_VISIBLE } from '../../lib/columns'
+import { DEFAULT_COLUMNS, type TableId } from '../../lib/columns'
 import { applyTheme, DEFAULT_THEME } from '../../lib/theme'
 import type { State } from '../store'
 
@@ -18,8 +18,8 @@ export interface PrefsSlice {
   layout: { sidebar: number; detail: number }
   /** Item-table column widths in pixels, keyed by column id. */
   columnWidths: Record<string, number>
-  /** Visible columns, in display order. */
-  columnOrder: string[]
+  /** Visible columns per table, in display order. */
+  columnOrders: Record<TableId, string[]>
   /** Whether the right-hand detail pane is showing. */
   detailOpen: boolean
   /** Row height preference, persisted server-side under `ui.`. */
@@ -32,8 +32,8 @@ export interface PrefsSlice {
 
   setLayout: (patch: Partial<{ sidebar: number; detail: number }>, commit?: boolean) => void
   setColumnWidth: (id: string, width: number, commit?: boolean) => void
-  setColumnOrder: (order: string[]) => void
-  resetColumns: () => void
+  setColumnOrder: (table: TableId, order: string[]) => void
+  resetColumns: (table: TableId) => void
   toggleDetail: (open?: boolean) => void
   setDensity: (d: string) => void
   setTheme: (id: string, accent?: string) => void
@@ -46,7 +46,7 @@ export interface PrefsSlice {
 export const createPrefsSlice: StateCreator<State, [], [], PrefsSlice> = (set, get) => ({
   layout: { sidebar: 232, detail: 380 },
   columnWidths: {},
-  columnOrder: DEFAULT_VISIBLE,
+  columnOrders: { ...DEFAULT_COLUMNS },
   detailOpen: true,
   density: 'compact',
   theme: DEFAULT_THEME,
@@ -66,14 +66,25 @@ export const createPrefsSlice: StateCreator<State, [], [], PrefsSlice> = (set, g
     if (commit) void api.settings.put({ columnWidths: JSON.stringify(columnWidths) })
   },
 
-  setColumnOrder(columnOrder) {
-    set({ columnOrder })
-    void api.settings.put({ columnOrder: JSON.stringify(columnOrder) })
+  setColumnOrder(table, order) {
+    const columnOrders = { ...get().columnOrders, [table]: order }
+    set({ columnOrders })
+    void api.settings.put({ columnOrders: JSON.stringify(columnOrders) })
   },
 
-  resetColumns() {
-    set({ columnOrder: DEFAULT_VISIBLE, columnWidths: {} })
-    void api.settings.put({ columnOrder: '', columnWidths: '' })
+  resetColumns(table) {
+    const columnOrders = { ...get().columnOrders, [table]: DEFAULT_COLUMNS[table] }
+    // Widths are keyed by column id across both tables, and resetting one
+    // table should not clear the other's; only the ids being reset go.
+    const columnWidths = { ...get().columnWidths }
+    for (const id of Object.keys(columnWidths)) {
+      if (DEFAULT_COLUMNS[table].includes(id)) delete columnWidths[id]
+    }
+    set({ columnOrders, columnWidths })
+    void api.settings.put({
+      columnOrders: JSON.stringify(columnOrders),
+      columnWidths: JSON.stringify(columnWidths),
+    })
   },
 
   toggleDetail(open) {
@@ -123,7 +134,14 @@ export const createPrefsSlice: StateCreator<State, [], [], PrefsSlice> = (set, g
     set({
       layout: parsed('ui.layout', get().layout),
       columnWidths: parsed('ui.columnWidths', {}),
-      columnOrder: parsed('ui.columnOrder', DEFAULT_VISIBLE),
+      // `ui.columnOrder` is what single-table installs saved. It is still read
+      // as the item table's order so that upgrading does not silently throw
+      // away a layout somebody arranged.
+      columnOrders: {
+        ...DEFAULT_COLUMNS,
+        items: parsed('ui.columnOrder', DEFAULT_COLUMNS.items),
+        ...parsed<Partial<Record<TableId, string[]>>>('ui.columnOrders', {}),
+      },
       detailOpen: text('ui.detailOpen') !== 'false',
       citationStyle: text('ui.citationStyle') ?? 'apa',
     })

@@ -2,8 +2,14 @@ import { useMemo, useState } from 'react'
 
 import { useT } from '../i18n'
 import { collectionColour, collectionIcon } from '../lib/collections'
+import {
+  COLLECTION_COLUMNS,
+  gridTemplate,
+  visibleColumns,
+  type ColumnDef,
+} from '../lib/columns'
 import { rankMatches } from '../lib/fuzzy'
-import { compact } from '../lib/format'
+import { compact, shortDate } from '../lib/format'
 import { useStore } from '../state/store'
 import { Badge, Empty, Icon, contextMenu } from '../ui'
 import { tabId } from '../lib/tabs'
@@ -15,11 +21,22 @@ interface Entry {
   smart: boolean
   query: string
   itemCount: number
+  created: number
+  modified: number
   color?: string
   icon?: string
 }
 
-type SortKey = 'name' | 'items' | 'kind'
+type SortKey = string
+
+/** How each column's cell is styled; anything unlisted is a plain cell. */
+const CELL_CLASS: Record<string, string> = {
+  name: 'cell name-cell',
+  items: 'cell num',
+  created: 'cell dim',
+  modified: 'cell dim',
+  rule: 'cell dim',
+}
 
 /**
  * Every collection in one sortable table.
@@ -51,6 +68,8 @@ export function CollectionsPage() {
         smart: false,
         query: '',
         itemCount: c.itemCount,
+        created: c.dateAdded ?? 0,
+        modified: c.dateModified ?? 0,
         color: c.color,
         icon: c.icon,
       })),
@@ -60,6 +79,8 @@ export function CollectionsPage() {
         smart: true,
         query: c.query,
         itemCount: c.itemCount ?? 0,
+        created: c.dateAdded ?? 0,
+        modified: c.dateModified ?? 0,
         color: c.color,
         icon: c.icon,
       })),
@@ -76,9 +97,46 @@ export function CollectionsPage() {
     return [...matched].sort((a, b) => {
       if (sort === 'items') return direction * (a.itemCount - b.itemCount)
       if (sort === 'kind') return direction * (Number(a.smart) - Number(b.smart))
+      // A collection with no recorded date sorts last either way rather than
+      // crowding the top as if it were the oldest thing in the library.
+      if (sort === 'created' || sort === 'modified') {
+        const [x, y] = [a[sort], b[sort]]
+        if (!x || !y) return (!x ? 1 : 0) - (!y ? 1 : 0)
+        return direction * (x - y)
+      }
       return direction * a.name.localeCompare(b.name)
     })
   }, [entries, filter, sort, descending])
+
+  const order = useStore((s) => s.columnOrders.collections)
+  const widths = useStore((s) => s.columnWidths)
+  const columns = useMemo<ColumnDef[]>(
+    () => visibleColumns(order, COLLECTION_COLUMNS),
+    [order],
+  )
+  const template = useMemo(() => `${gridTemplate(columns, widths)} 28px`, [columns, widths])
+
+  /** One cell's contents. Kept beside the catalogue so adding a column is one
+   *  entry there and one arm here, rather than a new row layout. */
+  const cell = (entry: Entry, id: string) => {
+    if (id === 'name') return <span className="name">{entry.name}</span>
+    if (id === 'kind')
+      return (
+        <Badge tone={entry.smart ? 'accent' : 'default'}>
+          {t(entry.smart ? 'collections.kind.smart' : 'collections.kind.plain')}
+        </Badge>
+      )
+    if (id === 'items') return compact(entry.itemCount)
+    // Collections made before the library recorded dates have none, and an
+    // em dash says "not known" where a fabricated date would not.
+    if (id === 'created') return entry.created ? shortDate(entry.created) : '—'
+    if (id === 'modified') return entry.modified ? shortDate(entry.modified) : '—'
+    if (id === 'rule') return entry.query
+    return null
+  }
+
+  const hint = (entry: Entry, id: string) =>
+    id === 'name' ? entry.name : id === 'rule' ? entry.query : undefined
 
   const header = (key: SortKey, label: string) => (
     <button
@@ -108,11 +166,16 @@ export function CollectionsPage() {
 
   return (
     <div className="collections-browser">
-      <div className="table-head browser-grid">
-        {header('name', t('dialog.name'))}
-        {header('kind', t('collections.kind'))}
-        {header('items', t('collections.items'))}
-        <button disabled>{t('collections.rule')}</button>
+      <div className="table-head browser-grid" style={{ gridTemplateColumns: template }}>
+        {columns.map((c) =>
+          c.sort ? (
+            <span key={c.id}>{header(c.sort, t(c.labelKey))}</span>
+          ) : (
+            <button key={c.id} disabled>
+              {t(c.labelKey)}
+            </button>
+          ),
+        )}
         <span />
       </div>
 
@@ -139,19 +202,12 @@ export function CollectionsPage() {
                   : collectionMenu(source as never),
               )}
             >
-              <div className="cell name-cell" title={entry.name}>
-                <Glyph className="glyph" />
-                <span className="name">{entry.name}</span>
-              </div>
-              <div className="cell">
-                <Badge tone={entry.smart ? 'accent' : 'default'}>
-                  {t(entry.smart ? 'collections.kind.smart' : 'collections.kind.plain')}
-                </Badge>
-              </div>
-              <div className="cell num">{compact(entry.itemCount)}</div>
-              <div className="cell dim" title={entry.query}>
-                {entry.query}
-              </div>
+              {columns.map((c) => (
+                <div key={c.id} className={CELL_CLASS[c.id] ?? 'cell'} title={hint(entry, c.id)}>
+                  {c.id === 'name' && <Glyph className="glyph" />}
+                  {cell(entry, c.id)}
+                </div>
+              ))}
               <div className="cell">
                 <button
                   className="icon-btn"

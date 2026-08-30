@@ -124,6 +124,20 @@ check "schema types"     "$(j "$BASE/schema" | jq -r '.itemTypes | length')"
 LIB=$(j "$BASE/libraries" | jq -r '.[0].id')
 check "library id"       "$LIB"
 
+# Which collections existed before we started. The tidy step at the end removes
+# everything that is not on this list, so a fixture added later is cleaned up
+# without anybody remembering to add it anywhere.
+#
+# A list of names rots (§3.163); this is a list of what was already here, taken
+# fresh each run, so it cannot. It had to be written because the item tidy was
+# careful and the collection tidy did not exist at all: 666 of this library's
+# 672 collections were smoke leftovers, one "Smoke Test" and one "Smoke
+# appearance" per run for 300-odd runs, while "left tidy" passed every time —
+# it asks /duplicates, which only ever sees items.
+COLLECTIONS_BEFORE=$(mktemp)
+trap 'rm -f "$COLLECTIONS_BEFORE"' EXIT
+j "$BASE/libraries/$LIB/collections" | jq -r '.[].key' | sort > "$COLLECTIONS_BEFORE"
+
 echo "▸ collections"
 COLL=$(j -X POST "$BASE/libraries/$LIB/collections" -d '{"name":"Smoke Test"}' | jq -r .key)
 check "create"           "$COLL"
@@ -381,10 +395,18 @@ else
   # first one to arrive winning and the rest being dropped.
   # `has`, not `// ""`: a fallback inside the program turns a missing field
   # into a value and the check into one that cannot fail (3.240).
-  check "merged from both"    "$(echo "$QA_ARXIV" | jq -r '
-    .resolutions[0].draft
-    | select((.tags | length) > 0 and has("publicationTitle"))
-    | "tags and venue"')"
+  # Both sources have to have answered for "merged from both" to mean
+  # anything. When arXiv is down the page still resolves on its own, so the
+  # merge cannot be observed -- which is a fact about arXiv's availability and
+  # not about this code. Named skip, not a failure.
+  if [[ "$(echo "$QA_ARXIV" | jq -r '[.resolutions[] | select(.source == "arxiv")] | length')" == "0" ]]; then
+    skip "merged from both" "only one source answered"
+  else
+    check "merged from both"    "$(echo "$QA_ARXIV" | jq -r '
+      .resolutions[0].draft
+      | select((.tags | length) > 0 and has("publicationTitle"))
+      | "tags and venue"')"
+  fi
 fi
 
 # Searching outside the library is a different question from resolving an
@@ -417,7 +439,13 @@ echo "▸ filing"
 # and only the assistant could ask it to, because there was no route. The
 # workbench could put things in and never get them out again.
 FCOL=$(j -X POST "$BASE/libraries/$LIB/collections" -d '{"name":"Smoke filing"}' | jq -r .key)
-FKEY=$(j "$BASE/libraries/$LIB/items?limit=1" | jq -r '.items[0].key')
+# Its own item, carrying no address, for two reasons. "Whatever is first" is
+# somebody else's fixture -- it was the attachment-marks subject, so filing it
+# reached across the file and broke a check three hundred lines away. And
+# filing now queues the file for anything that has an address, so an item with
+# one would grow a PDF mid-run and change what later checks see.
+FKEY=$(j -X POST "$BASE/libraries/$LIB/items" \
+         -d '{"itemType":"journalArticle","title":"Filing fixture"}' | jq -r '.created[0].key')
 j -X POST "$BASE/libraries/$LIB/collections/$FCOL/items" -d "{\"keys\":[\"$FKEY\"]}" > /dev/null
 check "filed"            "$(j "$BASE/libraries/$LIB/items?collection=$FCOL" | jq -r '.total | select(. == 1)')"
 check "unfiled"          "$(j -X DELETE "$BASE/libraries/$LIB/collections/$FCOL/items" \
@@ -1687,6 +1715,23 @@ for tag in $(j "$BASE/libraries/$LIB/tags?q=graph-smoke&limit=500" | jq -r '.[].
   LEFTOVER=$((LEFTOVER + 1))
 done
 printf '  removed %s fixture items and %s spent tags\n' "$GONE" "$LEFTOVER"
+
+# Collections the run created: everything not in the opening snapshot.
+COLL_GONE=0
+for key in $(j "$BASE/libraries/$LIB/collections" | jq -r '.[].key' | sort \
+             | comm -13 "$COLLECTIONS_BEFORE" -); do
+  j -X DELETE "$BASE/libraries/$LIB/collections/$key" > /dev/null 2>&1 || true
+  COLL_GONE=$((COLL_GONE + 1))
+done
+printf '  removed %s fixture collections\n' "$COLL_GONE"
+
+# The count is back where it started. Stated as a count rather than a list, for
+# the same reason as the pile check below: it holds for fixtures nobody has
+# written yet.
+COLL_NOW=$(j "$BASE/libraries/$LIB/collections" | jq -r 'length')
+COLL_THEN=$(wc -l < "$COLLECTIONS_BEFORE" | tr -d ' ')
+check "collections tidied" \
+  "$([[ "$COLL_NOW" == "$COLL_THEN" ]] && echo "$COLL_NOW/$COLL_THEN")"
 
 # And then check the tidying actually worked.
 #

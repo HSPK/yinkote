@@ -82,6 +82,9 @@ export interface Collection {
   /** Icon name the app resolves to a drawing it ships. */
   icon?: string
   version: number
+  /** Milliseconds since the epoch; 0 when the collection predates recording. */
+  dateAdded: number
+  dateModified: number
   itemCount: number
 }
 
@@ -264,6 +267,8 @@ export interface SmartCollection {
   direction: 'asc' | 'desc'
   sortIndex: number
   version: number
+  dateAdded: number
+  dateModified: number
   /** Present when `itemCount` is a floor: a text query is counted by
    *  running it, and a ranked search scores a bounded pool. */
   itemCountApproximate?: boolean

@@ -225,41 +225,15 @@ async fn quick_add(
     })
     .await?;
     notify_plugins(&app, hooks::ITEM_CREATED, json!({ "libraryId": lib, "items": created }));
-    queue_pdfs(&app, lib, &created).await;
+    // Freshly created items hold no files yet, so this is the same question
+    // filing asks: is there a copy, and can an address be worked out.
+    super::files::queue_missing_files(app.store(), lib, &created).await;
 
     Ok(Json(QuickAddResponse { created, duplicates, unresolved, version }))
 }
 
 /// Queue whatever PDF each new item points at.
 ///
-/// The point of adding a paper is to read it, so fetching the file is the
-/// default rather than a second gesture. It goes on the queue rather than being
-/// downloaded here: quick-add must stay fast, a publisher may take a minute,
-/// and a failure should be visible and retryable instead of turning an
-/// otherwise successful add into an error.
-///
-/// Only addresses that are *certainly* a PDF are queued — guessing wrong means
-/// downloading a login page and filing it as a paper.
-async fn queue_pdfs(app: &App, lib: i64, created: &[Item]) {
-    let drafts: Vec<yk_store::DownloadDraft> = created
-        .iter()
-        .filter_map(|item| {
-            super::files::pdf_url_for(item).map(|url| yk_store::DownloadDraft {
-                item_key: item.key.to_string(),
-                url,
-                title: item.title().to_string(),
-            })
-        })
-        .collect();
-
-    if drafts.is_empty() {
-        return;
-    }
-    if let Err(e) = app.store().downloads.enqueue(lib, drafts).await {
-        tracing::warn!(error = %e, "could not queue the downloads");
-    }
-}
-
 /// Same rule the store uses, applied to a draft that has no key yet.
 fn draft_fingerprint(draft: &ItemDraft) -> String {
     draft.clone().into_item(Key::generate(), 0, 0).fingerprint()

@@ -1,11 +1,13 @@
 import { useRef } from 'react'
 
 import { useT } from '../i18n'
-import { moveColumn, toggleColumn, type ColumnDef } from '../lib/columns'
+import { moveColumn, toggleColumn, type ColumnDef, type TableId } from '../lib/columns'
 import { useStore } from '../state/store'
 import { Button, Icon, useDismissable } from '../ui'
 
 export interface ColumnPickerProps {
+  /** Which table's columns are being chosen. */
+  table: TableId
   available: ColumnDef[]
   label: (column: ColumnDef) => string
   onClose: () => void
@@ -20,9 +22,9 @@ export interface ColumnPickerProps {
  * previous one off again. Here the ticks and the order come from the store on
  * every render, so what is shown is what is stored.
  */
-export function ColumnPicker({ available, label, onClose }: ColumnPickerProps) {
+export function ColumnPicker({ table, available, label, onClose }: ColumnPickerProps) {
   const t = useT()
-  const order = useStore((s) => s.columnOrder)
+  const order = useStore((s) => s.columnOrders[table])
   const setColumnOrder = useStore((s) => s.setColumnOrder)
   const resetColumns = useStore((s) => s.resetColumns)
   const root = useRef<HTMLDivElement>(null)
@@ -44,7 +46,7 @@ export function ColumnPicker({ available, label, onClose }: ColumnPickerProps) {
           className="column-toggle"
           data-checked={visible || undefined}
           // The live order is read here, not captured when the popover opened.
-          onClick={() => setColumnOrder(toggleColumn(order, id, available))}
+          onClick={() => setColumnOrder(table, toggleColumn(order, id, available))}
         >
           <span className="column-check">{visible ? '✓' : ''}</span>
           {label(column)}
@@ -55,7 +57,7 @@ export function ColumnPicker({ available, label, onClose }: ColumnPickerProps) {
               className="icon-btn"
               title={t('table.moveLeft')}
               disabled={index === 0}
-              onClick={() => setColumnOrder(moveColumn(order, id, -1))}
+              onClick={() => setColumnOrder(table, moveColumn(order, id, -1))}
             >
               <Icon.ChevronUp size={11} />
             </button>
@@ -63,7 +65,7 @@ export function ColumnPicker({ available, label, onClose }: ColumnPickerProps) {
               className="icon-btn"
               title={t('table.moveRight')}
               disabled={index === shown.length - 1}
-              onClick={() => setColumnOrder(moveColumn(order, id, 1))}
+              onClick={() => setColumnOrder(table, moveColumn(order, id, 1))}
             >
               <Icon.ChevronDown size={11} />
             </button>
@@ -82,7 +84,7 @@ export function ColumnPicker({ available, label, onClose }: ColumnPickerProps) {
         {hidden.map((id) => row(id, false, -1))}
       </div>
       <div className="column-foot">
-        <Button tone="ghost" onClick={resetColumns}>
+        <Button tone="ghost" onClick={() => resetColumns(table)}>
           {t('table.resetColumns')}
         </Button>
         <Button onClick={onClose}>{t('dialog.confirm')}</Button>

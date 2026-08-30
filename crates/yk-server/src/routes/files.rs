@@ -13,7 +13,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
 use yk_core::event::DomainEvent;
-use yk_core::model::ItemDraft;
+use yk_core::model::{AttachmentKind, Item, ItemDraft};
 use yk_core::{Error, Key, Result};
 
 use super::{announce, key};
@@ -443,6 +443,57 @@ pub async fn forget_files(app: &App, lib: i64, keys: &[Key]) {
     super::thumbnails::forget(app, &all).await;
 }
 
+/// Queue the file for every item here that has not got one.
+///
+/// Adding a paper to a collection is the same intent as adding it to the
+/// library — you mean to read it — so the file is fetched without a second
+/// gesture. Two rules keep that from being a nuisance:
+///
+/// * an item that already holds a PDF or a snapshot is left alone, so re-filing
+///   or moving between collections downloads nothing;
+/// * an address has to be *worked out*, not guessed, which is `pdf_url_for`'s
+///   job and the reason a link-only item is skipped rather than fetched blind.
+///
+/// Queued rather than downloaded: filing must stay instant, and a publisher
+/// that takes a minute should show up as a retryable download and not as a
+/// failed filing.
+pub async fn queue_missing_files(store: &yk_store::Store, lib: i64, items: &[Item]) -> usize {
+    let drafts: Vec<yk_store::DownloadDraft> = items
+        .iter()
+        .filter(|item| worth_fetching(item))
+        .filter_map(|item| {
+            pdf_url_for(item).map(|url| yk_store::DownloadDraft {
+                item_key: item.key.to_string(),
+                url,
+                title: item.title().to_string(),
+            })
+        })
+        .collect();
+
+    if drafts.is_empty() {
+        return 0;
+    }
+    let queued = drafts.len();
+    if let Err(e) = store.downloads.enqueue(lib, drafts).await {
+        // Filing succeeded; the download is a courtesy and must not undo it.
+        tracing::warn!(error = %e, "could not queue files for the items just filed");
+        return 0;
+    }
+    queued
+}
+
+/// Whether fetching this item's file would get us something we do not have.
+///
+/// Two conditions, both necessary: no copy already held, and an address that
+/// can be worked out. A `Link` attachment is not a copy — it is an address
+/// somebody saved, which is precisely the case worth fetching.
+fn worth_fetching(item: &Item) -> bool {
+    let holds_a_copy = item.attachments.iter().any(|kind| {
+        matches!(kind, AttachmentKind::Pdf | AttachmentKind::Snapshot | AttachmentKind::File)
+    });
+    !holds_a_copy && pdf_url_for(item).is_some()
+}
+
 #[cfg(test)]
 mod landing_page_tests {
     use super::{is_html, pdf_link_in_html};
@@ -607,5 +658,34 @@ mod tests {
     fn only_attachments_have_files() {
         let err = attachment_filename(&item(&[("filename", "a.pdf")])).unwrap_err();
         assert!(err.to_string().contains("not an attachment"));
+    }
+
+    /// An item that already holds the paper is not fetched again.
+    ///
+    /// Filing is a common gesture — dragging ten papers between two shelves is
+    /// one afternoon's tidying — and a rule that ignored existing copies would
+    /// turn each of those into a download. The `Link` case is the interesting
+    /// one: an address somebody saved is not a copy, and is exactly what is
+    /// worth fetching.
+    #[test]
+    fn only_items_without_a_copy_are_worth_fetching() {
+        let mut has_pdf = item(&[("url", "https://example.org/a.pdf")]);
+        has_pdf.attachments = vec![AttachmentKind::Pdf];
+        assert!(!worth_fetching(&has_pdf), "would download a paper already held");
+
+        let mut snapshot = item(&[("url", "https://example.org/a.pdf")]);
+        snapshot.attachments = vec![AttachmentKind::Snapshot];
+        assert!(!worth_fetching(&snapshot), "a saved page is a copy");
+
+        let mut link_only = item(&[("url", "https://example.org/a.pdf")]);
+        link_only.attachments = vec![AttachmentKind::Link];
+        assert!(worth_fetching(&link_only), "a bare link is an address, not a copy");
+
+        let nothing = item(&[("url", "https://example.org/a.pdf")]);
+        assert!(worth_fetching(&nothing), "an item with no attachments was skipped");
+
+        // No address to work out, so nothing to queue however empty it is.
+        let no_address = item(&[("title", "Nowhere")]);
+        assert!(!worth_fetching(&no_address), "queued a download with no address");
     }
 }
