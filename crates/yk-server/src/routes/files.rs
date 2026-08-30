@@ -93,7 +93,13 @@ async fn fetch(
     let url = match body.url {
         Some(u) if !u.trim().is_empty() => u.trim().to_string(),
         _ => pdf_url_for(&item).ok_or_else(|| {
-            Error::invalid("no PDF address could be worked out; supply a url")
+            // Names the other command, because "supply a url" does not say
+            // where. Now rare: an arXiv id, a direct file, or a DOI are all
+            // worked out, so reaching this means the item has none of them.
+            Error::invalid(
+                "this item has no arXiv id, file address or DOI to go on. \
+                 Use \"Download files\" to give it an address.",
+            )
         })?,
     };
 
@@ -209,18 +215,40 @@ pub fn pdf_url_for(item: &yk_core::model::Item) -> Option<String> {
         }
     }
 
-    let url = item.field("url")?.trim();
-    if url.is_empty() {
-        return None;
+    // Not `?`: an item with no url may still have a DOI, and returning here
+    // was what made the whole fallback below unreachable.
+    let url = item.field("url").map(str::trim).filter(|u| !u.is_empty());
+    if let Some(url) = url {
+        // An arXiv abstract page has a PDF one path segment away.
+        if let Some(id) = url.split("arxiv.org/abs/").nth(1) {
+            return Some(format!("https://arxiv.org/pdf/{}", id.trim_end_matches('/')));
+        }
+        if url.ends_with(".pdf") || url.contains("/pdf/") {
+            return Some(url.to_string());
+        }
     }
-    // An arXiv abstract page has a PDF one path segment away.
-    if let Some(id) = url.split("arxiv.org/abs/").nth(1) {
-        return Some(format!("https://arxiv.org/pdf/{}", id.trim_end_matches('/')));
-    }
-    if url.ends_with(".pdf") || url.contains("/pdf/") {
-        return Some(url.to_string());
-    }
-    None
+    doi_landing_page(item)
+}
+
+/// The publisher's page for a DOI, which is not a PDF but leads to one.
+///
+/// This function used to stop above, and refused any paper that had only a
+/// DOI: "no PDF address could be worked out; supply a url". Meanwhile pasting
+/// `https://doi.org/…` into *Download files* worked perfectly — because
+/// `attach_url` fetches the address, notices it is a web page, and follows the
+/// `citation_pdf_url` the publisher advertises for exactly this purpose.
+///
+/// So the capability was already there and only one of the two commands could
+/// reach it. The caution here — "only rules that are certain, because guessing
+/// wrong means downloading a login page and calling it a paper" — was written
+/// before that following existed, and is now enforced further down: a page
+/// with no file linked from it is refused, and the failure is reported as a
+/// failed download rather than filed as a paper.
+fn doi_landing_page(item: &yk_core::model::Item) -> Option<String> {
+    let doi = item.field("DOI")?.trim();
+    // Some records carry the address rather than the bare identifier.
+    let doi = doi.trim_start_matches("https://doi.org/").trim_start_matches("http://doi.org/");
+    (!doi.is_empty()).then(|| format!("https://doi.org/{doi}"))
 }
 
 fn is_html(content_type: Option<&str>) -> bool {
@@ -523,6 +551,43 @@ mod tests {
 
         let prefixed = pdf_url_for(&item(&[("archiveID", "arXiv:2401.12345")]));
         assert_eq!(prefixed.as_deref(), Some("https://arxiv.org/pdf/2401.12345"));
+    }
+
+    /// A paper with only a DOI is the ordinary case for anything published,
+    /// and Fetch PDF refused it — "no PDF address could be worked out" —
+    /// while pasting the same DOI into Download files worked, because the
+    /// downloader follows the publisher's `citation_pdf_url`. One capability,
+    /// reachable from only one of the two commands.
+    #[test]
+    fn a_doi_is_an_address_worth_trying() {
+        let got = pdf_url_for(&item(&[("DOI", "10.1038/nature14539")]));
+        assert_eq!(got.as_deref(), Some("https://doi.org/10.1038/nature14539"));
+    }
+
+    /// Some records store the address rather than the bare identifier, and
+    /// `https://doi.org/https://doi.org/…` resolves to nothing.
+    #[test]
+    fn a_doi_written_as_a_url_is_not_doubled() {
+        let got = pdf_url_for(&item(&[("DOI", "https://doi.org/10.1038/nature14539")]));
+        assert_eq!(got.as_deref(), Some("https://doi.org/10.1038/nature14539"));
+    }
+
+    /// A direct file beats a landing page: one request instead of two, and no
+    /// dependence on the publisher advertising the file.
+    #[test]
+    fn a_known_file_is_preferred_to_a_doi() {
+        let got = pdf_url_for(&item(&[
+            ("DOI", "10.1038/nature14539"),
+            ("url", "https://x.test/paper.pdf"),
+        ]));
+        assert_eq!(got.as_deref(), Some("https://x.test/paper.pdf"));
+    }
+
+    /// And an item with neither still says so, rather than inventing one.
+    #[test]
+    fn nothing_to_go_on_is_still_nothing() {
+        assert!(pdf_url_for(&item(&[("title", "A paper nobody linked")])).is_none());
+        assert!(pdf_url_for(&item(&[("DOI", "   ")])).is_none());
     }
 
     #[test]

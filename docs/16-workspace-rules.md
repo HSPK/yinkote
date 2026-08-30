@@ -5360,3 +5360,40 @@ reached this run's items. That precondition is a background worker catching up �
 not something the suite controls, exactly like the model being rate-limited —
 and I had tuned its timeout three times before noticing that tuning was the
 wrong move.
+
+### 3.293 The capability existed; only one of two commands could reach it
+
+"Fetch PDF" refused an item holding a DOI, while pasting that same DOI into
+"Download files" worked. Two commands, one able to do a thing the other
+could not — that asymmetry, not the message, was the bug.
+
+Nothing needed building. `attach_url` already fetches an address, notices it
+answered HTML, and follows the publisher's `citation_pdf_url`; a DOI resolves
+to exactly such a landing page. `pdf_url_for` simply never formed the address,
+so the working machinery was never handed one.
+
+Two things to carry:
+
+- **When one path can do what a sibling cannot, look for the address, not the
+  ability.** The difference was which command computed a URL, not which knew
+  how to download.
+- **My first fix was unreachable code.** `item.field("url")?` returns early on
+  `None`, so the DOI fallback written below it could not run for the only items
+  that needed it — an item lacking a URL. `?` is a return statement wearing
+  punctuation. Its own new tests failed, which is the only reason I know.
+
+The message that sent the user here said "supply a url" without saying where.
+It now names "Download files", and the two labels state which does what:
+*Fetch PDF automatically* versus *Download files from addresses…*.
+
+### 3.294 I wanted to remove one item and removed seventy-four
+
+Cleaning up a single probe, `DELETE /items/:key` answered 405, so I trashed it
+and emptied the trash — which permanently deleted 74 items, everything earlier
+runs had left there. A scratch library, so nothing was lost, but the reach of
+the second command had nothing to do with my intent.
+
+`{"deleted":74}` said so plainly in the response I had already asked for. Read
+the count a destructive call returns and compare it to the number you meant;
+a tidy-up that reports more than it should have touched is the same class of
+evidence as a test that passes on a broken build (§3.253).
