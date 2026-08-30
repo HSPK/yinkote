@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { useT } from '../i18n'
 import { Button, Icon } from '../ui'
+import { copyText } from '../lib/clipboard'
 
 /**
  * Installing the Word add-in.
@@ -24,7 +25,7 @@ export function WordAddin() {
 
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(SIDELOAD[platform].path)
+      await copyText(SIDELOAD[platform].path)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch {

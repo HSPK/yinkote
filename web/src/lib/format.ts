@@ -52,8 +52,10 @@ export function taskMessage(t: Translate, message: string): string {
 }
 
 const TASK_MESSAGES = new Set([
+  'task.readingClosely',
   'task.readingZotero',
   'task.reindexing',
+  'task.summarising',
   'task.backingUp',
   'task.packing',
   'task.readingArchive',

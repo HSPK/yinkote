@@ -151,7 +151,13 @@ async fn summarise(
     let paper = crate::paper::read(&app, lib, &item).await;
     let language = Language::parse(body.language.as_deref());
 
-    let turn = agent
+    // A job for the same reason a close reading is one: it reads the whole
+    // paper and waits on a model, and the jobs surface should be able to say
+    // that is what the server is doing.
+    let task = app.tasks().start("summarise", "task.summarising");
+    task.progress("task.summarising", 0, 1);
+
+    let turn = match agent
         .run(
             lib,
             vec![ChatMessage::new(
@@ -159,10 +165,19 @@ async fn summarise(
                 prompt(&item, body.focus.as_deref(), language, &paper.material(&item)),
             )],
         )
-        .await?;
+        .await
+    {
+        Ok(turn) => turn,
+        Err(e) => {
+            app.tasks().fail(&task, &e);
+            return Err(e.into());
+        }
+    };
 
     if turn.reply.trim().is_empty() {
-        return Err(Error::internal("the model returned nothing").into());
+        let e = Error::internal("the model returned nothing");
+        app.tasks().fail(&task, &e);
+        return Err(e.into());
     }
 
     // One summary per item: regenerating replaces rather than accumulating a
@@ -203,6 +218,8 @@ async fn summarise(
         version,
     })
     .await?;
+
+    app.tasks().finish(&task, json!({ "note": note.key.as_str() }));
 
     Ok(Json(json!({
         "note": note,

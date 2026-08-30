@@ -21,6 +21,7 @@ import {
   runReindex,
 } from '../lib/maintenance'
 import { Badge, Button, Field, Icon, Input, Section, Select, toast } from '../ui'
+import { copyText } from '../lib/clipboard'
 
 const DENSITIES = ['compact', 'comfortable'] as const
 
@@ -58,7 +59,7 @@ export function SettingsPage() {
   }, [])
 
   const copy = async (value: string) => {
-    await navigator.clipboard.writeText(value)
+    await copyText(value)
     toast.success(t('toast.copiedPath'))
   }
 

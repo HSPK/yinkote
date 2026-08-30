@@ -409,9 +409,40 @@ fn wal_bytes(path: &Path) -> u64 {
 /// SQLite refuses to upgrade it once another writer has committed, returning
 /// `SQLITE_BUSY` *immediately* — the busy timeout cannot help. Taking the write
 /// lock up front makes concurrent writers queue politely instead.
+/// When a write transaction last began, in milliseconds since the epoch.
+///
+/// Process-wide rather than per-`Db` because the readers are the background
+/// workers, which are per-process too, and threading a handle through every
+/// `write_tx` call site would be a large change for a value with exactly one
+/// use. A test opening several in-memory stores shares it harmlessly: nothing
+/// reads it unless the workers are running, and tests do not run them.
+static LAST_WRITE_MS: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
 pub fn write_tx(conn: &mut Connection) -> Result<rusqlite::Transaction<'_>> {
+    LAST_WRITE_MS.store(yk_core::now_ms(), std::sync::atomic::Ordering::Relaxed);
     conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
         .map_err(sql_err)
+}
+
+/// Whether nothing has started writing for at least `window`.
+///
+/// The background workers ask before taking the database exclusively. They
+/// used to ask the task registry instead — "is a bulk write running?" — which
+/// only knows about *registered* jobs like an import. A client writing a
+/// hundred thousand items through ordinary requests is invisible to that, and
+/// three times in one afternoon such a burst collided with a worker and came
+/// back as `500 database is locked`: an embedding pass, a bulk delete, and the
+/// benchmark's own seeding, which died at 78,000 of 99,939 items.
+///
+/// Writing is observed here instead, at the one place every write goes
+/// through, so it does not matter who is doing it or whether they thought to
+/// announce themselves.
+pub fn writes_quiet_for(window: std::time::Duration) -> bool {
+    let last = LAST_WRITE_MS.load(std::sync::atomic::Ordering::Relaxed);
+    if last == 0 {
+        return true;
+    }
+    yk_core::now_ms().saturating_sub(last) >= window.as_millis() as i64
 }
 
 fn num_threads() -> u32 {

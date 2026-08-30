@@ -1649,8 +1649,17 @@ check "embedded vectors" "$(j "$BASE/search/stats" | jq -r .embedded)"
 # 19,372 pages to 19,362 and then nothing, while succeeding every time.
 STATS="$(j "$BASE/search/stats")"
 check "index pages known" "$(echo "$STATS" | jq -r '.textIndexPages | select(. > 0)')"
-check "index is compact"  "$(echo "$STATS" | jq -r '
-  select(.textIndexPages < .documents) | "compact"')"
+
+# Compaction is asked for and the answer is read, rather than a ratio being
+# asserted. The first version of this compared pages to the *document count*,
+# which held until a run deleted most of the library: the index still carried
+# the deleted text, entirely correctly, and the check called that a failure.
+# Pages describe what has been written, not what is held.
+COMPACT="$(j -X POST "$BASE/maintenance/optimize")"
+check "compaction reports" "$(echo "$COMPACT" | jq -r '
+  select(.textIndexPages.after != null) | "reported"')"
+check "index is compact"   "$(echo "$COMPACT" | jq -r '
+  select(.textIndexPages.after <= .textIndexPages.before) | "compact"')"
 
 # ─── clear up after ourselves ──────────────────────────────────────────────
 #

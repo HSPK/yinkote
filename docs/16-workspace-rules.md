@@ -5540,3 +5540,57 @@ recompute crossed 20ms, so it only began failing once the library was big
 enough — **an "intermittent" failure is often a threshold nobody named**. And
 the test does not wait for that condition, it seeds it: an expensive,
 out-of-date cache entry is a state, not a race.
+
+### 3.302 One component instance, many identities
+
+A paper lost its publication to whichever paper was selected next. The detail
+panel's `FieldEditor` kept the text in local state and mirrored the prop with
+an effect; one instance serves every selection, so on switching from A to B it
+held A's text and B's key, and the blur that followed committed the pair.
+Silently, and with nothing to undo it. Three papers in this library were found
+carrying their neighbours' journal names.
+
+The root cause was not in that component. `App.tsx` rendered
+`<current.def.Body target={...} />` **unkeyed**, so every surface reached by a
+tab shares one instance across targets — including `NoteView`, whose pending
+autosave could therefore land on whichever note was opened next. The editor's
+guard fixes one field; `key={current.tab.id}` fixes the class.
+
+Two things worth keeping:
+
+- **State that mirrors a prop is the bug.** The fix was not a better effect but
+  deriving what to show, with the edit carrying the key it belongs to, so an
+  edit made on a paper no longer shown is neither displayed nor saved.
+- **My reproduction was wrong twice, and the second time silently.** The first
+  test dispatched `blur`, which React never sees — it delegates `focusout` — so
+  it exercised nothing and passed. The second used the right event and still
+  passed against the broken code, because `act` flushes the re-render and its
+  effect together and the window never opens in jsdom. A test that cannot fail
+  is worse than no test (§3.253), so the rule was extracted as a function and
+  checked directly; that version does go red.
+
+### 3.303 A ratio that only held in the steady state
+
+The `index is compact` check I added last round compared index pages to the
+document count. It failed the moment a run deleted most of the library: 5,064
+pages for 62 documents, entirely correctly, because pages record what has been
+*written*, not what is held.
+
+Replaced with a check that asks for the work and reads the answer:
+`/maintenance/optimize` now compacts the search indexes too and returns the
+page counts either side (5,064 → 15 on the library in question). That is both a
+better check — it tests the machinery rather than a proportion — and a better
+product: someone whose search has slowed can fix it now instead of waiting for
+the half-hourly worker.
+
+### 3.304 The benchmark reseeds the library it measures
+
+Asked to clear out the test data, I emptied the library to 26 items. A later
+`bench.mjs` run put 83,086 back, because seeding a corpus when one is missing
+is what it is for. Two consequences: the user's clean library was quietly
+undone, and smoke's archive round-trip then timed out importing 83,000 items
+and reported four failures that were nothing but slowness.
+
+**A tool that maintains its own fixtures will fight anybody tidying up.** Worth
+saying out loud to whoever asked for the clean library, rather than cleaning it
+twice and letting them find out.

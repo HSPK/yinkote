@@ -75,11 +75,20 @@ export function PdfPage({
         // page is soft on every screen made in the last decade.
         const ratio = window.devicePixelRatio || 1
         const canvas = canvasRef.current
-        const context = canvas?.getContext('2d')
+        // `alpha: false` because a page is opaque: compositing every glyph
+        // against transparency costs work and can soften the edges.
+        const context = canvas?.getContext('2d', { alpha: false })
         if (!canvas || !context) return
 
-        canvas.width = Math.floor(viewport.width * ratio)
-        canvas.height = Math.floor(viewport.height * ratio)
+        // The bitmap is whole pixels, and the CSS size is derived *from* it
+        // rather than from the viewport. Flooring the bitmap while leaving the
+        // element at the fractional viewport width left the two a fraction of
+        // a pixel apart, and the browser resampled the whole page to fit --
+        // which is exactly the softness the device-resolution render was for.
+        const pixels = { w: Math.round(viewport.width * ratio), h: Math.round(viewport.height * ratio) }
+        canvas.width = pixels.w
+        canvas.height = pixels.h
+        setSize({ width: pixels.w / ratio, height: pixels.h / ratio })
         const render = page.render({
           canvas,
           canvasContext: context,

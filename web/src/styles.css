@@ -2628,6 +2628,33 @@ option {
 
 .reference-list { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .reference-list > .dim { margin-bottom: 2px; font-size: 10px; }
+
+/* The count and the filters share a line: a bibliography of ninety-three is
+   ordinary, and both facts about it belong above the list rather than in it. */
+.reference-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 3px;
+  font-size: 10px;
+}
+.reference-head .chip-row { gap: 2px; }
+.reference-head .chip { padding: 0 5px; font-size: 10px; line-height: 15px; }
+
+/* Held back until the row is under the pointer: ninety-three rows each showing
+   two buttons is a wall of icons, and the action is only ever wanted for the
+   one being looked at. */
+.reference-actions {
+  flex: none;
+  display: flex;
+  gap: 1px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 90ms linear;
+}
+.reference-row:hover .reference-actions,
+.reference-row:focus-within .reference-actions { opacity: 1; }
 .reference-row {
   display: flex;
   align-items: baseline;
@@ -2646,6 +2673,27 @@ option {
 /* A work the library does not hold reads as a label, not a link — nothing
    happens when you click it, so it must not look clickable. */
 .reference-absent { color: var(--fg-mute); }
+
+/* The reader's side pane switches between what has been written about the
+   paper, so its body scrolls independently of the tab strip above it. */
+.reader-note-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.reader-note-body p { margin: 0 0 8px; }
+.reader-note-body h1,
+.reader-note-body h2,
+.reader-note-body h3 { margin: 10px 0 4px; font-size: 12px; }
+
+/* A metric and the sentence that attributes it, one per line: the columns show
+   the number, this shows where it came from. */
+.metric-list { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.metric-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.metric-source { font-size: 10px; line-height: 1.35; min-width: 0; }
 
 /* ─── notes on a paper ───────────────────────────────────────────────────── */
 

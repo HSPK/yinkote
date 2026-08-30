@@ -62,7 +62,18 @@ async fn close_reading(
     let text = crate::paper::require(&app, lib, &item).await?;
     let language = Language::parse(body.language.as_deref());
 
-    let turn = agent
+    // Registered as a job, because it is one: reading a paper in full can take
+    // a model a minute or more, and until now the only sign it was happening
+    // was a request that had not come back. The jobs surface exists to answer
+    // "what is this server busy with", and the longest thing it does was the
+    // one thing missing from it.
+    //
+    // The request still waits for the answer — the caller wants the note — so
+    // this is about visibility and cancellation, not about changing who waits.
+    let task = app.tasks().start("close-reading", "task.readingClosely");
+    task.progress("task.readingClosely", 0, 1);
+
+    let turn = match agent
         .run(
             lib,
             vec![ChatMessage::new(
@@ -70,13 +81,23 @@ async fn close_reading(
                 prompt(&item, body.focus.as_deref(), language, &text),
             )],
         )
-        .await?;
+        .await
+    {
+        Ok(turn) => turn,
+        Err(e) => {
+            app.tasks().fail(&task, &e);
+            return Err(e.into());
+        }
+    };
 
     if turn.reply.trim().is_empty() {
-        return Err(Error::internal("the model returned nothing").into());
+        let e = Error::internal("the model returned nothing");
+        app.tasks().fail(&task, &e);
+        return Err(e.into());
     }
 
     let note = save(&app, lib, &parent, &turn.reply, turn.truncated).await?;
+    app.tasks().finish(&task, json!({ "note": note.key.as_str() }));
 
     announce(&app, lib, |version| DomainEvent::ItemsChanged {
         library_id: lib,

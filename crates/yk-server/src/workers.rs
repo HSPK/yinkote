@@ -18,6 +18,13 @@ pub fn spawn(app: App) {
     startup_hook(app);
 }
 
+/// How long the database must have been left alone before a worker will take
+/// it exclusively.
+///
+/// Long enough to sit out the gaps between requests in a burst, short enough
+/// that housekeeping still happens moments after the burst ends.
+const QUIET: Duration = Duration::from_secs(5);
+
 /// Give the query planner something to plan with.
 ///
 /// SQLite chooses between materialising a filter and probing it from
@@ -44,7 +51,7 @@ fn keep_statistics_current(app: App) {
             // bulk write is already holding the database as much as it can,
             // and `ANALYZE` reads every index it looks at. The statistics of
             // a library mid-import are about to be wrong anyway.
-            if !app.tasks().bulk_write_running() {
+            if !app.tasks().bulk_write_running() && yk_store::writes_quiet_for(QUIET) {
                 // Statistics only. The checkpoint half of `maintenance` takes
                 // the database exclusively and has a worker of its own that
                 // knows when that is safe.
@@ -230,7 +237,11 @@ fn checkpoint_worker(app: App) {
             // The log is reclaimed when the job finishes; a big file for a few
             // minutes is cheaper than a program that will not accept a
             // keystroke.
-            if app.tasks().bulk_write_running() {
+            // A registered bulk job, or anybody at all writing. The registry
+            // only knows about jobs that announce themselves; `writes_quiet_for`
+            // watches the write path itself, which is what a client posting
+            // items in a loop actually touches.
+            if app.tasks().bulk_write_running() || !yk_store::writes_quiet_for(QUIET) {
                 continue;
             }
             match app.store().db().checkpoint(WAL_TRUNCATE_BYTES).await {

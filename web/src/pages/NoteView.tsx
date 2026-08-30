@@ -32,9 +32,10 @@ export function NoteView({ target }: { target?: string }) {
   const [saving, setSaving] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [error, setError] = useState<Failure | null>(null)
 
-  // What is on the server, so a save can tell whether there is anything to do.
-  // Without it every keystroke pause writes the same text again.
-  const stored = useRef('')
+  // What is on the server, and *which note* it belongs to. The key is half of
+  // it: a pending autosave from one note must never land on another, which is
+  // possible whenever one instance is reused for a new target.
+  const stored = useRef({ key: '', body: '' })
 
   useEffect(() => {
     if (!target) return
@@ -46,7 +47,7 @@ export function NoteView({ target }: { target?: string }) {
         setNote(got)
         const body = String(got.note ?? '')
         setText(body)
-        stored.current = body
+        stored.current = { key: target, body }
         setError(null)
       })
       .catch((e: unknown) => live && setError(failureOf(e)))
@@ -57,12 +58,13 @@ export function NoteView({ target }: { target?: string }) {
 
   const save = useCallback(
     async (body: string) => {
-      if (!target || body === stored.current) return
+      // Belongs to another note, or changes nothing.
+      if (!target || stored.current.key !== target || body === stored.current.body) return
       setSaving('saving')
       try {
         // `fields` is nested on a patch, not flattened (3.217).
         const updated = await api.items.update(library, target, { fields: { note: body } })
-        stored.current = body
+        stored.current = { key: target, body }
         setNote(updated)
         setSaving('saved')
       } catch (e: unknown) {
@@ -77,7 +79,7 @@ export function NoteView({ target }: { target?: string }) {
   // remembered to save is a note that was not written. The button stays for
   // the moment before the pause elapses.
   useEffect(() => {
-    if (!target || text === stored.current) return
+    if (!target || stored.current.key !== target || text === stored.current.body) return
     const timer = setTimeout(() => void save(text), AUTOSAVE_MS)
     return () => clearTimeout(timer)
   }, [text, target, save])
@@ -94,7 +96,7 @@ export function NoteView({ target }: { target?: string }) {
   useEffect(
     () => () => {
       const { text, save } = latest.current
-      if (text !== stored.current) void save(text)
+      if (text !== stored.current.body) void save(text)
     },
     [],
   )

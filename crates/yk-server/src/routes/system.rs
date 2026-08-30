@@ -228,9 +228,27 @@ async fn reindex(State(app): State<App>, Path(lib): Path<i64>) -> Json<Value> {
     Json(json!({ "task": task.snapshot() }))
 }
 
+/// Everything the background workers do, on demand.
+///
+/// The search indexes are compacted here as well as on the timer, because a
+/// library that has just had a great many items deleted keeps their text until
+/// something gathers the index — the pages describe what was written, not what
+/// is held. Waiting half an hour for a search to come back up to speed is a
+/// poor answer when the user has asked for maintenance by name.
+///
+/// The page counts come back so the caller can see it happened; a maintenance
+/// call that answers `{"ok": true}` having done nothing is indistinguishable
+/// from one that worked.
 async fn optimize(State(app): State<App>) -> ApiResult<Json<Value>> {
+    let before = app.store().db().search_index_pages().await.unwrap_or((0, 0));
     app.store().db().maintenance().await?;
-    Ok(Json(json!({ "ok": true })))
+    app.store().db().compact_search_indexes().await?;
+    let after = app.store().db().search_index_pages().await.unwrap_or((0, 0));
+    Ok(Json(json!({
+        "ok": true,
+        "textIndexPages": { "before": before.0, "after": after.0 },
+        "trigramIndexPages": { "before": before.1, "after": after.1 },
+    })))
 }
 
 /// Live change feed. Clients apply deltas instead of re-fetching everything.

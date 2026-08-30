@@ -17,11 +17,13 @@ import { useStore } from '../state/store'
 import { Button, Empty, Icon, contextMenu, toast, withToast } from '../ui'
 import { PdfPage } from './PdfPage'
 import { Outline } from '../components/Outline'
+import { Markdown } from '../lib/markdown'
 import { SelectionPopup } from '../components/SelectionPopup'
 import { PageRail } from '../components/PageRail'
 import { loadOutline, type OutlineNode } from '../lib/outline'
 import { useFind } from './useFind'
 import { usePdf } from './usePdf'
+import { copyText } from '../lib/clipboard'
 
 /**
  * Reads and annotates an item's PDF.
@@ -48,7 +50,11 @@ export function ReaderView({ target }: { target?: string }) {
    *  so there is one definition of it rather than two that can disagree. */
   const [page, setPage] = useState(1)
   const citationStyle = useStore((s) => s.citationStyle)
+  const openNote = useStore((s) => s.openNote)
   const [outline, setOutline] = useState<OutlineNode[]>([])
+  /** Which of the paper's readings the side pane is showing. */
+  const [notePane, setNotePane] = useState<'marks' | 'summary' | 'reading' | 'notes'>('marks')
+  const [notes, setNotes] = useState<Item[]>([])
   /** Pages near enough the viewport to draw. See the observer below. */
   const [near, setNear] = useState<Set<number>>(() => new Set([1, 2, 3]))
   /** Page one's size, which is every page's size in all but a handful of
@@ -146,9 +152,9 @@ export function ReaderView({ target }: { target?: string }) {
     }
   }
 
-  const copyText = async () => {
+  const copySelection = async () => {
     if (!pending) return
-    await navigator.clipboard.writeText(pending.text).catch(() => {})
+    await copyText(pending.text).catch(() => {})
     window.getSelection()?.removeAllRanges()
     setPending(null)
     toast.success(t('reader.copied'))
@@ -162,7 +168,7 @@ export function ReaderView({ target }: { target?: string }) {
     try {
       const rendered = await api.citations.render(library, [target], citationStyle)
       const reference = rendered.citations[0] ?? ''
-      await navigator.clipboard.writeText(
+      await copyText(
         `${quoted} ${reference} ${t('reader.atPage', { page: pending.page })}`.trim(),
       )
       toast.success(t('reader.copied'))
@@ -230,6 +236,44 @@ export function ReaderView({ target }: { target?: string }) {
     // `reserve.height` is in here because the pages do not exist until it is
     // known — observing before they are in the DOM observes nothing, silently.
   }, [doc, pages.length, reserve.height])
+
+  /** Everything written about this paper: the summary, the close reading, and
+   *  whatever the reader has typed. Loaded here so the pane can switch between
+   *  them without a request per click. */
+  useEffect(() => {
+    if (!target) {
+      setNotes([])
+      return
+    }
+    let live = true
+    void api.items
+      .children(library, target)
+      .then((kids) => {
+        if (live) setNotes(kids.filter((k) => k.itemType === 'note'))
+      })
+      .catch(() => {
+        if (live) setNotes([])
+      })
+    return () => {
+      live = false
+    }
+  }, [library, target])
+
+  // Which note is which is decided by the tag the server wrote, not by the
+  // title, which the reader is free to change.
+  const summaryNote = notes.find((n) => n.tags?.some((t) => t.tag === 'summary'))
+  const readingNote = notes.find((n) => n.tags?.some((t) => t.tag === 'close-reading'))
+  const plainNotes = notes.filter((n) => n !== summaryNote && n !== readingNote)
+
+  /** A note's first line is its name, which is the rule the note surface uses
+   *  when it derives one. */
+  const firstLine = (n: Item) =>
+    String(n.note ?? '')
+      .replace(/<[^>]*>/g, ' ')
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.length > 0)
+      ?.slice(0, 80) ?? t('note.title')
 
   /** The document's own table of contents, when it has one. */
   useEffect(() => {
@@ -447,6 +491,61 @@ export function ReaderView({ target }: { target?: string }) {
         </div>
 
         <aside className="reader-notes">
+          {/* Everything written about this paper, reachable without leaving
+              it. Reading is where a summary is wanted -- checking what the
+              model said against the page in front of you -- and until now that
+              meant going back to the library and opening another tab. */}
+          <div className="rail-tabs">
+            {(
+              [
+                ['marks', t('reader.marks')],
+                ['summary', t('reader.summaryTab')],
+                ['reading', t('reader.readingTab')],
+                ['notes', t('reader.notesTab', { count: plainNotes.length })],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                className="rail-tab"
+                data-active={notePane === id}
+                onClick={() => setNotePane(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {notePane !== 'marks' && (
+            <div className="reader-note-body">
+              {(notePane === 'summary' ? summaryNote : notePane === 'reading' ? readingNote : null) ? (
+                <Markdown
+                  source={String(
+                    (notePane === 'summary' ? summaryNote : readingNote)?.note ?? '',
+                  )}
+                />
+              ) : notePane === 'notes' ? (
+                plainNotes.length === 0 ? (
+                  <Empty>{t('reader.noNotes')}</Empty>
+                ) : (
+                  plainNotes.map((n) => (
+                    <button
+                      key={n.key}
+                      className="note-card"
+                      onClick={() => openNote(n.key)}
+                      title={t('reader.openNote')}
+                    >
+                      <span className="note-text">{firstLine(n)}</span>
+                    </button>
+                  ))
+                )
+              ) : (
+                <Empty>{t('reader.noReading')}</Empty>
+              )}
+            </div>
+          )}
+
+          {notePane === 'marks' && (
+          <>
           <div className="pane-header">
             <span>{t('reader.annotations', { count: annotations.length })}</span>
             {/* Where the highlights are is where somebody decides they are
@@ -490,6 +589,8 @@ export function ReaderView({ target }: { target?: string }) {
               {!a.text && !a.comment && <span className="note-text dim">{t('reader.blankNote')}</span>}
             </button>
           ))}
+          </>
+          )}
         </aside>
       </div>
 
@@ -498,7 +599,7 @@ export function ReaderView({ target }: { target?: string }) {
           at={pending.at}
           colour={colour}
           onMark={mark}
-          onCopy={copyText}
+          onCopy={copySelection}
           onCite={copyCitation}
           onDismiss={() => setPending(null)}
         />

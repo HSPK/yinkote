@@ -1509,6 +1509,18 @@ impl ItemRepository for SqliteItemRepository {
                         .map_err(sql_err)?;
                     let Some(id) = id else { continue };
                     index::remove(&tx, &[id])?;
+                    // The queue refers to items by key and not by a foreign
+                    // key, so nothing cascaded and a deleted item's downloads
+                    // stayed queued: this library held 54,540 of them, and the
+                    // worker was still dutifully fetching DOIs for papers that
+                    // no longer existed. In the same transaction as the
+                    // deletion, because a file wanted for an item that is gone
+                    // is not wanted.
+                    tx.execute(
+                        "DELETE FROM fetch_queue WHERE library_id=?1 AND item_key=?2",
+                        params![library_id, k],
+                    )
+                    .map_err(sql_err)?;
                     tx.execute("DELETE FROM items WHERE id=?1", params![id]).map_err(sql_err)?;
                     tx.execute(
                         "INSERT INTO deletions(library_id, object_type, object_key, version, deleted_at)

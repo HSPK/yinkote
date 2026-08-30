@@ -1,14 +1,40 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../api/client'
-import type { CitationList, Conversation, Item } from '../api/types'
+import type { BadgeValue, Citation, CitationList, Conversation, Item } from '../api/types'
 import { creatorName, displayTitle } from '../lib/format'
 import { tagColour } from '../lib/tags'
 import { useStore } from '../state/store'
 import { useSchemaLabel, useT } from '../i18n'
 import { useDebounced } from '../lib/useDebounced'
-import { Icon, toast } from '../ui'
+import { Badge, Icon, toast } from '../ui'
 import { Thumbnail } from './Thumbnail'
+
+/** An edit in progress, and which paper it belongs to. */
+export interface Edit {
+  key: string
+  value: string
+}
+
+/** What the box shows: the edit only when it belongs to the paper on screen.
+ *
+ *  Between selecting another paper and the re-render settling, one editor
+ *  instance holds the previous paper's text and the new paper's key. Deriving
+ *  what to show — rather than keeping a copy in step with an effect — means
+ *  that window shows the new paper's stored value instead of the old paper's
+ *  edit. */
+export function shownValue(edit: Edit, itemKey: string, stored: string): string {
+  return edit.key === itemKey ? edit.value : stored
+}
+
+/** Whether this edit should be written to this paper.
+ *
+ *  Two conditions, and the first is the one that was missing: an edit made on
+ *  a paper that is no longer shown belongs to nothing, and saving it wrote one
+ *  paper's publication onto another with no way to undo it. */
+export function worthSaving(edit: Edit, itemKey: string, stored: string): boolean {
+  return edit.key === itemKey && edit.value !== stored
+}
 
 /** Fields worth a multi-line editor. */
 const LONG_FIELDS = new Set(['abstractNote', 'extra', 'note'])
@@ -16,13 +42,24 @@ const LONG_FIELDS = new Set(['abstractNote', 'extra', 'note'])
 function FieldEditor({ item, field, label }: { item: Item; field: string; label: string }) {
   const patchItem = useStore((s) => s.patchItem)
   const stored = String(item[field] ?? '')
-  const [value, setValue] = useState(stored)
 
-  // Re-sync when the selection changes or the server sends an update.
-  useEffect(() => setValue(stored), [stored, item.key])
+  // An edit in progress, and *whose* it is.
+  //
+  // This used to be a bare `value` kept in step with the prop by an effect,
+  // and that lost a paper's publication to whichever paper was clicked next:
+  // one component instance serves every selection, so on switching from A to
+  // B it re-rendered holding A's text and B's key, and the blur that followed
+  // wrote A's publication onto B. Silently, and with nothing to undo it.
+  //
+  // Carrying the owner makes that unrepresentable rather than merely unlikely:
+  // an edit belonging to a paper that is no longer shown is neither displayed
+  // nor saved. State mirroring props was the bug; this derives instead.
+  const [edit, setEdit] = useState<Edit>({ key: item.key, value: stored })
+  const value = shownValue(edit, item.key, stored)
+  const setValue = (next: string) => setEdit({ key: item.key, value: next })
 
   const commit = () => {
-    if (value === stored) return
+    if (!worthSaving(edit, item.key, stored)) return
     void patchItem(item.key, { fields: { [field]: value === '' ? null : value } })
   }
 
@@ -217,7 +254,11 @@ export function DetailPanel() {
             .filter((f) => f !== 'title')
             .map((f) => (
               <FieldEditor
-                key={f}
+                // Keyed by the paper as well as the field, so selecting
+                // another one builds a fresh editor rather than handing the
+                // previous paper's half-finished edit to it. The editor
+                // guards this itself too; this makes it structural.
+                key={`${item.key}:${f}`}
                 item={item}
                 field={f}
                 label={label(schema?.fields[f], f)}
@@ -250,6 +291,7 @@ export function DetailPanel() {
             </div>
           </dd>
 
+          <ItemMetrics itemKey={item.key} />
           <ItemCover itemKey={item.key} />
           <ItemNotes itemKey={item.key} />
           <ItemReferences itemKey={item.key} />
@@ -324,6 +366,66 @@ function ItemConversations({ itemKey: selected }: { itemKey: string }) {
  *  A cited work the library holds is a link; one it does not is the label the
  *  publisher printed. Neither case is special, which is the point.
  */
+/** What the badge plugins say about this paper, and who said it.
+ *
+ *  The columns show a number in a few characters; this shows the sentence
+ *  behind it. An impact factor with no stated source is one a reader cannot
+ *  check — and when two papers here carried invented journal names, a
+ *  perfectly correct number beside the wrong journal looked like a broken
+ *  plugin. Naming the journal the metric was matched to makes that visible.
+ */
+/** What a plugin says about its own number. Not an item title, despite the
+ *  field's name -- it is the sentence the plugin wrote to attribute it. */
+function attribution({ title, badge }: BadgeValue): string {
+  return title ?? badge
+}
+
+function ItemMetrics({ itemKey: selected }: { itemKey: string }) {
+  const t = useT()
+  const itemKey = useDebounced(selected)
+  const library = useStore((s) => s.library)
+  const [values, setValues] = useState<BadgeValue[]>([])
+
+  useEffect(() => {
+    let live = true
+    void api.badges
+      .resolve(library, [itemKey])
+      .then((all) => {
+        if (live) setValues(all[itemKey] ?? [])
+      })
+      .catch(() => {
+        if (live) setValues([])
+      })
+    return () => {
+      live = false
+    }
+  }, [library, itemKey])
+
+  if (values.length === 0) return null
+
+  return (
+    <>
+      <dt>{t('detail.metrics')}</dt>
+      <dd>
+        <div className="metric-list">
+          {values.map((v) => (
+            <div key={`${v.pluginId}:${v.badge}`} className="metric-row">
+              <Badge tone={(v.tone as never) ?? 'default'}>{v.text}</Badge>
+              {/* The provenance in full, not as a tooltip: a number you have to
+                  hover to attribute is one that gets quoted unattributed. */}
+              <span className="dim metric-source">{attribution(v)}</span>
+            </div>
+          ))}
+        </div>
+      </dd>
+    </>
+  )
+}
+
+/** How many references the panel shows before asking. A bibliography runs to
+ *  dozens; the panel is a column beside the library, not a page. */
+const REFERENCE_ROWS = 8
+
 function ItemReferences({ itemKey: selected }: { itemKey: string }) {
   const t = useT()
   // Debounced: arrow-keying down a list must not fetch a bibliography for
@@ -331,8 +433,13 @@ function ItemReferences({ itemKey: selected }: { itemKey: string }) {
   const itemKey = useDebounced(selected)
   const library = useStore((s) => s.library)
   const openReader = useStore((s) => s.openReader)
+  const collection = useStore((s) => s.collection)
   const [list, setList] = useState<CitationList | null>(null)
   const [fetching, setFetching] = useState(false)
+  const [filter, setFilter] = useState<'all' | 'held' | 'missing'>('all')
+  const [expanded, setExpanded] = useState(false)
+  /** DOIs currently being fetched, so a row can say so. */
+  const [getting, setGetting] = useState<string[]>([])
 
   const load = useCallback(() => {
     let live = true
@@ -364,6 +471,35 @@ function ItemReferences({ itemKey: selected }: { itemKey: string }) {
   }
 
   const cites = list?.cites ?? []
+  const held = cites.filter((c) => c.key)
+  const missing = cites.filter((c) => !c.key)
+
+  const shown = filter === 'held' ? held : filter === 'missing' ? missing : cites
+  const capped = expanded ? shown : shown.slice(0, REFERENCE_ROWS)
+
+  /** Fetch a cited work the library does not hold, by its DOI. */
+  const get = async (c: Citation) => {
+    if (!c.doi) return
+    setGetting((g) => [...g, c.doi])
+    try {
+      await api.scrape.quickAdd(library, { text: c.doi })
+      load()
+    } catch (e) {
+      toast.fromError(t('detail.referenceGetFailed'), e)
+    } finally {
+      setGetting((g) => g.filter((d) => d !== c.doi))
+    }
+  }
+
+  const file = async (c: Citation) => {
+    if (!c.key || !collection) return
+    try {
+      await api.items.addToCollection(library, collection, [c.key])
+      toast.success(t('detail.referenceFiled'))
+    } catch (e) {
+      toast.fromError(t('detail.referenceFileFailed'), e)
+    }
+  }
 
   return (
     <>
@@ -378,10 +514,29 @@ function ItemReferences({ itemKey: selected }: { itemKey: string }) {
           </div>
         ) : (
           <div className="reference-list">
-            <span className="dim">
-              {t('detail.referencesHeld', { held: list?.resolved ?? 0, total: cites.length })}
-            </span>
-            {cites.map((c) => (
+            {/* A bibliography is long -- ninety-three references is ordinary --
+                so the panel says what it has and shows a handful, rather than
+                becoming a page of grey text you have to scroll past to reach
+                anything else. */}
+            <div className="reference-head">
+              <span className="dim">
+                {t('detail.referencesHeld', { held: held.length, total: cites.length })}
+              </span>
+              <span className="chip-row">
+                {(['all', 'held', 'missing'] as const).map((f) => (
+                  <button
+                    key={f}
+                    className="chip"
+                    data-active={filter === f || undefined}
+                    onClick={() => setFilter(f)}
+                  >
+                    {t(`detail.references.${f}`)}
+                  </button>
+                ))}
+              </span>
+            </div>
+
+            {capped.map((c) => (
               <div key={c.position} className="reference-row" title={c.label}>
                 <span className="dim mono">{c.position + 1}</span>
                 {c.key ? (
@@ -392,8 +547,40 @@ function ItemReferences({ itemKey: selected }: { itemKey: string }) {
                   <span className="reference-absent">{c.label || c.fingerprint}</span>
                 )}
                 {c.year && <span className="dim">{c.year}</span>}
+                <span className="reference-actions">
+                  {/* Held: file it where you are working. Missing: go and get
+                      it. Either way the next thing you would do is one click,
+                      not a copied DOI and a trip to the search box. */}
+                  {c.key && collection && (
+                    <button
+                      className="icon-btn"
+                      title={t('detail.referenceFile')}
+                      onClick={() => void file(c)}
+                    >
+                      <Icon.Folder size={11} />
+                    </button>
+                  )}
+                  {!c.key && c.doi && (
+                    <button
+                      className="icon-btn"
+                      title={t('detail.referenceGet')}
+                      disabled={getting.includes(c.doi)}
+                      onClick={() => void get(c)}
+                    >
+                      <Icon.Download size={11} />
+                    </button>
+                  )}
+                </span>
               </div>
             ))}
+
+            {shown.length > REFERENCE_ROWS && (
+              <button className="chip" onClick={() => setExpanded(!expanded)}>
+                {expanded
+                  ? t('detail.referencesFewer')
+                  : t('detail.referencesMore', { count: shown.length - REFERENCE_ROWS })}
+              </button>
+            )}
           </div>
         )}
       </dd>

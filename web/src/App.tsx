@@ -185,7 +185,17 @@ export function App() {
           {/* Per surface, so a reader that cannot draw a page does not cost
               you the library in the tab beside it. */}
           <ErrorBoundary resetKey={activeTab}>
-            {current ? <current.def.Body target={current.tab.target} /> : <NoTab />}
+            {/* Keyed by the tab, so switching to another one builds a fresh
+                surface instead of handing the previous tab's half-finished
+                state to it. Without this a single NoteView instance served
+                every note: type in one, switch to another, and the pending
+                autosave wrote the first note's text into the second. The same
+                shape cost a paper its publication in the detail panel. */}
+            {current ? (
+              <current.def.Body key={current.tab.id} target={current.tab.target} />
+            ) : (
+              <NoTab />
+            )}
           </ErrorBoundary>
         </div>
 

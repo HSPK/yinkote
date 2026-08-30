@@ -35,6 +35,7 @@ import {
   type TabKind,
 } from '../lib/tabs'
 import { inferMode } from '../lib/query'
+import { copyText } from '../lib/clipboard'
 import { toast, useOverlays } from '../ui/overlays'
 import type {
   BadgeDescriptor,
@@ -842,7 +843,7 @@ export const useStore = create<State>((set, get, store) => ({
         chosenStyle,
       )
       if (style && style !== s.citationStyle) get().setCitationStyle(style)
-      await navigator.clipboard.writeText(rendered.bibliography.join('\n'))
+      await copyText(rendered.bibliography.join('\n'))
       return rendered.bibliography.length
     }
 
@@ -861,7 +862,7 @@ export const useStore = create<State>((set, get, store) => ({
       })
       .filter((l) => l && l.trim().length > 0) as string[]
 
-    if (lines.length) await navigator.clipboard.writeText(lines.join('\n'))
+    if (lines.length) await copyText(lines.join('\n'))
     return lines.length
   },
 

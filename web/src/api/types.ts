@@ -414,6 +414,8 @@ export interface Citation {
   label: string
   year: number | null
   fingerprint: string
+  /** The DOI as deposited; the fingerprint cannot be turned back into one. */
+  doi: string
 }
 
 export interface CitationList {
