@@ -123,6 +123,36 @@ describe('selecting rows', () => {
     await click(rows()[3], { ctrlKey: true })
     expect(useStore.getState().selected).toEqual(['A', 'D'])
   })
+
+  it('keeps a multiple selection when one of them is right-clicked', async () => {
+    await render()
+    await click(rows()[0])
+    await click(rows()[2], { shiftKey: true })
+    expect(useStore.getState().selected).toEqual(['A', 'B', 'C'])
+
+    // The selection handler ran for every button, so this collapsed three rows
+    // to one and the menu that opened next -- which knows how to act on three
+    // -- was handed one. Every batch action was unreachable by the gesture
+    // people use to reach it.
+    await act(async () => {
+      rows()[1]?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 2 }))
+      rows()[1]?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2 }))
+    })
+    expect(useStore.getState().selected).toEqual(['A', 'B', 'C'])
+  })
+
+  it('selects a row that is right-clicked from outside the selection', async () => {
+    await render()
+    await click(rows()[0])
+
+    await act(async () => {
+      rows()[3]?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 2 }))
+      rows()[3]?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, button: 2 }))
+    })
+    // Right-clicking something you had not selected acts on it, which is what
+    // every file manager does. That part was already right and must stay so.
+    expect(useStore.getState().selected).toEqual(['D'])
+  })
 })
 
 describe('preview tabs', () => {

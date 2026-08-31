@@ -2698,6 +2698,15 @@ option {
    the number, this shows where it came from. */
 /* A title you can type into, that does not look like a form field until you
    do. Renaming is the commonest edit and deserves to be where the name is. */
+/* Sticky, so the tabs stay reachable while a long abstract scrolls under
+   them: the pane is the one place with no room to scroll back up to. */
+.detail-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-1);
+}
+
 .detail-title-edit {
   flex: 1;
   min-width: 0;

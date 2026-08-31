@@ -1,14 +1,31 @@
 import { useMemo, useState } from 'react'
 
+import type { Conversation } from '../api/types'
 import { useT } from '../i18n'
 import { rankMatches } from '../lib/fuzzy'
+import {
+  CHAT_COLUMNS,
+  gridTemplate,
+  totalColumnWidth,
+  visibleColumns,
+  type ColumnDef,
+} from '../lib/columns'
 import { compact, shortDate } from '../lib/format'
 import { useStore } from '../state/store'
 import { Empty, Icon, contextMenu } from '../ui'
 import { conversationMenu } from '../components/menus'
 import { tabId } from '../lib/tabs'
 
-type SortKey = 'title' | 'messages' | 'created' | 'updated'
+type SortKey = string
+
+/** How each column's cell is styled; anything unlisted is a plain cell. */
+const CELL_CLASS: Record<string, string> = {
+  title: 'cell name-cell',
+  messages: 'cell num',
+  created: 'cell dim',
+  updated: 'cell dim',
+  scope: 'cell dim',
+}
 
 /**
  * Every conversation in one sortable table.
@@ -25,6 +42,13 @@ export function ChatsPage() {
   const inspected = useStore((s) => s.inspectedChat)
 
   const filter = useStore((s) => s.filter)
+  const collections = useStore((s) => s.collections)
+  const order = useStore((s) => s.columnOrders.chats)
+  const widths = useStore((s) => s.columnWidths)
+  const columns = useMemo<ColumnDef[]>(() => visibleColumns(order, CHAT_COLUMNS), [order])
+  const template = useMemo(() => `${gridTemplate(columns, widths)} 28px`, [columns, widths])
+  const width = useMemo(() => totalColumnWidth(columns, widths) + 28, [columns, widths])
+
   const [sort, setSort] = useState<SortKey>('updated')
   const [descending, setDescending] = useState(true)
 
@@ -42,6 +66,20 @@ export function ChatsPage() {
       return direction * a.title.localeCompare(b.title)
     })
   }, [conversations, filter, sort, descending])
+
+  /** One cell's contents. Adding a column is an entry in the catalogue and an
+   *  arm here, rather than a new row layout. */
+  const cell = (c: Conversation, id: string) => {
+    if (id === 'title') return <span className="name">{c.title || t('chat.untitled')}</span>
+    if (id === 'messages') return compact(c.messageCount)
+    if (id === 'created') return shortDate(c.createdAt) || '—'
+    if (id === 'updated') return shortDate(c.updatedAt) || '—'
+    if (id === 'scope')
+      return collections.find((x) => x.key === c.scope)?.name ?? t('chat.wholeLibrary')
+    return null
+  }
+
+  const hint = (c: Conversation, id: string) => (id === 'title' ? c.title : undefined)
 
   const header = (key: SortKey, label: string) => (
     <button
@@ -65,20 +103,30 @@ export function ChatsPage() {
 
   return (
     <div className="collections-browser">
-      <div className="table-head chats-grid">
-        {header('title', t('chats.name'))}
-        {header('messages', t('chats.messages'))}
-        {header('created', t('table.added'))}
-        {header('updated', t('table.modified'))}
+      <div className="browser-scroll">
+      <div
+        className="table-head chats-grid"
+        style={{ gridTemplateColumns: template, minWidth: width }}
+      >
+        {columns.map((c) =>
+          c.sort ? (
+            <span key={c.id}>{header(c.sort, t(c.labelKey))}</span>
+          ) : (
+            <button key={c.id} disabled>
+              {t(c.labelKey)}
+            </button>
+          ),
+        )}
         <span />
       </div>
 
-      <div className="browser-body">
+      <div className="browser-body" style={{ minWidth: width }}>
         {visible.length === 0 && <Empty>{t('chats.none')}</Empty>}
         {visible.map((c) => (
           <div
             key={c.key}
             className="row chats-grid"
+            style={{ gridTemplateColumns: template }}
             data-selected={inspected === c.key}
             // A click inspects, a double-click opens — the same pair the
             // collection browser uses, so browsing a list never costs you the
@@ -90,13 +138,12 @@ export function ChatsPage() {
               ...conversationMenu(c),
             ])}
           >
-            <div className="cell name-cell" title={c.title}>
-              <Icon.Chat className="glyph" size={12} />
-              <span className="name">{c.title}</span>
-            </div>
-            <div className="cell num">{compact(c.messageCount)}</div>
-            <div className="cell dim">{shortDate(c.createdAt)}</div>
-            <div className="cell dim">{shortDate(c.updatedAt)}</div>
+            {columns.map((col) => (
+              <div key={col.id} className={CELL_CLASS[col.id] ?? 'cell'} title={hint(c, col.id)}>
+                {col.id === 'title' && <Icon.Chat className="glyph" size={12} />}
+                {cell(c, col.id)}
+              </div>
+            ))}
             <div className="cell">
               <button
                 className="icon-btn"
@@ -108,6 +155,7 @@ export function ChatsPage() {
             </div>
           </div>
         ))}
+      </div>
       </div>
     </div>
   )

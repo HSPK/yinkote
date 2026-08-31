@@ -96,6 +96,11 @@ export const enUS: Record<MessageKey, string> = {
   'table.rankedHint': 'A search returns its best matches first, so column sorting does not apply. Clear the search to sort.',
   'table.loading': 'Loading…',
 
+  'detail.tab.info': 'Info',
+  'detail.tab.notes': 'Notes',
+  'detail.tab.conversations': 'Threads',
+  'detail.tab.references': 'References',
+  'detail.tab.preview': 'Preview',
   'detail.title': 'Detail',
   'detail.none': 'No item selected',
   'detail.multiple': '{count} items selected',

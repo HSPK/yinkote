@@ -127,20 +127,56 @@ async function render() {
   })
 }
 
+/** Open one of the detail pane's tabs.
+ *
+ *  The pane is a column and five sections stacked in it meant scrolling past
+ *  the whole record to reach the references, so each now answers its own
+ *  question behind a tab. These tests name the tab they are about. */
+async function openTab(label: RegExp) {
+  const tab = [...container.querySelectorAll('.detail-tabs .rail-tab')].find((b) =>
+    label.test(b.textContent ?? ''),
+  )
+  if (!tab) throw new Error(`no detail tab matching ${label}`)
+  await act(async () => {
+    tab.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+}
+
+describe('the detail pane\'s tabs', () => {
+  it('shows one section at a time', async () => {
+    await render()
+
+    // The reason the tabs exist: an abstract can fill the pane on its own, so
+    // the references used to be a scroll away rather than a click.
+    await openTab(/References|参考/)
+    expect(container.querySelector('.reference-list, .chip-row')).toBeTruthy()
+    expect(
+      container.textContent,
+      'the threads section is showing while References is chosen',
+    ).not.toContain('Why does this work?')
+
+    await openTab(/Threads|对话/)
+    expect(container.textContent).toContain('Why does this work?')
+  })
+})
+
 describe("a paper's conversations", () => {
   it('asks about the selected paper', async () => {
     await render()
+    await openTab(/Threads|对话/)
     expect(asked).toContain('A')
   })
 
   it('lists the threads that named it', async () => {
     await render()
+    await openTab(/Threads|对话/)
     expect(container.textContent).toContain('Why does this work?')
   })
 
   it('says so plainly when nothing has been asked', async () => {
     about = []
     await render()
+    await openTab(/Threads|对话/)
     // An empty section that renders nothing is indistinguishable from one
     // that failed to load.
     expect(container.textContent).toContain('Nothing asked about this yet')
@@ -148,6 +184,7 @@ describe("a paper's conversations", () => {
 
   it('offers a way to start one', async () => {
     await render()
+    await openTab(/Threads|对话/)
     const buttons = [...container.querySelectorAll('.detail button')].map((b) => b.textContent)
     expect(buttons.some((label) => label?.includes('Ask about this'))).toBe(true)
   })
@@ -156,6 +193,7 @@ describe("a paper's conversations", () => {
 describe("a paper's references", () => {
   it('lists what the paper stands on', async () => {
     await render()
+    await openTab(/References|参考/)
     // Stored since citations arrived and used by the graph, with nowhere to
     // read it plainly until now.
     expect(container.textContent).toContain('A work it cites')
@@ -164,11 +202,13 @@ describe("a paper's references", () => {
 
   it('says how many of them the library holds', async () => {
     await render()
+    await openTab(/References|参考/)
     expect(container.textContent).toContain('1 of 2 in your library')
   })
 
   it('links only the ones that go somewhere', async () => {
     await render()
+    await openTab(/References|参考/)
     // Clicking a work the library does not hold does nothing, so it must not
     // look clickable.
     const rows = [...container.querySelectorAll('.reference-row')]
@@ -180,6 +220,7 @@ describe("a paper's references", () => {
   it('offers to fetch when there are none', async () => {
     references = []
     await render()
+    await openTab(/References|参考/)
     const buttons = [...container.querySelectorAll('.detail button')].map((b) => b.textContent)
     expect(buttons.some((label) => label?.includes('Fetch'))).toBe(true)
   })
@@ -188,6 +229,7 @@ describe("a paper's references", () => {
 describe("a paper's notes", () => {
   it('shows what has been written under the paper', async () => {
     await render()
+    await openTab(/Notes|笔记/)
     // Summarising has landed a note under the item since it was built, and
     // nothing showed it: you had to know to look at the item's children.
     expect(container.textContent).toContain('The dataset is the real contribution')
@@ -196,12 +238,14 @@ describe("a paper's notes", () => {
 
   it('strips the markup for the preview', async () => {
     await render()
+    await openTab(/Notes|笔记/)
     const row = container.querySelector('.note-text')
     expect(row?.textContent).not.toContain('<p>')
   })
 
   it('marks the ones the model wrote', async () => {
     await render()
+    await openTab(/Notes|笔记/)
     // A summary the model wrote and a note the user wrote are different
     // things to trust.
     const rows = [...container.querySelectorAll('.note-row')]
@@ -215,6 +259,7 @@ describe("a paper's notes", () => {
   it('still offers a way to write the first one', async () => {
     children = []
     await render()
+    await openTab(/Notes|笔记/)
     const add = container.querySelector('.note-row.add')
     expect(add, 'a paper with no notes must still offer to take one').not.toBeNull()
     expect(container.querySelectorAll('.note-row')).toHaveLength(1)

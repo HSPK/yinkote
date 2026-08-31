@@ -5644,3 +5644,37 @@ Also: making a detail pane's title editable broke two tests that read the name
 out of `textContent`. The name lives in a field now, so it is read as a value.
 Worth doing rather than working around — renaming is the commonest edit there
 is, and sending somebody to an editor tab to change one word is a detour.
+
+### 3.308 A selection handler that ran for every button
+
+Right-clicking inside a selection of twenty rows collapsed it to the one under
+the pointer, and the menu that opened a moment later — which knows perfectly
+well how to act on twenty, counts them in its labels, and calls
+`copySelected`/`destroySelected` — was handed one. Every batch action was
+unreachable by the gesture people use to reach it.
+
+`onMouseDown` fires for the secondary button too. One line (`if (e.button !== 0)
+return`) and the whole batch menu came back; nothing else needed writing,
+because nothing else was wrong.
+
+Worth noticing *why* it survived: the menu's own multi-select handling was
+tested and correct, and the drag handler already carried the whole selection.
+The break was in neither, but in the handler that runs before both. **A feature
+can be complete, tested and unreachable**, and the tests that cover it will
+tell you nothing, because they call the menu directly.
+
+The pair of tests now states both halves: right-clicking *inside* a selection
+keeps it, right-clicking *outside* one replaces it.
+
+### 3.309 Five sections in a column is a scroll, not a pane
+
+The detail pane stacked the record, its notes, its threads, its references and
+its cover in one column, and an abstract alone can fill that column — so the
+references were a scroll away rather than a click. They are tabs now, and the
+chosen tab survives changing the selection, because somebody comparing the
+references of three papers should not have to choose the tab three times.
+
+Twelve existing tests failed on the change, all of them correctly: the content
+they assert is no longer visible by default. They now name the tab they are
+about, which reads better than it did — a test that opened the pane and looked
+for references was quietly relying on there being nowhere else for them to be.

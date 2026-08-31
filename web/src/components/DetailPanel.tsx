@@ -158,6 +158,13 @@ export function DetailPanel() {
 
   const detached = useStore((s) => s.detached)
 
+  /** Which question the pane is answering. Kept across selections on purpose:
+   *  somebody comparing the references of three papers should not have to
+   *  choose the tab again for each one. */
+  const [pane, setPane] = useState<'info' | 'notes' | 'conversations' | 'references' | 'preview'>(
+    'info',
+  )
+
   // The list is the usual source, but not the only one: a graph neighbour is
   // shown here without ever appearing in the table behind it. The key check is
   // what makes a stale detached item harmless.
@@ -193,6 +200,33 @@ export function DetailPanel() {
       <div className="detail">
         <div className="detail-title">{displayTitle(item, t('detail.untitled'))}</div>
 
+        {/* Tabs rather than one long scroll. The pane is a column, and five
+            sections stacked in it meant scrolling past the whole record to
+            reach the references — with the abstract alone often filling it.
+            Each of these answers a different question, and you are only ever
+            asking one. */}
+        <div className="rail-tabs detail-tabs">
+          {(
+            [
+              ['info', t('detail.tab.info')],
+              ['notes', t('detail.tab.notes')],
+              ['conversations', t('detail.tab.conversations')],
+              ['references', t('detail.tab.references')],
+              ['preview', t('detail.tab.preview')],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              className="rail-tab"
+              data-active={pane === id}
+              onClick={() => setPane(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {pane === 'info' && (
         <dl className="field-grid">
           <dt>{t('detail.type')}</dt>
           <dd>
@@ -292,11 +326,32 @@ export function DetailPanel() {
           </dd>
 
           <ItemMetrics itemKey={item.key} />
-          <ItemCover itemKey={item.key} />
-          <ItemNotes itemKey={item.key} />
-          <ItemReferences itemKey={item.key} />
-          <ItemConversations itemKey={item.key} />
         </dl>
+        )}
+
+        {pane === 'notes' && (
+          <dl className="field-grid">
+            <ItemNotes itemKey={item.key} />
+          </dl>
+        )}
+
+        {pane === 'conversations' && (
+          <dl className="field-grid">
+            <ItemConversations itemKey={item.key} />
+          </dl>
+        )}
+
+        {pane === 'references' && (
+          <dl className="field-grid">
+            <ItemReferences itemKey={item.key} />
+          </dl>
+        )}
+
+        {pane === 'preview' && (
+          <dl className="field-grid">
+            <ItemCover itemKey={item.key} />
+          </dl>
+        )}
       </div>
     </aside>
   )

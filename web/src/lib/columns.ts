@@ -47,7 +47,7 @@ export const DEFAULT_VISIBLE = ['title', 'author', 'year', 'type', 'tags', 'atta
  * being described. Copying would have meant two pickers, two persisted
  * settings and two chances to fix a bug once.
  */
-export type TableId = 'items' | 'collections'
+export type TableId = 'items' | 'collections' | 'chats'
 
 export const COLLECTION_COLUMNS: ColumnDef[] = [
   { id: 'name', labelKey: 'dialog.name', sort: 'name', width: 0, min: 160 },
@@ -60,15 +60,27 @@ export const COLLECTION_COLUMNS: ColumnDef[] = [
 
 export const COLLECTION_DEFAULT_VISIBLE = ['name', 'kind', 'items', 'created', 'rule']
 
+export const CHAT_COLUMNS: ColumnDef[] = [
+  { id: 'title', labelKey: 'chats.name', sort: 'title', width: 0, min: 160 },
+  { id: 'messages', labelKey: 'chats.messages', sort: 'messages', width: 64, min: 48 },
+  { id: 'scope', labelKey: 'chat.scope', sort: null, width: 120, min: 72 },
+  { id: 'created', labelKey: 'table.added', sort: 'created', width: 116, min: 72 },
+  { id: 'updated', labelKey: 'table.modified', sort: 'updated', width: 116, min: 72 },
+]
+
+export const CHAT_DEFAULT_VISIBLE = ['title', 'messages', 'created', 'updated']
+
 /** What each table shows before anybody changes it. */
 export const DEFAULT_COLUMNS: Record<TableId, string[]> = {
   items: DEFAULT_VISIBLE,
   collections: COLLECTION_DEFAULT_VISIBLE,
+  chats: CHAT_DEFAULT_VISIBLE,
 }
 
 export const CATALOGUE: Record<TableId, ColumnDef[]> = {
   items: BUILTIN_COLUMNS,
   collections: COLLECTION_COLUMNS,
+  chats: CHAT_COLUMNS,
 }
 
 

@@ -97,6 +97,11 @@ export const zhCN = {
   'table.rankedHint': '搜索按相关度返回最佳结果，因此列排序不适用。清空搜索后即可排序。',
   'table.loading': '载入中…',
 
+  'detail.tab.info': '信息',
+  'detail.tab.notes': '笔记',
+  'detail.tab.conversations': '对话',
+  'detail.tab.references': '参考文献',
+  'detail.tab.preview': '预览',
   'detail.title': '详情',
   'detail.none': '未选中条目',
   'detail.multiple': '已选中 {count} 条',

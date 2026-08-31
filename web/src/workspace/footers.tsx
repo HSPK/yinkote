@@ -1,7 +1,14 @@
 import { useState } from 'react'
 
 import { useT } from '../i18n'
-import { COLLECTION_COLUMNS, allColumns, badgeColumn, type ColumnDef, type TableId } from '../lib/columns'
+import {
+  CHAT_COLUMNS,
+  COLLECTION_COLUMNS,
+  allColumns,
+  badgeColumn,
+  type ColumnDef,
+  type TableId,
+} from '../lib/columns'
 import { useStore } from '../state/store'
 import { ColumnPicker } from '../components/ColumnPicker'
 import { Icon } from '../ui'
@@ -177,6 +184,7 @@ export function ChatsFooter() {
     <>
       <span>{t('chats.footer', { count: conversations.length, turns })}</span>
       <span className="spacer" />
+      <ColumnButton table="chats" available={CHAT_COLUMNS} label={(c) => t(c.labelKey)} />
       <DetailToggle />
     </>
   )

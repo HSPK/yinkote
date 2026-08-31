@@ -204,9 +204,16 @@ function Row({
       style={{ gridTemplateColumns: grid }}
       data-selected={selected}
       data-cursor={cursor}
-      onMouseDown={(e) =>
+      onMouseDown={(e) => {
+        // Only the primary button changes the selection. This fired for the
+        // right button too, so right-clicking inside a selection of twenty
+        // collapsed it to the one row under the pointer and the menu that
+        // opened a moment later — which knows perfectly well how to act on
+        // twenty — was handed one. Every batch action was unreachable by the
+        // gesture people actually use to reach it.
+        if (e.button !== 0) return
         select(item.key, e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : 'none')
-      }
+      }}
       onDoubleClick={() => openReader(item.key)}
       onContextMenu={contextMenu(() => itemMenu(item))}
       draggable

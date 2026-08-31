@@ -14,7 +14,7 @@ import { App } from './App'
 import type { Collection, Conversation } from './api/types'
 import { emptyScope } from './state/scope'
 import { useStore } from './state/store'
-import { COLLECTION_DEFAULT_VISIBLE } from './lib/columns'
+import { CHAT_DEFAULT_VISIBLE, COLLECTION_DEFAULT_VISIBLE } from './lib/columns'
 
 vi.mock('./api/client', () => {
   const build = (path: string): unknown =>
@@ -81,7 +81,7 @@ async function show(kind: 'collections' | 'chats', state: Record<string, unknown
     conversations: [],
     tags: [],
     badgeDefs: [],
-    columnOrders: { items: [], collections: COLLECTION_DEFAULT_VISIBLE },
+    columnOrders: { items: [], collections: COLLECTION_DEFAULT_VISIBLE, chats: CHAT_DEFAULT_VISIBLE },
     ...state,
   })
   await act(async () => {
@@ -155,7 +155,7 @@ describe('the collection browser', () => {
   it('drops a column the user has turned off', async () => {
     await show('collections', {
       collections: shelves,
-      columnOrders: { items: [], collections: ['name', 'items'] },
+      columnOrders: { items: [], collections: ['name', 'items'], chats: CHAT_DEFAULT_VISIBLE },
     })
 
     // The rule column is not among the chosen ones, so the header must not
