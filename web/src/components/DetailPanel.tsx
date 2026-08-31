@@ -226,6 +226,9 @@ export function DetailPanel() {
           ))}
         </div>
 
+        {/* Only this scrolls. The title and the tabs stay put, so the tab you
+            are in is always visible and always reachable. */}
+        <div className="detail-body">
         {pane === 'info' && (
         <dl className="field-grid">
           <dt>{t('detail.type')}</dt>
@@ -329,29 +332,11 @@ export function DetailPanel() {
         </dl>
         )}
 
-        {pane === 'notes' && (
-          <dl className="field-grid">
-            <ItemNotes itemKey={item.key} />
-          </dl>
-        )}
-
-        {pane === 'conversations' && (
-          <dl className="field-grid">
-            <ItemConversations itemKey={item.key} />
-          </dl>
-        )}
-
-        {pane === 'references' && (
-          <dl className="field-grid">
-            <ItemReferences itemKey={item.key} />
-          </dl>
-        )}
-
-        {pane === 'preview' && (
-          <dl className="field-grid">
-            <ItemCover itemKey={item.key} />
-          </dl>
-        )}
+        {pane === 'notes' && <ItemNotes itemKey={item.key} />}
+        {pane === 'conversations' && <ItemConversations itemKey={item.key} />}
+        {pane === 'references' && <ItemReferences itemKey={item.key} />}
+        {pane === 'preview' && <ItemCover itemKey={item.key} />}
+        </div>
       </div>
     </aside>
   )
@@ -387,27 +372,24 @@ function ItemConversations({ itemKey: selected }: { itemKey: string }) {
   }, [library, itemKey])
 
   return (
-    <>
-      <dt>{t('item.conversations')}</dt>
-      <dd>
-        <div className="chip-row">
-          {found.map((c) => (
-            <button
-              key={c.key}
-              className="chip"
-              onClick={() => void openConversation(c.key)}
-              title={c.title}
-            >
-              {c.title || c.key}
-            </button>
-          ))}
-          {!found.length && <span className="dim">{t('item.conversationsNone')}</span>}
-          <button className="chip" onClick={() => void askAbout(itemKey)}>
-            {t('item.askAboutThis')}
+    <div className="detail-section" data-section="conversations">
+      <div className="chip-row">
+        {found.map((c) => (
+          <button
+            key={c.key}
+            className="chip"
+            onClick={() => void openConversation(c.key)}
+            title={c.title}
+          >
+            {c.title || c.key}
           </button>
-        </div>
-      </dd>
-    </>
+        ))}
+        {!found.length && <span className="dim">{t('item.conversationsNone')}</span>}
+        <button className="chip" onClick={() => void askAbout(itemKey)}>
+          {t('item.askAboutThis')}
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -557,89 +539,86 @@ function ItemReferences({ itemKey: selected }: { itemKey: string }) {
   }
 
   return (
-    <>
-      <dt>{t('detail.references')}</dt>
-      <dd>
-        {cites.length === 0 ? (
-          <div className="chip-row">
-            <span className="dim">{t('detail.referencesNone')}</span>
-            <button className="chip" disabled={fetching} onClick={() => void fetchRefs()}>
-              {fetching ? t('detail.referencesFetching') : t('detail.referencesFetch')}
-            </button>
+    <div className="detail-section" data-section="references">
+      {cites.length === 0 ? (
+        <div className="chip-row">
+          <span className="dim">{t('detail.referencesNone')}</span>
+          <button className="chip" disabled={fetching} onClick={() => void fetchRefs()}>
+            {fetching ? t('detail.referencesFetching') : t('detail.referencesFetch')}
+          </button>
+        </div>
+      ) : (
+        <div className="reference-list">
+          {/* A bibliography is long -- ninety-three references is ordinary --
+              so the panel says what it has and shows a handful, rather than
+              becoming a page of grey text you have to scroll past to reach
+              anything else. */}
+          <div className="reference-head">
+            <span className="dim">
+              {t('detail.referencesHeld', { held: held.length, total: cites.length })}
+            </span>
+            <span className="chip-row">
+              {(['all', 'held', 'missing'] as const).map((f) => (
+                <button
+                  key={f}
+                  className="chip"
+                  data-active={filter === f || undefined}
+                  onClick={() => setFilter(f)}
+                >
+                  {t(`detail.references.${f}`)}
+                </button>
+              ))}
+            </span>
           </div>
-        ) : (
-          <div className="reference-list">
-            {/* A bibliography is long -- ninety-three references is ordinary --
-                so the panel says what it has and shows a handful, rather than
-                becoming a page of grey text you have to scroll past to reach
-                anything else. */}
-            <div className="reference-head">
-              <span className="dim">
-                {t('detail.referencesHeld', { held: held.length, total: cites.length })}
-              </span>
-              <span className="chip-row">
-                {(['all', 'held', 'missing'] as const).map((f) => (
+
+          {capped.map((c) => (
+            <div key={c.position} className="reference-row" title={c.label}>
+              <span className="dim mono">{c.position + 1}</span>
+              {c.key ? (
+                <button className="link" onClick={() => openReader(c.key!)}>
+                  {c.label || c.fingerprint}
+                </button>
+              ) : (
+                <span className="reference-absent">{c.label || c.fingerprint}</span>
+              )}
+              {c.year && <span className="dim">{c.year}</span>}
+              <span className="reference-actions">
+                {/* Held: file it where you are working. Missing: go and get
+                    it. Either way the next thing you would do is one click,
+                    not a copied DOI and a trip to the search box. */}
+                {c.key && collection && (
                   <button
-                    key={f}
-                    className="chip"
-                    data-active={filter === f || undefined}
-                    onClick={() => setFilter(f)}
+                    className="icon-btn"
+                    title={t('detail.referenceFile')}
+                    onClick={() => void file(c)}
                   >
-                    {t(`detail.references.${f}`)}
+                    <Icon.Folder size={11} />
                   </button>
-                ))}
+                )}
+                {!c.key && c.doi && (
+                  <button
+                    className="icon-btn"
+                    title={t('detail.referenceGet')}
+                    disabled={getting.includes(c.doi)}
+                    onClick={() => void get(c)}
+                  >
+                    <Icon.Download size={11} />
+                  </button>
+                )}
               </span>
             </div>
+          ))}
 
-            {capped.map((c) => (
-              <div key={c.position} className="reference-row" title={c.label}>
-                <span className="dim mono">{c.position + 1}</span>
-                {c.key ? (
-                  <button className="link" onClick={() => openReader(c.key!)}>
-                    {c.label || c.fingerprint}
-                  </button>
-                ) : (
-                  <span className="reference-absent">{c.label || c.fingerprint}</span>
-                )}
-                {c.year && <span className="dim">{c.year}</span>}
-                <span className="reference-actions">
-                  {/* Held: file it where you are working. Missing: go and get
-                      it. Either way the next thing you would do is one click,
-                      not a copied DOI and a trip to the search box. */}
-                  {c.key && collection && (
-                    <button
-                      className="icon-btn"
-                      title={t('detail.referenceFile')}
-                      onClick={() => void file(c)}
-                    >
-                      <Icon.Folder size={11} />
-                    </button>
-                  )}
-                  {!c.key && c.doi && (
-                    <button
-                      className="icon-btn"
-                      title={t('detail.referenceGet')}
-                      disabled={getting.includes(c.doi)}
-                      onClick={() => void get(c)}
-                    >
-                      <Icon.Download size={11} />
-                    </button>
-                  )}
-                </span>
-              </div>
-            ))}
-
-            {shown.length > REFERENCE_ROWS && (
-              <button className="chip" onClick={() => setExpanded(!expanded)}>
-                {expanded
-                  ? t('detail.referencesFewer')
-                  : t('detail.referencesMore', { count: shown.length - REFERENCE_ROWS })}
-              </button>
-            )}
-          </div>
-        )}
-      </dd>
-    </>
+          {shown.length > REFERENCE_ROWS && (
+            <button className="chip" onClick={() => setExpanded(!expanded)}>
+              {expanded
+                ? t('detail.referencesFewer')
+                : t('detail.referencesMore', { count: shown.length - REFERENCE_ROWS })}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -677,7 +656,7 @@ function ItemCover({ itemKey: selected }: { itemKey: string }) {
 
   return (
     <button className="cover" onClick={() => openReader(pdf)}>
-      <Thumbnail library={library} attachmentKey={pdf} width={240} />
+      <Thumbnail library={library} attachmentKey={pdf} width={480} />
     </button>
   )
 }
@@ -716,33 +695,30 @@ function ItemNotes({ itemKey: selected }: { itemKey: string }) {
   // notes, so the one place you would go to write your first note was the one
   // place that disappeared until you already had one.
   return (
-    <>
-      <dt>{t('detail.notes')}</dt>
-      <dd>
-        <div className="note-list">
-          {notes.map((note) => {
-            const generated = note.tags.some((tag) => tag.tag === 'summary')
-            return (
-              <button
-                key={note.key}
-                className="note-row"
-                onClick={() => openNote(note.key, plainText(String(note.note ?? '')).slice(0, 40))}
-                title={plainText(String(note.note ?? ''))}
-              >
-                {/* Marked, because a summary the model wrote and a note the
-                    user wrote are different things to trust. */}
-                {generated && <span className="note-badge">{t('detail.noteGenerated')}</span>}
-                <span className="note-text">{plainText(String(note.note ?? ''))}</span>
-              </button>
-            )
-          })}
-          <button className="note-row add" onClick={() => void addNote(selected)}>
-            <Icon.Plus className="glyph" />
-            <span className="note-text">{t('note.add')}</span>
-          </button>
-        </div>
-      </dd>
-    </>
+    <div className="detail-section" data-section="notes">
+      <div className="note-list">
+        {notes.map((note) => {
+          const generated = note.tags.some((tag) => tag.tag === 'summary')
+          return (
+            <button
+              key={note.key}
+              className="note-row"
+              onClick={() => openNote(note.key, plainText(String(note.note ?? '')).slice(0, 40))}
+              title={plainText(String(note.note ?? ''))}
+            >
+              {/* Marked, because a summary the model wrote and a note the
+                  user wrote are different things to trust. */}
+              {generated && <span className="note-badge">{t('detail.noteGenerated')}</span>}
+              <span className="note-text">{plainText(String(note.note ?? ''))}</span>
+            </button>
+          )
+        })}
+        <button className="note-row add" onClick={() => void addNote(selected)}>
+          <Icon.Plus className="glyph" />
+          <span className="note-text">{t('note.add')}</span>
+        </button>
+      </div>
+    </div>
   )
 }
 

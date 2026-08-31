@@ -26,7 +26,6 @@ export function CollectionEditorHost({ target }: { target?: string }) {
 
   return (
     <CollectionEditor
-      title={existing ? t('collection.edit') : t('collection.new')}
       lockKind={!!existing}
       initial={
         existing && {

@@ -5678,3 +5678,40 @@ Twelve existing tests failed on the change, all of them correctly: the content
 they assert is no longer visible by default. They now name the tab they are
 about, which reads better than it did — a test that opened the pane and looked
 for references was quietly relying on there being nowhere else for them to be.
+
+### 3.310 A label beside a tab of the same name
+
+Under the new tabs the detail pane read "Notes" twice: once on the tab and once
+in the label column of the row beneath it, taking a quarter of a narrow column
+to repeat a word already on screen. The same thing in the collection editor,
+whose surface printed the heading its tab already carried.
+
+Three sections lost the label/value frame and became plain full-width blocks,
+and the editor's heading went — with the *tab* now named "New collection" or
+"Edit collection", which the fixed `labelKey` could not distinguish anyway.
+
+**A container that names its contents means the contents should not.** Worth
+looking for wherever a section is moved behind a tab, because the label was
+right until the moment it moved.
+
+### 3.311 The picture was the right size and half the pixels
+
+The cover looked soft because `Thumbnail` treated its `width` as both the size
+on screen and the size to fetch. A 240-wide bitmap drawn at 240 CSS pixels is
+half resolution on any screen made in the last decade. It now asks for the
+first cached width that covers `width × devicePixelRatio`.
+
+Same mistake as §3.302's canvas, one layer up: a number that means "how big it
+looks" being used where "how many pixels" was wanted.
+
+### 3.312 git checkout is not undo
+
+Verifying a test goes red means breaking the implementation and putting it
+back. I put it back with `git checkout`, which restored the *committed* file —
+throwing away everything else I had changed in it that turn. The tell was
+immediate (a type error naming a catalogue entry I had removed), so nothing was
+lost but the time to redo it.
+
+The habit that works is the one used everywhere else in these notes: copy the
+file aside, break it, copy it back. `cp /tmp/x.bak` knows nothing about commits
+and cannot reach past the change being tested.

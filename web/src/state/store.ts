@@ -679,7 +679,9 @@ export const useStore = create<State>((set, get, store) => ({
     get().openTab({
       id: tabId('collection-edit', target),
       kind: 'collection-edit',
-      title: '',
+      // Named here rather than in the surface: the tab is the only place it
+      // needs saying, and "New collection" is not "Edit collection".
+      title: t(key ? 'collection.edit' : 'collection.new'),
       target,
     })
   },

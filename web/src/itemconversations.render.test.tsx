@@ -143,6 +143,30 @@ async function openTab(label: RegExp) {
 }
 
 describe('the detail pane\'s tabs', () => {
+  it('scrolls the content, not the title and tabs', async () => {
+    await render()
+
+    // The pane used to scroll as a whole, so a long abstract carried the tab
+    // strip off the top and you could not tell which tab you were in, let
+    // alone reach another.
+    const body = container.querySelector('.detail-body')
+    const tabs = container.querySelector('.detail-tabs')
+    expect(body, 'no scrolling body').toBeTruthy()
+    expect(tabs, 'no tab strip').toBeTruthy()
+    expect(body?.contains(tabs ?? null), 'the tabs scroll with the content').toBe(false)
+  })
+
+  it('does not label a section with the name of its own tab', async () => {
+    await render()
+
+    // "Notes" printed beside the Notes tab is the same word twice, taking a
+    // quarter of a narrow column to say nothing.
+    await openTab(/Notes|笔记/)
+    const section = container.querySelector('.detail-section[data-section="notes"]')
+    expect(section, 'the notes section still uses the label/value frame').toBeTruthy()
+    expect(section?.closest('.field-grid'), 'still inside the two-column grid').toBeNull()
+  })
+
   it('shows one section at a time', async () => {
     await render()
 

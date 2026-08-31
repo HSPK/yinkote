@@ -451,7 +451,6 @@ export const enUS: Record<MessageKey, string> = {
   'summary.working': 'Writing…',
   'summary.needsModel': 'No model configured',
   'detail.thumbnailAlt': 'Page {page}',
-  'detail.notes': 'Notes',
   'reader.loading': 'Loading…',
   'reader.colour': 'Highlight colour',
   'reader.zoomIn': 'Zoom in',

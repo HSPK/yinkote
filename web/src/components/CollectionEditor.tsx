@@ -35,7 +35,6 @@ export interface CollectionValues {
 }
 
 export interface SmartEditorProps {
-  title: string;
   initial?: Partial<CollectionValues>;
   /** A saved collection cannot change kind: its contents mean different things. */
   lockKind?: boolean;
@@ -54,7 +53,6 @@ export interface SmartEditorProps {
  * trusts.
  */
 export function CollectionEditor({
-  title,
   initial,
   lockKind,
   onCancel,
@@ -116,7 +114,9 @@ export function CollectionEditor({
 
   return (
     <div className="pane main surface">
-      <div className="surface-head">{title}</div>
+      {/* No heading: the tab is already called "Edit collection", and the
+          surface saying it again is the same words twice at the top of a
+          column that has none to spare. */}
       <div className="page narrow rule-editor">
         <Row label={t("dialog.name")}>
           <Input

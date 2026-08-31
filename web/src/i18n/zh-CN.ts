@@ -448,7 +448,6 @@ export const zhCN = {
   'summary.working': '生成中…',
   'summary.needsModel': '未配置模型，无法生成摘要',
   'detail.thumbnailAlt': '第 {page} 页',
-  'detail.notes': '笔记',
   'reader.loading': '加载中…',
   'reader.colour': '高亮颜色',
   'reader.zoomIn': '放大',
