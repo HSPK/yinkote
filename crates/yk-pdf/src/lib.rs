@@ -10,6 +10,7 @@
 //! decides whether to fall back to the abstract.
 
 pub mod pipeline;
+pub mod references;
 
 pub use pipeline::{External, Mode, Pipeline};
 

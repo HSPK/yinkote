@@ -504,7 +504,12 @@ button { cursor: pointer; }
 /* A section that stands alone under a tab which already names it: no label
    column, and no gap where one would have been. "Notes" printed beside the
    Notes tab was the same word twice, taking a quarter of the width. */
-.detail-section { display: flex; flex-direction: column; min-width: 0; padding: 8px 12px; }
+.detail-section { display: flex; flex-direction: column; min-width: 0; padding: 8px 12px; gap: 6px; }
+/* Chips in these sections sit under prose, not beside a label, so they need
+   their own breathing room rather than the tight spacing of a field row. */
+.detail-section .chip-row { gap: 6px; row-gap: 6px; }
+.detail-section .chip { padding: 1px 7px; }
+.detail-section .note-row { padding: 3px 0; gap: 7px; }
 .detail-section .cover { margin: 0; }
 
 .detail-title {
@@ -2684,8 +2689,12 @@ option {
 .reference-actions {
   flex: none;
   display: flex;
-  gap: 1px;
-  margin-left: auto;
+  gap: 2px;
+  /* Room between the last word and the first button. They were touching, so a
+     long title ran straight into a control and the click target for "fetch
+     this" began where the text ended. */
+  margin-left: 8px;
+  padding-left: 4px;
   opacity: 0;
   transition: opacity 90ms linear;
 }
@@ -2694,8 +2703,9 @@ option {
 .reference-row {
   display: flex;
   align-items: baseline;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
+  padding: 1px 0;
   font-size: 11px;
 }
 .reference-row .mono { flex: none; width: 18px; text-align: right; font-size: 10px; }
@@ -2873,7 +2883,7 @@ option {
   overflow: hidden;
   grid-column: 1 / -1;
 }
-.cover:hover { border-color: var(--accent); }
+/* No hover state: it is a picture now, not a control. */
 .cover img { display: block; width: 100%; height: auto; }
 
 /* A rail of page thumbnails: the fastest way to find a figure in a long paper.

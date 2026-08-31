@@ -277,15 +277,7 @@ async fn fetch(
     let key = key(&k)?;
     let item = app.store().items.get(lib, &key).await?;
 
-    let doi = item.field("DOI").map(str::trim).filter(|d| !d.is_empty()).ok_or_else(|| {
-        Error::invalid("only a paper with a DOI has a reference list to fetch")
-    })?;
-
-    let found = yk_scrape::resolver::Crossref::default().references(doi).await?;
-
-    // Stored even when nothing resolves to an item today: the whole value of a
-    // reference list is that it names what the library is missing.
-    let drafts: Vec<CitationDraft> = found.iter().map(to_draft).collect();
+    let (drafts, source) = gather(&app, lib, &item).await?;
 
     let stored = app.store().relations.set_citations(lib, &key, drafts).await?;
     let cites = app.store().relations.cites(lib, &key).await?;
@@ -293,6 +285,90 @@ async fn fetch(
     Ok(Json(json!({
         "stored": stored,
         "resolved": cites.iter().filter(|c| c.key.is_some()).count(),
+        // Which of the three answered, because they are not equally reliable:
+        // a publisher's deposit is authoritative, a page read by a machine is
+        // a best effort, and a reader deserves to know which they are looking
+        // at.
+        "source": source,
         "cites": cites,
     })))
+}
+
+/// Where a paper's reference list comes from, in order of how much it can be
+/// trusted.
+///
+/// 1. **Crossref** — what the publisher deposited. Authoritative, and absent
+///    for roughly half the literature: preprints have no publisher, and plenty
+///    of publishers deposit nothing.
+/// 2. **Semantic Scholar** — indexes arXiv directly, so it answers for the
+///    preprints Crossref cannot. Asked with the DOI when there is one and the
+///    arXiv id otherwise.
+/// 3. **The PDF itself** — the references are printed on the page whatever
+///    anybody deposited. Read conservatively: a wrong reference names a work
+///    the author never cited and is indistinguishable from a real one
+///    afterwards.
+///
+/// Each is tried only when the one before it returned nothing, so the cheapest
+/// and most reliable answer wins and the file is only read when it has to be.
+async fn gather(
+    app: &App,
+    lib: i64,
+    item: &yk_core::model::Item,
+) -> Result<(Vec<CitationDraft>, &'static str), Error> {
+    let doi = item.field("DOI").map(str::trim).filter(|d| !d.is_empty());
+    let arxiv = item
+        .field("arXiv")
+        .or_else(|| item.field("arxiv"))
+        .map(str::trim)
+        .filter(|a| !a.is_empty());
+
+    if let Some(doi) = doi {
+        let found = yk_scrape::resolver::Crossref::default().references(doi).await?;
+        if !found.is_empty() {
+            return Ok((found.iter().map(to_draft).collect(), "crossref"));
+        }
+    }
+
+    if let Some(id) = doi.map(str::to_string).or_else(|| arxiv.map(|a| format!("arXiv:{a}"))) {
+        let found = yk_scrape::resolver::SemanticScholar::default().references(&id).await?;
+        if !found.is_empty() {
+            return Ok((found.iter().map(to_draft).collect(), "semanticscholar"));
+        }
+    }
+
+    if let Some(drafts) = from_the_paper(app, lib, item).await {
+        if !drafts.is_empty() {
+            return Ok((drafts, "pdf"));
+        }
+    }
+
+    if doi.is_none() && arxiv.is_none() {
+        return Err(Error::invalid(
+            "this item has no DOI, no arXiv id and no readable PDF to take a reference list from",
+        ));
+    }
+    Ok((Vec::new(), "none"))
+}
+
+/// Read the reference list off the paper's own pages.
+async fn from_the_paper(app: &App, lib: i64, item: &yk_core::model::Item) -> Option<Vec<CitationDraft>> {
+    let text = crate::paper::read(app, lib, item).await.text?;
+    let printed = yk_pdf::references::references(&text);
+    Some(
+        printed
+            .into_iter()
+            .map(|r| CitationDraft {
+                // Only what is printed. A fingerprint is claimed when the entry
+                // carries a DOI, and never guessed from the words.
+                fingerprint: r
+                    .doi
+                    .as_deref()
+                    .map(|d| format!("doi:{}", yk_core::text::normalize(d)))
+                    .unwrap_or_default(),
+                doi: r.doi.unwrap_or_default(),
+                label: r.text,
+                year: r.year,
+            })
+            .collect(),
+    )
 }

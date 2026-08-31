@@ -22,7 +22,7 @@ import { THUMB_WIDTHS, thumbnailFor, type ThumbWidth } from '../lib/thumbnails'
 function cacheWidth(width: ThumbWidth): ThumbWidth {
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
   const wanted = width * dpr
-  return THUMB_WIDTHS.find((w) => w >= wanted) ?? 480
+  return THUMB_WIDTHS.find((w) => w >= wanted) ?? 960
 }
 
 export function Thumbnail({

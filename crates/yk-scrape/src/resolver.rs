@@ -605,3 +605,121 @@ mod reference_tests {
         assert!(parse_references(&serde_json::json!({ "message": {} })).is_empty());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Semantic Scholar: reference lists for work Crossref does not carry
+// ---------------------------------------------------------------------------
+
+/// Reference lists for preprints.
+///
+/// Crossref only knows what a *publisher* deposited, so an arXiv preprint —
+/// which is most of what a working library holds before publication — has no
+/// reference list there at all. Semantic Scholar indexes arXiv directly and
+/// answers for a DOI or an arXiv id in one request, with titles, years and
+/// identifiers, which is exactly the shape already stored.
+#[derive(Clone)]
+pub struct SemanticScholar {
+    http: reqwest::Client,
+}
+
+impl Default for SemanticScholar {
+    fn default() -> Self {
+        Self { http: client() }
+    }
+}
+
+impl SemanticScholar {
+    /// The works a paper cites, in the order it cites them.
+    ///
+    /// `id` is either a bare DOI or `arXiv:2103.00020` — the service takes
+    /// both, so the caller does not have to know which kind of paper it holds.
+    ///
+    /// A version suffix is dropped. Records carry `1706.03762v7`, and asking
+    /// for that answers "Paper with id arXiv:1706.03762v7 not found" — the
+    /// service indexes the work, not the revision, so the whole source
+    /// silently returned nothing for every arXiv paper in the library.
+    pub async fn references(&self, id: &str) -> Result<Vec<Reference>> {
+        let id = &strip_version(id);
+        let url = format!(
+            "https://api.semanticscholar.org/graph/v1/paper/{}/references\
+             ?fields=title,year,externalIds&limit=500",
+            urlencoding(id)
+        );
+        let Some(response) = get(&self.http, &url).await? else { return Ok(Vec::new()) };
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| Error::Unavailable(format!("semanticscholar: {e}")))?;
+        Ok(parse_s2_references(&body))
+    }
+}
+
+/// `arXiv:1706.03762v7` → `arXiv:1706.03762`; anything else unchanged.
+fn strip_version(id: &str) -> String {
+    let Some(rest) = id.strip_prefix("arXiv:") else { return id.to_string() };
+    match rest.rsplit_once('v') {
+        Some((base, version)) if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) => {
+            format!("arXiv:{base}")
+        }
+        _ => id.to_string(),
+    }
+}
+
+/// Pull the reference list out of a Semantic Scholar response.
+pub fn parse_s2_references(body: &serde_json::Value) -> Vec<Reference> {
+    let Some(list) = body.get("data").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+
+    list.iter()
+        .filter_map(|entry| entry.get("citedPaper"))
+        .map(|paper| {
+            let text = |key: &str| {
+                paper.get(key).and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty())
+            };
+            Reference {
+                doi: paper
+                    .pointer("/externalIds/DOI")
+                    .and_then(|v| v.as_str())
+                    .map(|d| d.trim().to_lowercase()),
+                title: text("title").map(str::to_string),
+                year: paper.get("year").and_then(serde_json::Value::as_i64),
+                unstructured: None,
+            }
+        })
+        .filter(|r| r.doi.is_some() || r.title.is_some())
+        .collect()
+}
+
+#[cfg(test)]
+mod s2_tests {
+    use super::*;
+
+    /// Records carry the revision; the service indexes the work.
+    #[test]
+    fn drops_an_arxiv_version_suffix() {
+        assert_eq!(strip_version("arXiv:1706.03762v7"), "arXiv:1706.03762");
+        assert_eq!(strip_version("arXiv:1706.03762"), "arXiv:1706.03762");
+        // A DOI is passed through untouched, suffix-looking or not.
+        assert_eq!(strip_version("10.1000/abcv2"), "10.1000/abcv2");
+        // `v` followed by anything but digits is part of the id.
+        assert_eq!(strip_version("arXiv:math/0501vx"), "arXiv:math/0501vx");
+    }
+
+    #[test]
+    fn reads_a_reference_list() {
+        let body = serde_json::json!({
+            "data": [
+                { "citedPaper": { "title": "A cited work", "year": 2017,
+                                  "externalIds": { "DOI": "10.1000/ABC" } } },
+                { "citedPaper": { "title": "No identifier here", "year": null } },
+                { "citedPaper": { "title": null, "year": 1999 } },
+            ]
+        });
+        let found = parse_s2_references(&body);
+        assert_eq!(found.len(), 2, "an entry with no title and no doi is not a reference");
+        assert_eq!(found[0].doi.as_deref(), Some("10.1000/abc"), "the doi was not normalised");
+        assert_eq!(found[0].year, Some(2017));
+        assert_eq!(found[1].title.as_deref(), Some("No identifier here"));
+    }
+}

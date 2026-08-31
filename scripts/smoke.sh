@@ -135,8 +135,28 @@ check "library id"       "$LIB"
 # appearance" per run for 300-odd runs, while "left tidy" passed every time —
 # it asks /duplicates, which only ever sees items.
 COLLECTIONS_BEFORE=$(mktemp)
-trap 'rm -f "$COLLECTIONS_BEFORE"' EXIT
+ITEMS_BEFORE=$(mktemp)
+trap 'rm -f "$COLLECTIONS_BEFORE" "$ITEMS_BEFORE"' EXIT
 j "$BASE/libraries/$LIB/collections" | jq -r '.[].key' | sort > "$COLLECTIONS_BEFORE"
+
+# And the same for items, for the same reason. The tag-and-title list below
+# catches the fixtures somebody remembered to add to it; everything else --
+# "Alpha", "Row with a PDF", "Queue smoke" -- stayed, one copy per run. The
+# pile check did not notice because it only reports groups of four or more, so
+# thirty one-off fixtures a run were invisible until they became duplicates.
+snapshot_items() {
+  local out="$1" offset=0 page
+  : > "$out"
+  while :; do
+    page=$(j "$BASE/libraries/$LIB/items?limit=500&offset=$offset&trash=include" \
+             | jq -r '.items[].key')
+    [[ -z "$page" ]] && break
+    printf '%s\n' "$page" >> "$out"
+    offset=$((offset + 500))
+  done
+  sort -o "$out" "$out"
+}
+snapshot_items "$ITEMS_BEFORE"
 
 echo "▸ collections"
 COLL=$(j -X POST "$BASE/libraries/$LIB/collections" -d '{"name":"Smoke Test"}' | jq -r .key)
@@ -1739,6 +1759,24 @@ for tag in $(j "$BASE/libraries/$LIB/tags?q=graph-smoke&limit=500" | jq -r '.[].
 done
 printf '  removed %s fixture items and %s spent tags\n' "$GONE" "$LEFTOVER"
 
+# Items the run created: everything not in the opening snapshot. Parents only
+# -- deleting one takes its notes and attachments with it, and asking to delete
+# a child whose parent has gone is a request about something that no longer
+# exists.
+ITEMS_NOW=$(mktemp)
+snapshot_items "$ITEMS_NOW"
+STRAYS=$(comm -13 "$ITEMS_BEFORE" "$ITEMS_NOW" | head -2000)
+if [[ -n "$STRAYS" ]]; then
+  STRAY_COUNT=$(printf '%s\n' "$STRAYS" | wc -l | tr -d ' ')
+  while read -r batch; do
+    [[ -z "$batch" ]] && continue
+    j -X POST "$BASE/libraries/$LIB/items/delete" \
+      -d "$(printf '%s' "$batch" | tr ' ' '\n' | jq -R . | jq -sc '{keys: .}')" > /dev/null 2>&1 || true
+  done < <(printf '%s\n' "$STRAYS" | xargs -n 100 | sed 's/$//')
+  printf '  removed %s stray items\n' "$STRAY_COUNT"
+fi
+rm -f "$ITEMS_NOW"
+
 # Collections the run created: everything not in the opening snapshot.
 COLL_GONE=0
 for key in $(j "$BASE/libraries/$LIB/collections" | jq -r '.[].key' | sort \
@@ -1755,6 +1793,18 @@ COLL_NOW=$(j "$BASE/libraries/$LIB/collections" | jq -r 'length')
 COLL_THEN=$(wc -l < "$COLLECTIONS_BEFORE" | tr -d ' ')
 check "collections tidied" \
   "$([[ "$COLL_NOW" == "$COLL_THEN" ]] && echo "$COLL_NOW/$COLL_THEN")"
+
+# The library is no *larger* than it was. Not equal: a run also clears out
+# fixtures earlier runs left behind, so it legitimately ends smaller than it
+# started -- this one went from 160 to 88 the first time it ran. Growth is the
+# failure; shrinking is the point.
+ITEMS_AFTER=$(j "$BASE/libraries/$LIB/items?limit=1&trash=include" | jq -r '.total')
+ITEMS_THEN=$(wc -l < "$ITEMS_BEFORE" | tr -d ' ')
+check "items tidied" \
+  "$([[ "$ITEMS_AFTER" -le "$ITEMS_THEN" ]] && echo "$ITEMS_AFTER/$ITEMS_THEN")"
+if [[ "$ITEMS_AFTER" -gt "$ITEMS_THEN" ]]; then
+  printf '    library grew from %s to %s\n' "$ITEMS_THEN" "$ITEMS_AFTER"
+fi
 
 # And then check the tidying actually worked.
 #

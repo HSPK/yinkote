@@ -14,7 +14,7 @@
 import { api } from '../api/client'
 
 /** Widths the server will cache. Anything else is refused. */
-export const THUMB_WIDTHS = [96, 240, 480] as const
+export const THUMB_WIDTHS = [96, 240, 480, 960] as const
 export type ThumbWidth = (typeof THUMB_WIDTHS)[number]
 
 /**

@@ -631,7 +631,6 @@ function ItemReferences({ itemKey: selected }: { itemKey: string }) {
 function ItemCover({ itemKey: selected }: { itemKey: string }) {
   const itemKey = useDebounced(selected)
   const library = useStore((s) => s.library)
-  const openReader = useStore((s) => s.openReader)
   const [pdf, setPdf] = useState<string | null>(null)
 
   useEffect(() => {
@@ -654,10 +653,13 @@ function ItemCover({ itemKey: selected }: { itemKey: string }) {
 
   if (!pdf) return null
 
+  // Not a button. It is a picture of the first page, and clicking it opened
+  // the reader — which is what double-clicking the row does, so the pane had a
+  // large invisible control in it doing something the surface already offers.
   return (
-    <button className="cover" onClick={() => openReader(pdf)}>
+    <div className="cover">
       <Thumbnail library={library} attachmentKey={pdf} width={480} />
-    </button>
+    </div>
   )
 }
 

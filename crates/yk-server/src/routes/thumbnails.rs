@@ -42,12 +42,18 @@ use crate::state::App;
 /// A fixed set rather than a range: every distinct width is a separate file on
 /// disk, and a range lets one caller fill the cache with 240px, 241px, 242px…
 /// These are the sizes the workbench actually draws — a row glyph, a card
-/// cover, and a reader sidebar page.
-const WIDTHS: [u32; 3] = [96, 240, 480];
+/// cover, a reader sidebar page, and the detail pane's preview.
+///
+/// 960 is there because a width is a size *on screen*: the preview fills a
+/// pane some 380 points across, which is 760 device pixels on the ordinary
+/// two-times display, and 480 was being stretched over it. A picture at half
+/// the pixels it is drawn at looks exactly like a bad rasteriser.
+const WIDTHS: [u32; 4] = [96, 240, 480, 960];
 
 /// Generous for a thumbnail, small enough that the cache cannot be used as
-/// storage. A 480px page as PNG is tens of kilobytes.
-const MAX_BYTES: usize = 2 * 1024 * 1024;
+/// storage. A 480px page as PNG is tens of kilobytes; a 960px one a few
+/// hundred, which is still nothing beside the PDF it came from.
+const MAX_BYTES: usize = 4 * 1024 * 1024;
 
 pub fn router() -> Router<App> {
     Router::new()

@@ -5715,3 +5715,50 @@ lost but the time to redo it.
 The habit that works is the one used everywhere else in these notes: copy the
 file aside, break it, copy it back. `cp /tmp/x.bak` knows nothing about commits
 and cannot reach past the change being tested.
+
+### 3.313 A parser for two languages, tested in one
+
+The PDF reference reader panicked in production on its first real paper:
+`end byte index 21 is not a char boundary; it is inside 'Ç'`. It took a worker
+thread with it and the server stopped answering.
+
+The year scan sliced `&entry[i..i + 4]` at character offsets, which is only
+valid while every character is one byte. The module lists 参考文献 and 引用文献
+among the headings it recognises — non-ASCII text is not an edge case here, it
+is the second language the thing was written for — and every one of its six
+tests was ASCII. Six green tests said nothing about the case it was built for.
+
+`doi_in` had the same shape: an offset found in a lowercased copy used to index
+the original, and lowering can change a string's length.
+
+**When a feature names a second alphabet, a fixture in that alphabet is part of
+the feature.** The test now written reproduces the exact panic against the old
+implementation.
+
+### 3.314 A fallback nobody could reach
+
+The new arXiv source returned nothing for every arXiv paper in the library, and
+the run looked fine because the PDF fallback answered instead — 38 references
+read off the page, which is a worse answer arriving quietly.
+
+Records carry `1706.03762v7`; Semantic Scholar indexes the work, not the
+revision, and answers `Paper with id arXiv:1706.03762v7 not found`. One
+`strip_version` later the same paper returns 41 references with titles and
+DOIs.
+
+**A chain of fallbacks hides the failure of every link but the last.** The
+response now says which source answered, because "we got references" and "we
+got the references the publisher deposited" are different claims and the reader
+is entitled to know which one they have.
+
+### 3.315 Fixtures below the threshold
+
+`scripts/smoke.sh` left about thirty items per run: the tag-and-title list
+caught what somebody remembered to add to it, and the pile check only reports
+groups of four or more, so one-off fixtures accumulated invisibly until they
+became duplicates. Exactly §3.295 again, in the table rather than the shelves.
+
+Same fix: snapshot the keys before the run, delete what is not in it after.
+The invariant is `<=`, not `==` — a run also clears out what earlier runs left,
+so it legitimately ends smaller than it started (160 to 88 the first time).
+Growth is the failure; shrinking is the point.
