@@ -5762,3 +5762,33 @@ Same fix: snapshot the keys before the run, delete what is not in it after.
 The invariant is `<=`, not `==` — a run also clears out what earlier runs left,
 so it legitimately ends smaller than it started (160 to 88 the first time).
 Growth is the failure; shrinking is the point.
+
+### 3.316 The first CI run is a second machine, and it disagrees
+
+Pushing to GitHub ran the four gates somewhere other than this laptop for the
+first time, and three things failed that had never failed here. None was a
+flake; each was an assumption this machine happened to satisfy.
+
+**`navigator is not defined`.** `detectLocale`'s default argument reads
+`navigator.languages` at module load, and a store built at import time calls
+it. Node 21 added a global `navigator`; this machine runs Node 22 and CI pins
+Node 20. A module that only loads in a browser cannot be tested anywhere else,
+and the guard costs one `typeof`.
+
+**A timing test that raced the machine.** `writing_still_works_while_the_index_
+is_rebuilt` did twenty-five writes and required fifteen to meet a running
+rebuild. On a slower runner each write costs 45ms, so the loop *outran* the
+rebuild and only fourteen overlapped: the test failed for being on modest
+hardware, which is the reverse of what it checks. The loop now follows the
+rebuild — write while it runs, stop when it stops — so a slower machine
+produces more overlap rather than less.
+
+**A check that needed a fixture the library did not have.** Covered in the
+commit: "search reaches kids" failed on an empty library while its sibling
+passed *vacuously*, both from the same missing child.
+
+The general point: **every suite encodes the machine it was written on.** Test
+counts, timings, runtime versions and library contents are all assumptions, and
+they are invisible until something else runs them. The cheapest way to find
+them is to run somewhere else once, early — which is an argument for setting up
+CI before it feels necessary rather than after.

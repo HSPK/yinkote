@@ -31,8 +31,20 @@ export function format(template: string, vars?: Vars): string {
   )
 }
 
-/** Pick the closest supported locale for a browser language tag. */
-export function detectLocale(languages: readonly string[] = navigator.languages ?? []): Locale {
+/** Pick the closest supported locale for a browser language tag.
+ *
+ *  The default reads `navigator`, which does not exist outside a browser —
+ *  and this module is imported by tests that run in Node, where the store it
+ *  builds at import time called this. Node 21 added a global `navigator`, so
+ *  it worked on a new enough runtime and failed on Node 20, which is what CI
+ *  pins. Guarded rather than assumed: a module that only loads in a browser
+ *  is one that cannot be tested anywhere else.
+ */
+function browserLanguages(): readonly string[] {
+  return typeof navigator === 'undefined' ? [] : (navigator.languages ?? [])
+}
+
+export function detectLocale(languages: readonly string[] = browserLanguages()): Locale {
   for (const tag of languages) {
     const lower = tag.toLowerCase()
     if (lower.startsWith('zh')) return 'zh-CN'

@@ -1223,12 +1223,23 @@ async fn writing_still_works_while_the_index_is_rebuilt() {
     let mut written = 0;
     let mut overlapped = 0;
     let mut slowest = std::time::Duration::ZERO;
-    for i in 0..25 {
+    // Writes follow the rebuild rather than racing it: keep going while it
+    // runs, up to a bound that stops a stuck job hanging the suite.
+    //
+    // A fixed count of 25 raced it, and which won depended on the machine. On
+    // a slow runner each write costs 45ms, so twenty-five of them outran the
+    // rebuild and only 14 overlapped — the test failed for being on modest
+    // hardware, which is the opposite of what it is checking.
+    for i in 0..400 {
         // Whether the rebuild was still going *for this write*. Counted rather
         // than assumed: a test where the job finishes before the first write is
         // a test of nothing, and it would pass for ever.
-        if c.get(&format!("/tasks/{task}")).await["phase"] == "running" {
+        let running = c.get(&format!("/tasks/{task}")).await["phase"] == "running";
+        if running {
             overlapped += 1;
+        } else if written >= 25 {
+            // Done, and enough writes to say something about them.
+            break;
         }
         let began = std::time::Instant::now();
         let (status, body) = c
@@ -1245,7 +1256,7 @@ async fn writing_still_works_while_the_index_is_rebuilt() {
         written += 1;
         tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     }
-    assert_eq!(written, 25);
+    assert!(written >= 25, "only {written} writes were made");
     // Printed rather than asserted: the separation between a healthy rebuild
     // and a broken one is tens of milliseconds at a scale a test can reach
     // (69ms against 106ms when the index was cleared in one transaction), which
@@ -1257,7 +1268,9 @@ async fn writing_still_works_while_the_index_is_rebuilt() {
     // The real guard. Too few overlaps means one of two things, and neither is
     // the property holding: the rebuild finished before the writes arrived, or
     // the writes were blocked long enough that it finished while they queued.
-    // Reintroducing the one-transaction clear drops this from 25 to 9.
+    // Reintroducing the one-transaction clear drops this from 25 to 9 — that
+    // is a count of writes that *met* the rebuild, and blocking cuts it however
+    // long the loop is willing to run.
     assert!(
         overlapped >= 15,
         "only {overlapped} of 25 writes met a running rebuild — either it ended \
