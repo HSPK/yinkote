@@ -1,258 +1,358 @@
-# Yinkote（引可特）
+# Yinkote
 
-> 一个**本地优先（local-first）、Web 优先**的开源文献管理工具，Zotero 的现代化网页版替代。
+**A local-first reference manager you run yourself, and use in a browser.**
 
-用户在自己的电脑（或 NAS / 服务器）上安装并启动 Yinkote 后台服务，之后：
+[中文](README.zh-CN.md) · [Documentation](docs/) · AGPL-3.0-or-later
 
-- **所有文献管理操作都在浏览器里完成**；
-- **Word / WPS 插件**、**浏览器扩展**都通过同一套本地 **API Server** 与后台通信；
-- 数据 100% 存在本地（SQLite + 附件目录），可选加密同步到自建 WebDAV / S3 / 私有服务器。
+Yinkote is one binary. You run it on your own machine, open a browser, and your
+library is there. Nothing is uploaded, no account is created, and the program
+keeps working when the network does not.
+
+It is a working alternative to Zotero for people who would rather their
+literature lived in a folder they can see, in formats they can read, on a
+machine they control.
+
+```
+┌─ your machine ────────────────────────────────┐
+│  yinkote  ──►  SQLite + your PDFs on disk     │
+│     ▲                                          │
+│     │  HTTP + WebSocket, on 127.0.0.1          │
+│     ├── the workbench, in your browser         │
+│     ├── the Word add-in                        │
+│     └── the browser extension                  │
+└────────────────────────────────────────────────┘
+```
+
+> **Status: v0.1, early.** The library format is stable and the tests are
+> thorough — 903 backend tests, 627 in the workbench, and a 281-check smoke run
+> against a live server — but this has not yet been used by many people on many
+> machines. Keep a backup, as you would with anything holding years of reading.
 
 ---
 
-## 快速开始
+## Install
+
+Download the binary for your platform, make it executable, and run it.
 
 ```bash
-# 1. 构建（Rust 1.85+ / Node 20+）
-cargo build --release -p yk-server
-(cd web && npm install && npm run build)
-
-# 2. 启动
-./target/release/yinkote --web-dir web/dist --plugin-dir plugins
-
-# 3. 打开 http://127.0.0.1:23130
+# macOS / Linux
+chmod +x yinkote
+./yinkote
 ```
 
-常用参数：
+```powershell
+# Windows
+.\yinkote.exe
+```
 
-| 参数 | 说明 |
+Then open **<http://127.0.0.1:23130>**.
+
+That is the whole installation. There is no installer, no runtime to install
+first, and no configuration file to write. The first run creates a data
+directory and starts serving.
+
+| Platform | File |
 | --- | --- |
-| `-p, --port <PORT>` | 监听端口，默认 `23130` |
-| `--host <HOST>` | 绑定地址，默认 `127.0.0.1`（仅本机） |
-| `--data-dir <DIR>` | 数据目录，默认平台标准位置 |
-| `--web-dir <DIR>` | 工作台静态资源目录 |
-| `--plugin-dir <DIR>` | 额外插件目录（可重复） |
+| Linux (x86-64) | `yinkote-x86_64-unknown-linux-gnu` |
+| Linux (ARM64) | `yinkote-aarch64-unknown-linux-gnu` |
+| macOS (Apple silicon) | `yinkote-aarch64-apple-darwin` |
+| macOS (Intel) | `yinkote-x86_64-apple-darwin` |
+| Windows (x86-64) | `yinkote-x86_64-pc-windows-msvc.exe` |
 
-环境变量：`YK_DATA_DIR` `YK_HOST` `YK_PORT` `YK_WEB_DIR` `YK_API_KEY` `YK_LOG`
-`YK_EMBED_ENDPOINT` `YK_EMBED_MODEL` `YK_EMBED_API_KEY` `YK_EMBED_DIM`
+**Why one file.** The workbench is compiled into the binary, SQLite is
+statically linked, and the only dynamic dependencies are the system C runtime.
+A 20 MB download is the entire program.
 
-### 开发
+### Keep it running
 
 ```bash
-cargo run -p yk-server -- --data-dir ./.dev-data       # 后端
-(cd web && npm run dev)                                # 前端 5273 端口，自动代理 /api
-
-cargo test --workspace                                 # 156 个后端测试
-cargo clippy --workspace --all-targets -- -D warnings
-(cd web && npm test)                                   # 56 个前端测试
-bash scripts/smoke.sh http://127.0.0.1:23130           # 对着运行中的库跑冒烟
-bash scripts/fresh.sh                                  # 对着一个全新的空库跑同一套
-node scripts/bench.mjs http://127.0.0.1:23130 100000   # 10 万条目基准
-```
-
----
-
-## 已实现（v0.1）
-
-| 领域 | 能力 |
-| --- | --- |
-| **条目管理** | schema 驱动的 19 种文献类型、批量写入（逐条隔离失败）、乐观锁、软删除 / 回收站 / 永久删除 + 墓碑 |
-| **组织** | 无限层级收藏夹（防环）、标签（含自动标签、合并重命名）、分面统计 |
-| **搜索** | 关键词 (BM25) · 模糊 (三元组 + 编辑距离) · 语义 (向量) · 标签/字段过滤，四路 **RRF 融合**；查询语言 `tag: type: author: year:2020..2024 -tag:x "精确短语"`；中文原生可搜 |
-| **插件系统** | 清单发现、能力/权限模型、进程 JSON-RPC 2.0 运行时、双向宿主回调、钩子总线、超时/崩溃自愈/热重载/停用记忆 |
-| **实时** | WebSocket 变更推送，前端增量刷新 |
-| **界面** | 工业风格三栏工作台，虚拟滚动、命令面板 (⌘K)、键盘优先 |
-| **运维** | 版本化增量同步基础、WAL 检查点、索引重建、统计面板 |
-
-## 性能（10 万条目，单机 release 构建）
-
-| 操作 | p50 | p95 |
-| --- | --- | --- |
-| 列表首页 | 8.1 ms | 10.1 ms |
-| 按标题排序 | 8.1 ms | 8.7 ms |
-| 关键词搜索 | 11.5 ms | 12.3 ms |
-| 中文关键词 | 33.7 ms | 36.1 ms |
-| 模糊搜索（含错拼） | 5.7 ms | 6.3 ms |
-| 语义搜索 | 6.4 ms | 9.1 ms |
-| 标签筛选 | 22.8 ms | 24.6 ms |
-| 标签分面（缓存命中） | 1.9 ms | 2.4 ms |
-| 混合搜索 | 35.8 ms | 37.5 ms |
-| 单条写入 | 3.0 ms | 19.7 ms |
-| 批量写入吞吐 | — | ~3000 条/秒 |
-
-10 万条目全量向量化后常驻内存约 100 MB（256 维 × 4 字节）。
-
----
-
-## 架构
-
-```
-crates/
-├─ yk-core     领域模型、端口 (trait)、错误、事件、插件契约、条目 schema
-├─ yk-store    SQLite 适配器：仓储、迁移、FTS/三元组/向量队列的事务内维护
-├─ yk-search   混合检索：BM25 + 模糊 + 向量 + RRF 融合，嵌入提供方抽象
-├─ yk-plugin   插件运行时：清单发现、进程 JSON-RPC、钩子总线、生命周期
-└─ yk-server   HTTP/WS 接口、宿主回调 API、后台任务、工作台托管
-web/           React + TypeScript 工作台
-plugins/       示例插件（见 plugins/README.md）
-```
-
-依赖方向严格向内：`yk-server → yk-{store,search,plugin} → yk-core`。
-所有跨层协作都经由 `yk-core::ports` 中的 trait，因此检索引擎、插件运行时、
-嵌入提供方都可以整体替换而不触碰调用方。
-
-### 几个关键设计
-
-- **单一写入路径维护派生数据**：FTS5、三元组索引、嵌入队列由存储层在**同一个事务**里更新，
-  索引不可能与数据漂移。
-- **`BEGIN IMMEDIATE`**：延迟事务在并发写入下无法升级锁，SQLite 会立即返回
-  `SQLITE_BUSY` 而不等待 busy_timeout。见 `crates/yk-store/tests/concurrency.rs`。
-- **`CROSS JOIN` 固定查询计划**：普通 `JOIN` 会让 SQLite 从 `items` 驱动检索，
-  10 万条目下 5 ms 变 18 s。见 `crates/yk-search/tests/query_plan.rs`。
-- **后台任务让出写锁**：嵌入工作线程按 200 行分批提交并主动 yield，
-  否则会饿死交互写入。
-- **插件无特权**：插件只能通过权限受限的宿主 API 访问数据，与第三方客户端同等待遇。
-
----
-
-## 文档
-
-| 文档 | 内容 |
-| --- | --- |
-| [00-overview](docs/00-overview.md) | 产品定位、范围与非目标、核心用户旅程 |
-| [01-architecture](docs/01-architecture.md) | 系统架构、进程模型、模块划分 |
-| [02-tech-stack](docs/02-tech-stack.md) | 技术选型决策与备选路线 |
-| [03-data-model](docs/03-data-model.md) | 数据模型、Schema、版本与软删除 |
-| [04-api-design](docs/04-api-design.md) | REST / WebSocket API、认证鉴权 |
-| [05-storage-sync](docs/05-storage-sync.md) | 附件存储、同步协议、冲突解决 |
-| [06-search-and-pdf](docs/06-search-and-pdf.md) | 检索、CJK 分词、PDF、AI |
-| [07-integrations](docs/07-integrations.md) | Word/WPS 插件、浏览器扩展 |
-| [08-security-and-deploy](docs/08-security-and-deploy.md) | 安全模型、打包分发 |
-| [09-roadmap](docs/09-roadmap.md) | 路线图、里程碑、风险登记册 |
-| [10-licensing](docs/10-licensing.md) | 开源许可证合规分析 |
-| [11-agents](docs/11-agents.md) | 文献搜索 / 问答 Agent（pi-coding-agent） |
-| [12-libraries-and-projects](docs/12-libraries-and-projects.md) | 智能文献库、论文项目库 |
-| [13-knowledge-graph](docs/13-knowledge-graph.md) | 文献关系图谱 |
-| [14-storage-layout](docs/14-storage-layout.md) | 存储布局、路径模板、Zotero 导入 |
-| [15-development-philosophy](docs/15-development-philosophy.md) | **开发哲学：持续重构、测试、边界诚实** |
-| [16-workspace-rules](docs/16-workspace-rules.md) | **工作区规则：无弹窗、tab 模型、踩坑记录** |
-| [plugins/README](plugins/README.md) | **插件开发指南与协议规范** |
-
-## 元数据来源
-
-粘贴 DOI、arXiv 链接、ISBN、PMID 或任意网址，按下面的顺序解析，
-第一个答得上来的胜出：
-
-| 标识符 | 来源 |
-|---|---|
-| DOI | Crossref → DataCite → OpenAlex → Semantic Scholar |
-| arXiv | arXiv → OpenAlex → Semantic Scholar |
-| PMID | PubMed → OpenAlex → Semantic Scholar |
-| ISBN | Open Library |
-| 网址 | 网页元数据（Highwire `citation_*`、Dublin Core、OpenGraph、JSON-LD） |
-
-映射逻辑对着录制的真实响应做单元测试；**URL 拼法只有联网才能验证**，
-所以另有一组按需运行的检查：
-
-```
-cargo test -p yk-scrape --test live_sources -- --ignored --nocapture
-```
-
-它对每个来源发一个"必定存在"的标识符：答错是失败（我们的 URL 错了），
-连不上是跳过并说明原因（别人的服务不适，不是我们的程序坏了）。
-
-> 这比不上 Zotero 的六百多个站点专用 translator。没有 `citation_*` 也没有
-> JSON-LD 的站点仍会退化成"标题 + 网址"——那条路的正解是
-> `/connector/*`：装 Zotero 官方扩展，它的 translator 直接存进这里。
-
-## 分发
-
-**一个可执行文件，没有别的。** 工作台（`web/dist`）编译进二进制，SQLite 静态链接
-（`rusqlite` 的 `bundled`），Word 任务窗格也在里面；Linux 上动态依赖只有 libc /
-libm / libgcc。把二进制拷到任意空目录直接跑即可：
-
-```
-./yinkote --data-dir ~/.yinkote --port 23119
-```
-
-体积约 18 MB（其中工作台约 5 MB）。
-
-**开机自启**（当前用户，绝不是系统服务——个人文献库不该属于 root）：
-
-```
-yinkote service install --data-dir ~/.yinkote --port 23119
+yinkote service install      # start automatically when you log in
 yinkote service status
 yinkote service uninstall
 ```
 
-写出的是各平台原生的那一个：Linux 的 systemd user unit、macOS 的 launchd agent、
-Windows 的启动文件夹脚本。**systemd 需要再执行一步才生效，安装命令会如实告诉你，
-而不是打印一句"完成"然后留下一个永远不会启动的服务。**
+This writes a systemd **user** unit, a launchd agent, or a Startup-folder
+script, depending on the platform. Never a system service: a personal library
+does not belong to root.
 
-**绑到 loopback 之外会被拒绝**——除非你给了 API key，或明确说了 `--allow-anonymous`：
+### Open the workbench later
 
-```
-YK_API_KEY=… yinkote --host 0.0.0.0     # 有钥匙
-yinkote --host 0.0.0.0 --allow-anonymous # 前面有别的东西在认证
-```
-
-越过 loopback 会同时关掉两道保护：Host 校验只在 loopback 生效，而没有 key 就没有
-东西可查。那时暴露出去的**不是只读视图，而是整套 API**——包括删条目和打开本机文件。
-所以这里是拒绝而不是警告：**日志里的一行警告，最需要看到它的人恰好不会看**。
-
-**打开工作台**——装完自启的人往往并不会去终端里敲地址：
-
-```
-yinkote open --data-dir ~/.yinkote
+```bash
+yinkote open
 ```
 
-地址是从数据目录的锁里读出来的，不是按默认值拼出来的：谁持有锁谁就是那台正在跑的
-服务，它自己写下了监听在哪。因此绑到 `0.0.0.0` 或换过端口都能找对，被 `kill -9`
-杀掉后残留的锁文件也不会骗到它（**没人持有的文件就只是个文件**）。它只负责打开，
-不会顺手起一个服务——"打开我的库"和"启动一个后台服务"是两件事。无桌面环境时直接把
-地址打出来，而不是假装打开了一个不可能存在的浏览器。
+Finds the address of the server already running for this data directory, from
+the directory's own lock file, and points a browser at it. It does not start a
+second one.
 
-- **`--web-dir` 仍然优先**：开发前端时指向 `web/dist`，改完刷新即可，不必重编 Rust。
-- **插件是磁盘上的目录**，这是插件系统的本意——它们本来就该能被换掉。
-- 没跑过 `npm run build` 也能编译成功：`build.rs` 会放一个页面说明发生了什么，
-  API 照常可用。
+---
 
-## 路线（尚未实现）
+## Your data
 
-设计已完成、代码待补：**多端同步**。
+Everything lives in one directory, which you can copy, back up, or put in a
+synced folder.
 
-Word / WPS / LibreOffice 共用的**服务端协议 `/api/v1/integration/*`** 与
-**Office.js 任务窗格**均已实现：会话按文档 id 建立、快照上传、全量重排
-（编号型样式插入一条会改变其后全部编号）、只回传文本发生变化的域、样式切换触发刷新。
-窗格由服务端自身托管在 `/addin/`，清单按请求的 `Host` 现场生成——Office 不做相对解析，
-清单里每个 URL 都必须写明本机实际监听的端口。安装入口在「设置 › Word 插件」。
-见 `docs/07-integrations.md` 第 3.3 节。
+```
+<data-dir>/
+├─ yinkote.db          the library: items, notes, tags, collections, index
+├─ storage/            attachments, one folder per item
+├─ plugins/            plugins you have installed
+└─ config.toml         written only when you change something
+```
 
-引文关系已实现，关系图谱中有两类边：**文献耦合**（引用了相同参考文献）与**共被引**（被同一批论文一起引用）。
-详见 `docs/09-roadmap.md`。
+Defaults, unless `--data-dir` says otherwise:
 
-已实现并可用：条目与收藏夹、智能收藏夹、混合检索（关键词 / 模糊 / 语义 / 标签）、
-查重与合并（按标识符与题名两把尺子，合并后败者进回收站而非销毁）、
-导出与导入 BibTeX / RIS / CSL-JSON（导入宽容：坏记录逐条报告，其余照常）、
-整库导出与导入 `.yinkote`（zip：数据库 + 附件 + 清单；导入为合并，保留原 key）、
-长任务系统（导入/导出/备份/重建索引/抓取引文统一为可查看、可取消的后台任务）、
-标注汇成笔记（按页码、原文引用与批注分开）、阅读进度记忆（存于 settings，不扰动库版本号）、备份与文件完整性检查、
-标签与分面、插件系统（含徽章贡献点）、DOI/arXiv/ISBN 抓取、附件下载与 PDF 阅读标注、
-文献问答与摘要 Agent、Zotero 导入（含附件、笔记、PDF 标注）、
-引文与参考文献渲染（APA / MLA / Chicago / IEEE / GB-T 7714）、
-关系图谱（标签 / 作者 / 收藏夹 / 语义相似 / 引用关系，含库外节点）、
-必读缺口（被你多篇论文引用、你却没有的文献，一键入库）、
-下载队列（可重试、可管理、重启不丢）、文件浏览器与标准化重命名、
-浏览器保存（兼容 Zotero Connector 协议，用 `--connector-port 23119` 开启）。
+| Platform | Location |
+| --- | --- |
+| Linux | `$XDG_DATA_HOME/yinkote`, or `~/.local/share/yinkote` |
+| macOS | `~/Library/Application Support/Yinkote` |
+| Windows | `%APPDATA%\Yinkote` |
 
-> 开没开、开在哪个端口，**设置页里直接写着**。报的是端口的实际状态而不是你请求了什么：
-> bind 失败（通常是 Zotero 正开着）服务器会照常运行，此时把"已请求"说成"能用"，
-> 恰好是在唯一不能用的时刻骗人。
+The database is plain SQLite and the attachments are ordinary files in ordinary
+folders. If Yinkote disappeared tomorrow you would still have your library.
 
-> 浏览器保存复用已装好的 Zotero Connector 扩展：它带着二十年维护的数百个站点
-> 翻译器，重写它不是好的时间投入。默认**不开启**——23119 是 Zotero 的端口，
-> 悄悄占掉它会弄坏用户正要迁移的那个程序。
+### Coming from Zotero
 
-## 许可证
+Export your Zotero library (**File → Export Library**, choose *Zotero RDF* with
+files, or point Yinkote at the Zotero data directory) and import it from
+**Settings → Import**. Items, collections, tags, notes, annotations and
+attachments come across, and duplicates are merged rather than doubled.
 
-AGPL-3.0-or-later，理由见 [docs/10-licensing.md](docs/10-licensing.md)。
+---
+
+## Using it from elsewhere
+
+By default Yinkote listens on `127.0.0.1` only — nothing outside your machine
+can reach it, and no password is needed because nothing else can ask.
+
+To reach it from a phone or another computer:
+
+```bash
+yinkote --host 0.0.0.0
+```
+
+The first time you do this, Yinkote **refuses to start without an API key**, and
+tells you so — with the fix in the message. Binding beyond loopback turns off
+the browser protections that made a keyless local server safe, so the key is
+not optional:
+
+```bash
+YK_API_KEY="a long random string" yinkote --host 0.0.0.0
+```
+
+To keep it, put it in `config.toml` in the data directory instead:
+
+```toml
+api_key = "a long random string"
+```
+
+Then send `Authorization: Bearer <key>` with API requests; the workbench asks
+for it once and remembers.
+
+`--allow-anonymous` exists and is a bad idea: it exposes the whole library —
+including deleting items and reading files — to anyone who can reach the port.
+For real remote access, put Yinkote behind Tailscale, a reverse proxy with TLS,
+or an SSH tunnel.
+
+### Browser extension
+
+```bash
+yinkote --connector-port 23119
+```
+
+Yinkote then answers on the port the Zotero connector expects, so the Zotero
+browser extension saves into Yinkote instead. Off unless you ask: that port
+belongs to Zotero, and taking it would break a running copy.
+
+### Word / WPS
+
+The add-in is served by the running server. **Settings → Word add-in** shows the
+manifest path and the sideload instructions for your platform.
+
+---
+
+## What it does
+
+**Items and organisation.** Seventeen item types from a schema rather than
+hard-coded forms; nested collections; smart collections that are saved searches;
+tags with colours; a trash that really keeps things until you empty it.
+
+**Search that finds things.** Four strategies fused into one ranking: keyword
+(BM25), fuzzy (trigram + edit distance, for when you mistype), semantic
+(vector), and field filters. The query language is what you would guess —
+`tag:survey type:journalArticle author:hinton year:2020..2024 -tag:archived
+"exact phrase"` — and Chinese is searchable without configuration.
+
+**Reading.** A PDF reader with highlights, notes and an outline, rendered at
+device resolution. Markdown notes on any paper. Annotations gathered into a note
+in one gesture.
+
+**References.** A paper's bibliography from Crossref, from Semantic Scholar for
+preprints, or read off the PDF's own pages when nobody deposited one — and the
+answer says which, because those are not equally reliable. What your library
+cites but does not hold is a page of its own.
+
+**Bringing papers in.** Paste a DOI, arXiv link, PubMed ID, ISBN or a plain URL;
+Yinkote works out what it is, fetches the metadata, and queues the PDF. Filing a
+paper into a collection fetches its file too.
+
+**AI, if you want it.** Summaries, close readings, and a library-wide assistant
+that can search, file and tag — all against an endpoint **you** configure. There
+is no built-in cloud service and nothing is sent anywhere by default. Point it
+at a local Ollama or llama.cpp and it never leaves the machine.
+
+**Plugins.** Separate processes speaking JSON-RPC, with declared capabilities
+and no privileged access to the database. Three ship as examples, including
+journal metrics (impact factor, JCR, CAS).
+
+**Citations.** CSL styles, a bibliography from any selection, and live citation
+fields in Word.
+
+---
+
+## Speed
+
+Measured on this machine against a **99,898-item** library, release build, all
+of it embedded:
+
+| Operation | p50 | p95 |
+| --- | --- | --- |
+| Keyword search (2 terms) | 12.8 ms | 14.5 ms |
+| Keyword search (1 term) | 26.1 ms | 46.0 ms |
+| Chinese keyword search | 33.0 ms | 37.1 ms |
+| Fuzzy search (mistyped) | 5.7 ms | 6.5 ms |
+| Semantic search | 6.7 ms | 8.3 ms |
+| Hybrid search (all four, fused) | 13.9 ms | 16.0 ms |
+| Hybrid + fetching the rows to show | 34.8 ms | 41.0 ms |
+| Open a collection | 3.0 ms | 3.4 ms |
+| File browser page | 6.7 ms | 7.6 ms |
+| Create one item | 3.3 ms | 3.9 ms |
+
+`node scripts/bench.mjs` reproduces this, seeding the corpus if the library does
+not have one. **It will seed 100,000 items into whatever library you point it
+at**, so give it a scratch data directory.
+
+---
+
+## Options
+
+```
+yinkote [OPTIONS]
+yinkote open
+yinkote service install|uninstall|status
+```
+
+| Option | Meaning |
+| --- | --- |
+| `-p, --port <PORT>` | Port to listen on (default `23130`) |
+| `--host <HOST>` | Address to bind (default `127.0.0.1`) |
+| `--data-dir <DIR>` | Where the library lives |
+| `--web-dir <DIR>` | Serve the workbench from disk instead of the built-in copy |
+| `--plugin-dir <DIR>` | An extra plugin directory; may be repeated |
+| `--connector-port <PORT>` | Also answer the Zotero browser extension |
+| `--allow-anonymous` | Serve a public address with no key. Read the warning above. |
+
+Environment: `YK_DATA_DIR` `YK_HOST` `YK_PORT` `YK_WEB_DIR` `YK_API_KEY`
+`YK_LOG`, plus `YK_EMBED_*` for the embedding provider and `YK_AGENT_*` for the
+assistant.
+
+---
+
+## Building from source
+
+You need Rust 1.85+ and Node 20+. The frontend is built first because the
+binary embeds it.
+
+```bash
+(cd web && npm install && npm run build)
+cargo build --release -p yk-server
+./target/release/yinkote
+```
+
+A build with no `web/dist` still compiles and still runs; it serves a single
+page explaining that the workbench was not built, which is a better failure than
+a blank screen.
+
+### Working on it
+
+```bash
+cargo run -p yk-server -- --data-dir ./.dev-data     # backend
+(cd web && npm run dev)                              # frontend on :5273, proxying /api
+
+cargo test --workspace                               # 903 tests
+cargo clippy --workspace --all-targets -- -D warnings
+(cd web && npm test)                                 # 627 tests
+bash scripts/smoke.sh                                # 281 checks against a running server
+node scripts/bench.mjs                               # the numbers above
+```
+
+`docs/15-development-philosophy.md` and `docs/16-workspace-rules.md` are worth
+reading before changing anything: the second is a long list of mistakes already
+made here and what they cost, which is the most useful thing in the repository.
+
+---
+
+## How it is put together
+
+```
+crates/
+├─ yk-core      domain model, ports (traits), errors, events, item schema
+├─ yk-store     SQLite: repositories, migrations, FTS/trigram/vector upkeep
+├─ yk-search    hybrid retrieval: BM25 + fuzzy + vector, fused
+├─ yk-pdf       text extraction, reference parsing
+├─ yk-scrape    identifier resolution, metadata sources, external search
+├─ yk-cite      CSL citation and bibliography rendering
+├─ yk-ai        embedding and chat provider abstractions
+├─ yk-agent     the assistant: tools, turns, skills
+├─ yk-import    Zotero and bibliography import
+├─ yk-plugin    plugin runtime: discovery, JSON-RPC, hooks, lifecycle
+└─ yk-server    HTTP/WebSocket, background workers, the embedded workbench
+web/            React + TypeScript workbench
+plugins/        example plugins
+```
+
+Dependencies point inward: `yk-server → yk-{store,search,plugin} → yk-core`.
+Everything crossing a layer goes through a trait in `yk-core::ports`, so the
+search engine, the plugin runtime and the embedding provider can each be
+replaced without touching their callers.
+
+A few decisions that carry their weight:
+
+- **Derived data is maintained in the same transaction as the write.** The
+  full-text index, the trigram index and the embedding queue cannot drift from
+  the items, because there is no path that updates one without the others.
+- **`BEGIN IMMEDIATE` for writes.** A deferred transaction cannot upgrade its
+  lock under concurrency, and SQLite returns `SQLITE_BUSY` immediately rather
+  than waiting out the busy timeout.
+- **Background workers stand aside.** Anything that takes the database
+  exclusively — checkpoints, index compaction — waits for writing to stop, so a
+  bulk import never fights the housekeeping.
+- **Plugins have no privileges.** They reach the library through the same
+  permissioned API a third-party client would.
+
+---
+
+## Documentation
+
+| | |
+| --- | --- |
+| [`docs/00-overview.md`](docs/00-overview.md) | What this is and who it is for |
+| [`docs/01-architecture.md`](docs/01-architecture.md) | Layers, crates, boundaries |
+| [`docs/03-data-model.md`](docs/03-data-model.md) | Items, collections, relations |
+| [`docs/04-api-design.md`](docs/04-api-design.md) | The HTTP API |
+| [`docs/06-search-and-pdf.md`](docs/06-search-and-pdf.md) | Retrieval and PDF handling |
+| [`docs/08-security-and-deploy.md`](docs/08-security-and-deploy.md) | Threat model, packaging |
+| [`docs/11-agents.md`](docs/11-agents.md) | The assistant and its limits |
+| [`docs/14-storage-layout.md`](docs/14-storage-layout.md) | What is on disk, and where |
+| [`docs/16-workspace-rules.md`](docs/16-workspace-rules.md) | Every mistake made here so far |
+
+---
+
+## Licence
+
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
+
+In short: use it for anything, including commercially; if you modify it and let
+other people use it over a network, publish your changes. A reference manager
+holding a decade of somebody's reading should not be something they can be
+locked out of.

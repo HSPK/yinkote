@@ -1,0 +1,99 @@
+# Build the one file people actually download.
+#
+# The workbench is embedded at compile time, so the frontend has to be built
+# before cargo runs — on every target, not once. Getting that order wrong
+# produces a binary that starts, serves a page saying the workbench was not
+# built, and passes every test.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # Before cargo, always: `build.rs` embeds whatever is in web/dist at the
+      # moment the crate compiles.
+      - name: Build the workbench
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked -p yk-server --target ${{ matrix.target }}
+
+      # Named for the platform rather than "yinkote", because five files called
+      # the same thing land in one directory on the release page.
+      - name: Name it
+        shell: bash
+        run: |
+          src=target/${{ matrix.target }}/release/yinkote
+          out=yinkote-${{ matrix.target }}
+          if [ -f "$src.exe" ]; then cp "$src.exe" "$out.exe"; else cp "$src" "$out"; fi
+
+      # A download nobody can verify is a download nobody should run.
+      - name: Checksum
+        shell: bash
+        run: |
+          for f in yinkote-${{ matrix.target }}*; do
+            if command -v sha256sum > /dev/null; then sha256sum "$f" > "$f.sha256";
+            else shasum -a 256 "$f" > "$f.sha256"; fi
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yinkote-${{ matrix.target }}
+          path: yinkote-${{ matrix.target }}*
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
