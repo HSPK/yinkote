@@ -5818,3 +5818,35 @@ The comment explaining it quoted the Chinese message it had produced, and the
 locale-hygiene check flagged that as a hardcoded user-visible string — correctly,
 by its own rule. Reworded rather than exempted: a check earns nothing by having
 a list of files that may ignore it.
+
+### 3.318 Publishing found five things the tests could not
+
+Pushing to GitHub and letting CI run the same four gates on other machines
+turned up five failures in a suite that is green here, and not one was a flake:
+
+1. **Plugins were never loaded** — the workflow omitted `--plugin-dir`, so six
+   checks proving the plugin host works reported that it does not.
+2. **A check with no fixture** — `search reaches kids` needs a child item; a
+   fresh library has none, and its sibling passed *vacuously* for the same
+   reason.
+3. **A threshold fitted to this laptop** — fifteen of twenty-five overlapping
+   writes required, fifteen achieved here, fourteen on a slower runner.
+4. **A locale inherited from the runtime** — Node 22 provides
+   `navigator.languages` and Node 20 does not, so English assertions met the
+   Chinese catalogue.
+5. **A clippy newer than the one this was written against**, suggesting an API
+   later than the declared MSRV.
+
+Plus one that was nobody's fault and still cost an hour: the Intel macOS runner
+is being retired, so four targets built in eight minutes and the fifth queued
+for sixty. Cross-compiling from Apple silicon fixed it.
+
+Every one of these is the same shape: **the suite encodes the machine it was
+written on** — its runtime versions, its library contents, its speed, its
+toolchain. None is visible until something else runs it, and the cost of
+finding them grows with how long you wait. Set CI up before it feels necessary.
+
+The one that should sting is the third. It had been passing by exactly zero
+margin, and printing the number it achieved would have said so at any point in
+the last thirty rounds. A number asserted but never shown is a number nobody
+has looked at.
