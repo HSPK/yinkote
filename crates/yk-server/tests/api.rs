@@ -1209,9 +1209,12 @@ async fn writing_still_works_while_the_index_is_rebuilt() {
     let (c, app) = Client::new().await;
     let lib = app.services.default_library;
 
-    // Enough for the rebuild to still be going when the writes arrive; the
-    // point is the overlap, not the size.
-    for batch in 0..16 {
+    // Enough that the rebuild outlasts the writes on any machine, which is the
+    // whole precondition. Sixteen batches was tuned to this laptop and gave
+    // exactly fifteen overlapping writes against a threshold of fifteen — no
+    // margin at all, so the first slower machine to run it saw fourteen and a
+    // red suite. Three times the corpus gives forty-nine.
+    for batch in 0..48 {
         let items: Vec<Value> =
             (0..500).map(|i| article(&format!("Rebuildable {batch}-{i}"))).collect();
         c.post(&format!("/libraries/{lib}/items"), json!(items)).await;
@@ -1264,6 +1267,7 @@ async fn writing_still_works_while_the_index_is_rebuilt() {
     // difference between 232ms and a write that fails after fifteen seconds —
     // measured by hand and recorded in docs/16 §3.103.
     eprintln!("slowest write during the rebuild: {slowest:?}");
+    eprintln!("{overlapped} of {written} writes met a running rebuild");
 
     // The real guard. Too few overlaps means one of two things, and neither is
     // the property holding: the rebuild finished before the writes arrived, or
@@ -1273,8 +1277,9 @@ async fn writing_still_works_while_the_index_is_rebuilt() {
     // long the loop is willing to run.
     assert!(
         overlapped >= 15,
-        "only {overlapped} of 25 writes met a running rebuild — either it ended \
-         too early to prove anything, or they were held up long enough that it did"
+        "only {overlapped} of {written} writes met a running rebuild — either it \
+         ended too early to prove anything, or they were held up long enough \
+         that it did"
     );
 
     // And the rebuild itself must survive being competed with: losing the lock

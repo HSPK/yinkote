@@ -5775,13 +5775,21 @@ it. Node 21 added a global `navigator`; this machine runs Node 22 and CI pins
 Node 20. A module that only loads in a browser cannot be tested anywhere else,
 and the guard costs one `typeof`.
 
-**A timing test that raced the machine.** `writing_still_works_while_the_index_
-is_rebuilt` did twenty-five writes and required fifteen to meet a running
-rebuild. On a slower runner each write costs 45ms, so the loop *outran* the
-rebuild and only fourteen overlapped: the test failed for being on modest
-hardware, which is the reverse of what it checks. The loop now follows the
-rebuild — write while it runs, stop when it stops — so a slower machine
-produces more overlap rather than less.
+**A threshold fitted to this laptop.** `writing_still_works_while_the_index_is_
+rebuilt` required fifteen of twenty-five writes to meet a running rebuild. CI
+managed fourteen. Printing the number here gave *exactly fifteen* — the test
+had been passing with no margin whatever, and the first slower machine to run
+it was always going to fail.
+
+My first fix was wrong and the instrumentation said so: making the loop follow
+the rebuild changed nothing, because the rebuild genuinely *ends* after about
+fourteen writes at that corpus size. The precondition needed the rebuild to
+last longer, not the loop to wait longer. Three times the corpus gives forty-
+nine overlapping writes against a threshold of fifteen.
+
+**A number that passes by one is a number that was measured once.** Had it
+printed what it achieved, "15 of 25 against a threshold of 15" would have read
+as the warning it was.
 
 **A check that needed a fixture the library did not have.** Covered in the
 commit: "search reaches kids" failed on an empty library while its sibling
@@ -5792,3 +5800,21 @@ counts, timings, runtime versions and library contents are all assumptions, and
 they are invisible until something else runs them. The cheapest way to find
 them is to run somewhere else once, early — which is an argument for setting up
 CI before it feels necessary rather than after.
+
+### 3.317 The test suite inherited a locale from the runtime
+
+With `navigator` guarded, the workbench suite failed a different way in CI:
+every assertion against an English message met the Chinese one. `detectLocale`
+falls back to Chinese for a language it does not recognise — right for the
+product — and with no `navigator` there is no language to recognise. On this
+machine Node 22 supplies `navigator.languages`, so the tests got English by
+accident of the runtime rather than by asking for it.
+
+One setup file now pins the locale for every test. Tests that are *about*
+another language set one for themselves and say so, which is the difference
+between a decision and an inheritance.
+
+The comment explaining it quoted the Chinese message it had produced, and the
+locale-hygiene check flagged that as a hardcoded user-visible string — correctly,
+by its own rule. Reworded rather than exempted: a check earns nothing by having
+a list of files that may ignore it.
