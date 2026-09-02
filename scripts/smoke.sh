@@ -324,6 +324,16 @@ check "items?q= hydrate" "$(j "$BASE/libraries/$LIB/items?q=attention" | jq -r '
 # so listing children beside their parents put blank-titled highlights and
 # "probe.pdf" between two papers — but a search must still reach them, because
 # the phrase a reader highlighted is on the annotation and not on the paper.
+# Its own parent and child, because both checks below are about how children
+# are treated and a library with none satisfies the first one vacuously. On a
+# fresh library that is exactly what happened: "browse is top level" passed
+# because there was nothing to exclude, and "search reaches kids" failed
+# because there was nothing to reach.
+KIDPAP=$(j -X POST "$BASE/libraries/$LIB/items" \
+           -d '{"itemType":"journalArticle","title":"Parent of a child"}' | jq -r '.created[0].key')
+j -X POST "$BASE/libraries/$LIB/items" \
+  -d "{\"itemType\":\"attachment\",\"parentKey\":\"$KIDPAP\",\"title\":\"probe.pdf\",\"contentType\":\"application/pdf\",\"linkMode\":\"imported_file\"}" > /dev/null
+
 check "browse is top level" "$(j "$BASE/libraries/$LIB/items?limit=60&topLevel=true" \
                                 | jq -r '[.items[]|select(.parentKey)]|length|select(.==0)|"papers only"')"
 # The negative: without it, children are included. A check that only asserted

@@ -61,7 +61,10 @@ jobs:
 
       - name: Start it
         run: |
-          ./target/release/yinkote --data-dir "$RUNNER_TEMP/library" &
+          # --plugin-dir, because six of smoke's checks are about plugins and
+          # a server started without it loads none. The shipped binary looks in
+          # <data-dir>/plugins; the repository's examples are in ./plugins.
+          ./target/release/yinkote --data-dir "$RUNNER_TEMP/library" --plugin-dir plugins &
           for _ in $(seq 1 30); do
             curl -sf http://127.0.0.1:23130/api/v1/ping > /dev/null && exit 0
             sleep 1
