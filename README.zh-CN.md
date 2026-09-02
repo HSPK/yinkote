@@ -236,7 +236,7 @@ yinkote service install|uninstall|status
 
 ## 从源码构建
 
-需要 Rust 1.85+ 和 Node 20+。先构建前端，因为二进制会把它嵌进去。
+需要 Rust 1.85+ 和 Node 22+。先构建前端，因为二进制会把它嵌进去。
 
 ```bash
 (cd web && npm install && npm run build)

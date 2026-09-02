@@ -260,7 +260,7 @@ assistant.
 
 ## Building from source
 
-You need Rust 1.85+ and Node 20+. The frontend is built first because the
+You need Rust 1.85+ and Node 22+. The frontend is built first because the
 binary embeds it.
 
 ```bash

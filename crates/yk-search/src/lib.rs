@@ -237,6 +237,13 @@ fn decode(bytes: &[u8], dim: usize) -> Option<Vec<f32>> {
     if bytes.len() != dim * 4 {
         return None;
     }
+    // `chunks_exact(4)` rather than `as_chunks::<4>()`, which a clippy newer
+    // than this workspace's `rust-version = 1.85` suggests and 1.85 does not
+    // have. The suggestion is right for a later MSRV; taking it now would mean
+    // the manifest promises a toolchain the code will not build on.
+    // `unknown_lints` too: the lint does not exist in the clippy this was
+    // written against, and naming it unconditionally is an error there.
+    #[allow(unknown_lints, clippy::chunks_exact_to_as_chunks)]
     Some(bytes.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
 }
 

@@ -28,7 +28,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 22, not 20: under Node 20 jsdom and undici clash over
+          # `CacheStorage` and the suite reports thirty-nine unhandled errors
+          # with two hundred tests never run. Claim the version that is tested.
+          node-version: '22'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
@@ -50,7 +53,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 22, not 20: under Node 20 jsdom and undici clash over
+          # `CacheStorage` and the suite reports thirty-nine unhandled errors
+          # with two hundred tests never run. Claim the version that is tested.
+          node-version: '22'
           cache: npm
           cache-dependency-path: web/package-lock.json
 
