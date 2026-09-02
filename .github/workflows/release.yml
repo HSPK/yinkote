@@ -26,8 +26,12 @@ jobs:
             os: ubuntu-24.04-arm
           - target: aarch64-apple-darwin
             os: macos-latest
+          # Cross-compiled on Apple silicon rather than built on an Intel
+          # runner: macos-13 is being retired, and the first release sat in a
+          # queue for an hour waiting for one while every other target had
+          # finished. The Xcode toolchain targets both architectures.
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
           - target: x86_64-pc-windows-msvc
             os: windows-latest
 
