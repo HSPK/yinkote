@@ -7,7 +7,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/yinkote/yinkote"
+repository = "https://github.com/HSPK/yinkote"
 
 [workspace.dependencies]
 yk-core = { path = "crates/yk-core" }
