@@ -74,7 +74,19 @@ describe('tabs', () => {
 
 describe('preview tabs', () => {
   const preview = (id: string) =>
-    ({ id, kind: 'reader', title: id, target: id, preview: true }) as Tab
+    ({ id, kind: 'graph', title: id, target: id, preview: true }) as Tab
+
+  it('never replaces a PDF even if an older caller asks for a preview', () => {
+    const once = openTab([library], { ...reader, preview: true })
+    const twice = openTab(once, preview('graph'))
+    expect(twice.map((tab) => tab.id)).toEqual([library.id, reader.id, 'graph'])
+    expect(twice.find((tab) => tab.id === reader.id)?.preview).toBe(false)
+  })
+
+  it('does not reuse an already-open legacy PDF preview slot', () => {
+    const tabs = openTab([library, { ...reader, preview: true }], preview('graph'))
+    expect(tabs.map((tab) => tab.id)).toEqual([library.id, reader.id, 'graph'])
+  })
 
   it('reuses one slot, so glancing through a list leaves one tab', () => {
     let tabs = openTab([library], preview('A'))

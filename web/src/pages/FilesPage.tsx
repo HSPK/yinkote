@@ -16,15 +16,14 @@ import { bytes as formatBytes } from '../lib/format'
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, Input, contextMenu, toast, withToast } from '../ui'
 import { VirtualList } from '../components/VirtualList'
-
-/** Narrower than this the columns scroll sideways rather than crush. */
-const FILE_COLUMNS = 720
+import { TableCells, TableHeader, useTableColumns } from '../components/TableHeader'
 
 export function FilesPage() {
   const t = useT()
   const library = useStore((s) => s.library)
   const showItem = useStore((s) => s.showItem)
   const setFileCount = useStore((s) => s.setFileCount)
+  const layout = useTableColumns('files')
 
   const [files, setFiles] = useState<LibraryFile[]>([])
   const [total, setTotal] = useState(0)
@@ -123,20 +122,14 @@ export function FilesPage() {
       <VirtualList
         rows={files}
         keyOf={(file) => file.key}
-        minWidth={FILE_COLUMNS}
-        header={
-          <div className="table-head files-grid">
-            <div className="head-cell">{t('files.col.name')}</div>
-            <div className="head-cell">{t('files.col.paper')}</div>
-            <div className="head-cell">{t('files.col.source')}</div>
-            <div className="head-cell num">{t('files.col.size')}</div>
-          </div>
-        }
+        minWidth={layout.width}
+        header={<TableHeader layout={layout} className="files-grid" />}
         empty={<Empty>{t('files.none')}</Empty>}
       >
         {(file) => (
           <div
             className="row browser-grid files-grid"
+            style={{ gridTemplateColumns: layout.grid }}
             onClick={() => file.parentKey && void showItem(file.parentKey)}
             onContextMenu={contextMenu(() => [
               {
@@ -152,19 +145,20 @@ export function FilesPage() {
               },
             ])}
           >
-            <div className="cell name-cell" title={file.filename}>
-              <Icon.Library className="glyph" />
-              <span className="name">{file.filename}</span>
-            </div>
-            <div className="cell dim" title={file.parentTitle}>
-              {file.parentTitle}
-            </div>
-            {/* Where it came from: the question a file browser is opened to
-                answer, and the reason the address is kept on the attachment. */}
-            <div className="cell dim mono" title={file.url}>
-              {file.url}
-            </div>
-            <div className="cell num dim">{formatBytes(file.bytes)}</div>
+            <TableCells
+              layout={layout}
+              cells={{
+                name: (
+                  <div className="cell name-cell" title={file.filename}>
+                    <Icon.Library className="glyph" />
+                    <span className="name">{file.filename}</span>
+                  </div>
+                ),
+                paper: <div className="cell dim" title={file.parentTitle}>{file.parentTitle}</div>,
+                source: <div className="cell dim mono" title={file.url}>{file.url}</div>,
+                size: <div className="cell num dim">{formatBytes(file.bytes)}</div>,
+              }}
+            />
           </div>
         )}
       </VirtualList>

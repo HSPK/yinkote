@@ -35,6 +35,17 @@ function mount(current: number, onJump = vi.fn()) {
 }
 
 describe('the reader outline', () => {
+  it('collapses a branch without navigating or losing the rest of the outline', () => {
+    const jump = mount(1)
+    const toggle = container.querySelector<HTMLButtonElement>('.outline-toggle')
+    act(() => toggle?.click())
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false')
+    expect(container.textContent).not.toContain('Motivation')
+    expect(container.textContent).toContain('Method')
+    expect(jump).not.toHaveBeenCalled()
+    act(() => toggle?.click())
+    expect(container.textContent).toContain('Motivation')
+  })
   it('reads the tree in document order, flat', () => {
     mount(1)
     const titles = [...container.querySelectorAll('.outline-title')].map((n) => n.textContent)

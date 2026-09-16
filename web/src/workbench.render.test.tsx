@@ -156,23 +156,24 @@ describe('selecting rows', () => {
 })
 
 describe('preview tabs', () => {
-  it('reuses one slot while skimming, and keeps the tab on a double click', async () => {
+  it('keeps every opened PDF until explicitly closed', async () => {
     await render()
     const store = useStore.getState()
 
     act(() => store.openReader('A'))
     act(() => store.openReader('B'))
-    expect(useStore.getState().tabs.map((t) => t.id)).toEqual(['library', tabId('reader', 'B')])
+    expect(useStore.getState().tabs.map((t) => t.id))
+      .toEqual(['library', tabId('reader', 'A'), tabId('reader', 'B')])
 
     act(() => useStore.getState().keepTab(tabId('reader', 'B')))
     act(() => useStore.getState().openReader('C'))
-    expect(useStore.getState().tabs).toHaveLength(3)
+    expect(useStore.getState().tabs).toHaveLength(4)
   })
 
-  it('shows a preview in italics and a kept tab upright', async () => {
+  it('opens PDF tabs upright rather than as replaceable previews', async () => {
     act(() => useStore.getState().openReader('A'))
     await render()
-    expect(container.querySelector('.tab[data-preview]'), 'the preview').toBeTruthy()
+    expect(container.querySelector('.tab[data-preview]'), 'PDF is never a preview').toBeNull()
 
     act(() => useStore.getState().keepTab(tabId('reader', 'A')))
     await render()

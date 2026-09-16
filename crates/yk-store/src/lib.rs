@@ -115,6 +115,19 @@ impl Store {
         &self.db
     }
 
+    /// Create an annotation-derived child note with a per-paper numeric default.
+    ///
+    /// Allocation and insertion are atomic across connections/processes. Existing
+    /// numeric titles are skipped; allocated numbers survive renames and deletion.
+    /// Explicit titles and the ordinary item-creation path are unchanged.
+    pub async fn create_numbered_note(
+        &self,
+        library_id: i64,
+        draft: yk_core::model::ItemDraft,
+    ) -> Result<yk_core::model::Item> {
+        self.items_impl.create_numbered_note(library_id, draft).await
+    }
+
     /// Recreate every derived search structure for a library.
     pub async fn rebuild_index(&self, library_id: i64) -> Result<u64> {
         self.items_impl.rebuild_index(library_id).await

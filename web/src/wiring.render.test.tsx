@@ -14,6 +14,8 @@ import type { Collection, Item } from './api/types'
 import { libraryTab, tabId } from './lib/tabs'
 import { emptyScope } from './state/scope'
 import { useStore } from './state/store'
+import { DEFAULT_COLUMNS } from './lib/columns'
+import { useOverlays } from './ui/overlays'
 
 /** Never resolves, so bootstrap cannot overwrite the state a test set up. A
  *  mock that resolves with a placeholder is worse than one that does not
@@ -68,23 +70,29 @@ beforeEach(() => {
     smartCollections: [],
     tags: [{ name: 'survey', count: 3, type: 0 }],
     badgeDefs: [],
+    columnOrders: { ...DEFAULT_COLUMNS },
   })
 })
 
 afterEach(() => {
   act(() => root.unmount())
+  useOverlays.getState().closeMenu()
   container.remove()
 })
 
-describe('the column picker', () => {
+describe('the header columns submenu', () => {
   const open = async () => {
     await render()
-    await click(container.querySelector('.statusbar .column-anchor .icon-btn'))
-    return container.querySelector('.column-pop')
+    await act(async () => {
+      container.querySelector('.table-head')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))
+    })
+    await click(container.querySelector('.menu-item[aria-haspopup="menu"]'))
+    return container.querySelector('.submenu')
   }
 
-  it('opens from the status bar', async () => {
-    expect(await open(), 'the picker').toBeTruthy()
+  it('opens from the table header without a standalone button', async () => {
+    expect(await open(), 'the columns submenu').toBeTruthy()
+    expect(container.querySelector('.statusbar .column-anchor')).toBeNull()
   })
 
   it('turns two columns on without turning the first back off', async () => {
@@ -92,14 +100,14 @@ describe('the column picker', () => {
     // second choice was made against a list that predated the first.
     await open()
     const before = useStore.getState().columnOrders.items
-    const off = [...container.querySelectorAll('.column-toggle')].filter(
+    const off = [...container.querySelectorAll('[role="menuitemcheckbox"]')].filter(
       (b) => !(b as HTMLElement).dataset.checked,
     )
     expect(off.length, 'something to turn on').toBeGreaterThan(1)
 
     await click(off[0])
-    await click(container.querySelectorAll('.column-toggle')[
-      [...container.querySelectorAll('.column-toggle')].findIndex(
+    await click(container.querySelectorAll('[role="menuitemcheckbox"]')[
+      [...container.querySelectorAll('[role="menuitemcheckbox"]')].findIndex(
         (b) => b.textContent === off[1]!.textContent,
       )
     ])
@@ -110,7 +118,7 @@ describe('the column picker', () => {
 
   it('can turn a column off again', async () => {
     await open()
-    const on = [...container.querySelectorAll('.column-toggle')].filter(
+    const on = [...container.querySelectorAll('[role="menuitemcheckbox"]')].filter(
       (b) => (b as HTMLElement).dataset.checked,
     )
     const before = useStore.getState().columnOrders.items.length

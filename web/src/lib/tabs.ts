@@ -73,6 +73,7 @@ export function tabId(kind: TabKind, target?: string): string {
  * clicking the active tab is common and should cost nothing.
  */
 export function openTab(tabs: Tab[], tab: Tab): Tab[] {
+  if (tab.kind === 'reader' && tab.preview !== false) tab = { ...tab, preview: false }
   const existing = tabs.findIndex((t) => t.id === tab.id)
 
   if (existing >= 0) {
@@ -88,7 +89,8 @@ export function openTab(tabs: Tab[], tab: Tab): Tab[] {
 
   // A new preview takes over the slot the last one held, keeping its position
   // so the bar does not shuffle under the pointer.
-  const slot = tabs.findIndex((t) => t.preview)
+  // Preserve reader tabs created by older sessions as well.
+  const slot = tabs.findIndex((t) => t.preview && t.kind !== 'reader')
   if (slot < 0) return [...tabs, tab]
   return tabs.map((t, i) => (i === slot ? tab : t))
 }

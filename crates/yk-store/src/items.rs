@@ -636,6 +636,12 @@ fn apply_patch(item: &mut Item, patch: ItemPatch) {
     // Captured before the fields are merged: the title the old text implied is
     // the only reliable sign that the title was derived rather than typed.
     let was = item.fields.get("note").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+    let explicit_title = patch
+        .fields
+        .as_ref()
+        .and_then(|fields| fields.get("title"))
+        .and_then(Value::as_str)
+        .is_some_and(|title| !title.is_empty());
     if let Some(fields) = patch.fields {
         for (k, v) in fields {
             if v.is_null() {
@@ -659,8 +665,10 @@ fn apply_patch(item: &mut Item, patch: ItemPatch) {
     if let Some(d) = patch.deleted {
         item.deleted = d;
     }
-    // After the fields, so editing a note's first line renames it.
-    retitle_note(item, Some(&was));
+    // An explicit replacement title wins even if it matches the old first line.
+    if !explicit_title {
+        retitle_note(item, Some(&was));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -693,6 +701,87 @@ pub struct SqliteItemRepository {
 impl SqliteItemRepository {
     pub fn new(db: Db, counts: std::sync::Arc<crate::counts::CountCache>) -> Self {
         Self { db, counts, duplicates: Default::default() }
+    }
+
+    /// Allocate the default numeric title and insert the child in one write transaction.
+    pub(crate) async fn create_numbered_note(
+        &self,
+        library_id: i64,
+        mut draft: ItemDraft,
+    ) -> Result<Item> {
+        if draft.item_type != "note" {
+            return Err(Error::invalid("only notes can receive a numbered title"));
+        }
+        let parent = draft
+            .parent_key
+            .clone()
+            .ok_or_else(|| Error::invalid("a numbered note must belong to a paper"))?;
+        self.db
+            .call(move |c| {
+                let tx = write_tx(c)?;
+                let parent_id = item_id(&tx, library_id, &parent)?;
+                let explicit_title = draft
+                    .fields
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .is_some_and(|title| !title.trim().is_empty());
+                if !explicit_title {
+                    let counter_key = format!("notes.annotation-sequence.{library_id}.{parent}");
+                    let saved: Option<String> = tx
+                        .query_row(
+                            "SELECT value FROM settings WHERE key = ?1",
+                            params![counter_key],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .map_err(sql_err)?;
+                    let mut last = saved
+                        .as_deref()
+                        .map(serde_json::from_str::<u64>)
+                        .transpose()?
+                        .unwrap_or(0);
+                    {
+                        // Include trashed notes and manual numeric titles to avoid collisions
+                        // on restore. The persisted counter survives renaming and deletion.
+                        let mut stmt = tx
+                            .prepare_cached(
+                                "SELECT json_extract(fields, '$.title') FROM items \
+                                 WHERE library_id = ?1 AND parent_id = ?2 AND item_type = 'note' \
+                                 AND json_type(fields, '$.title') = 'text'",
+                            )
+                            .map_err(sql_err)?;
+                        let titles = stmt
+                            .query_map(params![library_id, parent_id], |row| {
+                                row.get::<_, Option<String>>(0)
+                            })
+                            .map_err(sql_err)?;
+                        for title in titles {
+                            if let Some(title) = title.map_err(sql_err)? {
+                                if title.bytes().all(|byte| byte.is_ascii_digit()) {
+                                    if let Ok(number) = title.parse::<u64>() {
+                                        last = last.max(number);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let next = last
+                        .checked_add(1)
+                        .ok_or_else(|| Error::invalid("note numbering is exhausted"))?;
+                    draft.fields.insert("title".into(), Value::String(next.to_string()));
+                    tx.execute(
+                        "INSERT INTO settings(key, value) VALUES (?1, ?2) \
+                         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                        params![counter_key, next.to_string()],
+                    )
+                    .map_err(sql_err)?;
+                }
+                let version = bump_version(&tx, library_id)?;
+                let (_, item) = insert(&tx, library_id, draft, version)?;
+                tx.commit().map_err(sql_err)?;
+                Ok(item)
+            })
+            .await
     }
 
     /// The version every cached answer for this library is keyed to.

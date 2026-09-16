@@ -9,6 +9,8 @@ import { useSchemaLabel, useT } from '../i18n'
 import { useDebounced } from '../lib/useDebounced'
 import { Badge, Icon, toast } from '../ui'
 import { Thumbnail } from './Thumbnail'
+import { NoteCard } from './NoteCard'
+import { NoteView } from '../pages/NoteView'
 
 /** An edit in progress, and which paper it belongs to. */
 export interface Edit {
@@ -332,7 +334,7 @@ export function DetailPanel() {
         </dl>
         )}
 
-        {pane === 'notes' && <ItemNotes itemKey={item.key} />}
+        {pane === 'notes' && <ItemNotes key={item.key} itemKey={item.key} />}
         {pane === 'conversations' && <ItemConversations itemKey={item.key} />}
         {pane === 'references' && <ItemReferences itemKey={item.key} />}
         {pane === 'preview' && <ItemCover itemKey={item.key} />}
@@ -674,9 +676,9 @@ function ItemNotes({ itemKey: selected }: { itemKey: string }) {
   const t = useT()
   const itemKey = useDebounced(selected)
   const library = useStore((s) => s.library)
-  const openNote = useStore((s) => s.openNote)
-  const addNote = useStore((s) => s.addNote)
   const [notes, setNotes] = useState<Item[]>([])
+  const [opened, setOpened] = useState<{ key: string; preview: boolean } | null>(null)
+  const [adding, setAdding] = useState(false)
 
   useEffect(() => {
     let live = true
@@ -693,43 +695,41 @@ function ItemNotes({ itemKey: selected }: { itemKey: string }) {
     }
   }, [library, itemKey])
 
+  if (opened) return (
+    <NoteView key={opened.key} target={opened.key} library={library} embedded initialPreview={opened.preview}
+      onBack={() => setOpened(null)}
+      onSaved={(note) => setNotes((all) => all.map((item) => item.key === note.key ? note : item))} />
+  )
+
+  const add = async () => {
+    if (adding) return
+    setAdding(true)
+    try {
+      const { created } = await api.items.create(library, [{ itemType: 'note', parentKey: selected, note: '' }])
+      const note = created[0]
+      if (!note) throw new Error(t('note.addFailed'))
+      setNotes((all) => [note, ...all])
+      setOpened({ key: note.key, preview: false })
+    } catch (error) {
+      toast.fromError(t('note.addFailed'), error)
+    } finally {
+      setAdding(false)
+    }
+  }
+
   // Shown even with nothing in it. This returned null when a paper had no
   // notes, so the one place you would go to write your first note was the one
   // place that disappeared until you already had one.
   return (
     <div className="detail-section" data-section="notes">
       <div className="note-list">
-        {notes.map((note) => {
-          const generated = note.tags.some((tag) => tag.tag === 'summary')
-          return (
-            <button
-              key={note.key}
-              className="note-row"
-              onClick={() => openNote(note.key, plainText(String(note.note ?? '')).slice(0, 40))}
-              title={plainText(String(note.note ?? ''))}
-            >
-              {/* Marked, because a summary the model wrote and a note the
-                  user wrote are different things to trust. */}
-              {generated && <span className="note-badge">{t('detail.noteGenerated')}</span>}
-              <span className="note-text">{plainText(String(note.note ?? ''))}</span>
-            </button>
-          )
-        })}
-        <button className="note-row add" onClick={() => void addNote(selected)}>
+        {notes.map((note) => <NoteCard key={note.key} note={note}
+          onOpen={() => setOpened({ key: note.key, preview: true })} />)}
+        <button className="note-card add" disabled={adding} onClick={() => void add()}>
           <Icon.Plus className="glyph" />
           <span className="note-text">{t('note.add')}</span>
         </button>
       </div>
     </div>
   )
-}
-
-/** A note's text without its markup, for a one-line preview. */
-function plainText(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .trim()
 }

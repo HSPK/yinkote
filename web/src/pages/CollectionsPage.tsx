@@ -2,13 +2,7 @@ import { useMemo, useState } from 'react'
 
 import { useT } from '../i18n'
 import { collectionColour, collectionIcon } from '../lib/collections'
-import {
-  COLLECTION_COLUMNS,
-  gridTemplate,
-  totalColumnWidth,
-  visibleColumns,
-  type ColumnDef,
-} from '../lib/columns'
+import { TableHeader, useTableColumns } from '../components/TableHeader'
 import { rankMatches } from '../lib/fuzzy'
 import { compact, shortDate } from '../lib/format'
 import { useStore } from '../state/store'
@@ -109,18 +103,8 @@ export function CollectionsPage() {
     })
   }, [entries, filter, sort, descending])
 
-  const order = useStore((s) => s.columnOrders.collections)
-  const widths = useStore((s) => s.columnWidths)
-  const columns = useMemo<ColumnDef[]>(
-    () => visibleColumns(order, COLLECTION_COLUMNS),
-    [order],
-  )
-  const template = useMemo(() => `${gridTemplate(columns, widths)} 28px`, [columns, widths])
-  // As the item table does: the columns have real widths, so the content can
-  // be wider than the pane. Head and rows sit in one scroller at one width, or
-  // they drift apart the moment the pane narrows -- which is what opening the
-  // detail panel does, and why the rows looked staggered.
-  const width = useMemo(() => totalColumnWidth(columns, widths) + 28, [columns, widths])
+  const layout = useTableColumns('collections', { actionsWidth: 28 })
+  const { columns, grid: template, width } = layout
 
   /** One cell's contents. Kept beside the catalogue so adding a column is one
    *  entry there and one arm here, rather than a new row layout. */
@@ -144,19 +128,6 @@ export function CollectionsPage() {
   const hint = (entry: Entry, id: string) =>
     id === 'name' ? entry.name : id === 'rule' ? entry.query : undefined
 
-  const header = (key: SortKey, label: string) => (
-    <button
-      className={sort === key ? 'sorted' : undefined}
-      onClick={() => {
-        setDescending(sort === key ? !descending : false)
-        setSort(key)
-      }}
-    >
-      {label}
-      {sort === key && <span className="sort-arrow">{descending ? '↓' : '↑'}</span>}
-    </button>
-  )
-
   /** Show a collection in its own tab, so two can be compared side by side. */
   const open = (entry: Entry, keep = false) => {
     openTab({
@@ -173,21 +144,16 @@ export function CollectionsPage() {
   return (
     <div className="collections-browser">
       <div className="browser-scroll">
-      <div
-        className="table-head browser-grid"
-        style={{ gridTemplateColumns: template, minWidth: width }}
-      >
-        {columns.map((c) =>
-          c.sort ? (
-            <span key={c.id}>{header(c.sort, t(c.labelKey))}</span>
-          ) : (
-            <button key={c.id} disabled>
-              {t(c.labelKey)}
-            </button>
-          ),
-        )}
-        <span />
-      </div>
+      <TableHeader
+        layout={layout}
+        className="browser-grid"
+        sort={sort}
+        direction={descending ? 'desc' : 'asc'}
+        onSort={(key) => {
+          setDescending(sort === key ? !descending : false)
+          setSort(key)
+        }}
+      />
 
       <div className="browser-body" style={{ minWidth: width }}>
         {visible.length === 0 && <Empty>{t('collections.none')}</Empty>}

@@ -47,7 +47,7 @@ export const DEFAULT_VISIBLE = ['title', 'author', 'year', 'type', 'tags', 'atta
  * being described. Copying would have meant two pickers, two persisted
  * settings and two chances to fix a bug once.
  */
-export type TableId = 'items' | 'collections' | 'chats'
+export type TableId = 'items' | 'collections' | 'chats' | 'files' | 'downloads' | 'tasks' | 'gaps'
 
 export const COLLECTION_COLUMNS: ColumnDef[] = [
   { id: 'name', labelKey: 'dialog.name', sort: 'name', width: 0, min: 160 },
@@ -70,17 +70,52 @@ export const CHAT_COLUMNS: ColumnDef[] = [
 
 export const CHAT_DEFAULT_VISIBLE = ['title', 'messages', 'created', 'updated']
 
+export const FILE_COLUMNS: ColumnDef[] = [
+  { id: 'name', labelKey: 'files.col.name', sort: null, width: 0, min: 210 },
+  { id: 'paper', labelKey: 'files.col.paper', sort: null, width: 0, min: 180 },
+  { id: 'source', labelKey: 'files.col.source', sort: null, width: 0, min: 240 },
+  { id: 'size', labelKey: 'files.col.size', sort: null, width: 90, min: 64 },
+]
+
+export const DOWNLOAD_COLUMNS: ColumnDef[] = [
+  { id: 'title', labelKey: 'downloads.col.title', sort: null, width: 0, min: 180 },
+  { id: 'url', labelKey: 'downloads.col.url', sort: null, width: 0, min: 200 },
+  { id: 'state', labelKey: 'downloads.col.state', sort: null, width: 260, min: 120 },
+  { id: 'size', labelKey: 'downloads.col.size', sort: null, width: 80, min: 64 },
+]
+
+export const TASK_COLUMNS: ColumnDef[] = [
+  { id: 'job', labelKey: 'tasks.col.job', sort: null, width: 120, min: 80 },
+  { id: 'state', labelKey: 'tasks.col.state', sort: null, width: 0, min: 220 },
+  { id: 'outcome', labelKey: 'tasks.col.outcome', sort: null, width: 0, min: 220 },
+  { id: 'started', labelKey: 'tasks.col.started', sort: null, width: 84, min: 72 },
+]
+
+export const GAP_COLUMNS: ColumnDef[] = [
+  { id: 'work', labelKey: 'gaps.work', sort: null, width: 0, min: 394 },
+  { id: 'year', labelKey: 'gaps.year', sort: null, width: 64, min: 44 },
+  { id: 'citedBy', labelKey: 'gaps.citedBy', sort: null, width: 90, min: 64 },
+]
+
 /** What each table shows before anybody changes it. */
 export const DEFAULT_COLUMNS: Record<TableId, string[]> = {
   items: DEFAULT_VISIBLE,
   collections: COLLECTION_DEFAULT_VISIBLE,
   chats: CHAT_DEFAULT_VISIBLE,
+  files: FILE_COLUMNS.map((c) => c.id),
+  downloads: DOWNLOAD_COLUMNS.map((c) => c.id),
+  tasks: TASK_COLUMNS.map((c) => c.id),
+  gaps: GAP_COLUMNS.map((c) => c.id),
 }
 
 export const CATALOGUE: Record<TableId, ColumnDef[]> = {
   items: BUILTIN_COLUMNS,
   collections: COLLECTION_COLUMNS,
   chats: CHAT_COLUMNS,
+  files: FILE_COLUMNS,
+  downloads: DOWNLOAD_COLUMNS,
+  tasks: TASK_COLUMNS,
+  gaps: GAP_COLUMNS,
 }
 
 
@@ -121,9 +156,9 @@ export function allColumns(badges: ColumnDef[] = []): ColumnDef[] {
  */
 export function visibleColumns(order: string[], available: ColumnDef[]): ColumnDef[] {
   const byId = new Map(available.map((c) => [c.id, c]))
-  const chosen = order.map((id) => byId.get(id)).filter((c): c is ColumnDef => !!c)
+  const chosen = [...new Set(order)].map((id) => byId.get(id)).filter((c): c is ColumnDef => !!c)
   // Never leave the user with an empty table and no way back.
-  return chosen.length ? chosen : available.filter((c) => c.id === 'title')
+  return chosen.length ? chosen : available.slice(0, 1)
 }
 
 /** CSS grid template for a set of columns, honouring user-set widths. */
@@ -152,14 +187,41 @@ export function totalColumnWidth(
   }, 0)
 }
 
-/** Toggle a column's visibility, keeping the catalogue's order for new entries. */
+/** Insert near the catalogue neighbour without re-sorting the user's columns. */
 export function toggleColumn(order: string[], id: string, available: ColumnDef[]): string[] {
+  if (!available.some((c) => c.id === id)) return order
   if (order.includes(id)) {
     const next = order.filter((c) => c !== id)
-    return next.length ? next : order
+    return next.some((key) => available.some((c) => c.id === key)) ? next : order
   }
   const rank = new Map(available.map((c, i) => [c.id, i]))
-  return [...order, id].sort((a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0))
+  const next = [...order]
+  const index = order.findIndex((key) => (rank.get(key) ?? -1) > rank.get(id)!)
+  next.splice(index < 0 ? next.length : index, 0, id)
+  return next
+}
+
+/** A drop moves to the target's position, leaving all other columns in order. */
+export function reorderColumn(order: string[], id: string, target: string): string[] {
+  const from = order.indexOf(id)
+  const to = order.indexOf(target)
+  return from < 0 || to < 0 ? order : moveColumn(order, id, to - from)
+}
+
+/** Item width keys stay compatible; other tables no longer share their widths. */
+export function columnWidthKey(table: TableId, id: string): string {
+  return table === 'items' ? id : `${table}:${id}`
+}
+
+export function restoredColumnOrders(value: unknown, legacy?: unknown): Record<TableId, string[]> {
+  const saved = value && typeof value === 'object' ? value as Record<string, unknown> : {}
+  return Object.fromEntries(
+    (Object.keys(DEFAULT_COLUMNS) as TableId[]).map((table) => {
+      const order = saved[table] ?? (table === 'items' ? legacy : undefined)
+      const valid = Array.isArray(order) && order.every((id) => typeof id === 'string') && order.length
+      return [table, valid ? [...new Set(order)] : [...DEFAULT_COLUMNS[table]]]
+    }),
+  ) as Record<TableId, string[]>
 }
 
 /** Move a column one place left or right, for keyboard and menu reordering. */

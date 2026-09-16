@@ -16,16 +16,15 @@ import { useT } from '../i18n'
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, toast } from '../ui'
 import { VirtualList } from '../components/VirtualList'
+import { TableCells, TableHeader, useTableColumns } from '../components/TableHeader'
 import { follow } from '../lib/tasks'
-
-/** Narrower than this the columns scroll sideways rather than crush. */
-const GAP_COLUMNS = 640
 
 export function GapsPage() {
   const t = useT()
   const library = useStore((s) => s.library)
   const refresh = useStore((s) => s.refresh)
   const setGapCount = useStore((s) => s.setGapCount)
+  const layout = useTableColumns('gaps', { actionsWidth: 92 })
 
   const [works, setWorks] = useState<MissingWork[]>([])
   // The run, as the task registry sees it. It used to have a mechanism of its
@@ -158,24 +157,24 @@ export function GapsPage() {
       <VirtualList
         rows={works}
         keyOf={(work) => work.fingerprint}
-        minWidth={GAP_COLUMNS}
-        header={
-          <div className="table-head gaps-grid">
-            <div className="head-cell">{t('gaps.work')}</div>
-            <div className="head-cell num">{t('gaps.year')}</div>
-            <div className="head-cell num">{t('gaps.citedBy')}</div>
-            <div className="head-cell" />
-          </div>
-        }
+        minWidth={layout.width}
+        header={<TableHeader layout={layout} className="gaps-grid" />}
       >
         {(work) => (
-          <div className="row browser-grid gaps-grid">
-            <div className="cell name-cell" title={work.label}>
-              <Icon.Graph className="glyph" />
-              <span className="name">{work.label || work.doi}</span>
-            </div>
-            <div className="cell num dim">{work.year ?? ''}</div>
-            <div className="cell num">{work.citedBy}</div>
+          <div className="row browser-grid gaps-grid" style={{ gridTemplateColumns: layout.grid }}>
+            <TableCells
+              layout={layout}
+              cells={{
+                work: (
+                  <div className="cell name-cell" title={work.label}>
+                    <Icon.Graph className="glyph" />
+                    <span className="name">{work.label || work.doi}</span>
+                  </div>
+                ),
+                year: <div className="cell num dim">{work.year ?? ''}</div>,
+                citedBy: <div className="cell num">{work.citedBy}</div>,
+              }}
+            />
             <div className="cell">
               <Button
                 tone="primary"

@@ -32,6 +32,20 @@ function mount() {
 }
 
 describe('the selection popup', () => {
+  it('keeps the text selection while a toolbar button is pressed', () => {
+    mount()
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true })
+    container.querySelector('.swatch')?.dispatchEvent(down)
+    expect(down.defaultPrevented).toBe(true)
+  })
+
+  it('keeps the popup inside the viewport', () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue(new DOMRect(0, 0, 240, 36))
+    mount()
+    expect(container.querySelector<HTMLElement>('.selection-popup')?.style.left).toBe('8px')
+    bounds.mockRestore()
+  })
   it('writes nothing until something is chosen', () => {
     // The whole point: releasing the mouse over a selection used to create a
     // highlight, so reading with the mouse edited the library.

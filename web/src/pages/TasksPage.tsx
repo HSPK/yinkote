@@ -15,13 +15,11 @@ import { taskMessage } from '../lib/format'
 import { api } from '../api/client'
 import type { Task } from '../api/types'
 import { VirtualList } from '../components/VirtualList'
+import { TableCells, TableHeader, useTableColumns } from '../components/TableHeader'
 import { useT } from '../i18n'
 import { humanBytes } from '../lib/maintenance'
 import { percentOf } from '../lib/tasks'
 import { Button, Empty, toast } from '../ui'
-
-/** Narrower than this the columns scroll sideways rather than crush. */
-const TASK_COLUMNS = 760
 
 /** Whether two polls describe the same jobs.
  *
@@ -74,6 +72,7 @@ function outcome(task: Task, t: ReturnType<typeof useT>): string {
 
 export function TasksPage() {
   const t = useT()
+  const layout = useTableColumns('tasks', { actionsWidth: 72 })
   const [rows, setRows] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -95,36 +94,37 @@ export function TasksPage() {
     return () => window.clearInterval(timer)
   }, [busy, load])
 
-  const header = (
-    <div className="table-head tasks-grid">
-      <div className="head-cell">{t('tasks.col.job')}</div>
-      <div className="head-cell">{t('tasks.col.state')}</div>
-      <div className="head-cell">{t('tasks.col.outcome')}</div>
-      <div className="head-cell num">{t('tasks.col.started')}</div>
-      <div className="head-cell" />
-    </div>
-  )
+  const header = <TableHeader layout={layout} className="tasks-grid" />
 
   if (loading) return <Empty>{t('tasks.loading')}</Empty>
   if (!rows.length) return <Empty>{t('tasks.none')}</Empty>
 
   return (
     <div className="pane main data-page">
-      <VirtualList rows={rows} keyOf={(task) => task.id} minWidth={TASK_COLUMNS} header={header}>
+      <VirtualList rows={rows} keyOf={(task) => task.id} minWidth={layout.width} header={header}>
         {(task) => {
           const pct = percentOf(task)
           return (
-            <div className="row tasks-grid" data-phase={task.phase}>
-              <div className="cell">{t(`tasks.kind.${task.kind}` as never) || task.kind}</div>
-              <div className="cell dim">
-                {task.phase === 'running'
-                  ? `${taskMessage(t, task.message)}${pct === null ? '' : ` · ${pct}%`}`
-                  : t(`tasks.phase.${task.phase}` as never)}
-              </div>
-              <div className="cell dim" title={outcome(task, t)}>
-                {outcome(task, t)}
-              </div>
-              <div className="cell num dim">{when(task.startedAt)}</div>
+            <div
+              className="row tasks-grid"
+              data-phase={task.phase}
+              style={{ gridTemplateColumns: layout.grid }}
+            >
+              <TableCells
+                layout={layout}
+                cells={{
+                  job: <div className="cell">{t(`tasks.kind.${task.kind}` as never) || task.kind}</div>,
+                  state: (
+                    <div className="cell dim">
+                      {task.phase === 'running'
+                        ? `${taskMessage(t, task.message)}${pct === null ? '' : ` · ${pct}%`}`
+                        : t(`tasks.phase.${task.phase}` as never)}
+                    </div>
+                  ),
+                  outcome: <div className="cell dim" title={outcome(task, t)}>{outcome(task, t)}</div>,
+                  started: <div className="cell num dim">{when(task.startedAt)}</div>,
+                }}
+              />
               <div className="cell">
                 {task.phase === 'running' && (
                   <Button

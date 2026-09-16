@@ -12,7 +12,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
 use yk_core::event::DomainEvent;
-use yk_core::model::{Item, ItemDraft};
+use yk_core::model::{Item, ItemDraft, ItemTag};
 use yk_ai::ChatMessage;
 use yk_core::Error;
 
@@ -20,7 +20,7 @@ use super::{announce, key};
 use crate::error::ApiResult;
 use crate::state::App;
 
-/// Marks a note as machine-written, so it is never mistaken for the user's own.
+/// Internal automatic marker used to find this feature's note on regeneration.
 pub const SUMMARY_TAG: &str = "summary";
 
 /// Marks a summary the model did not get to finish.
@@ -37,17 +37,47 @@ const AUTOMATIC: u8 = 1;
 
 /// The tags a summary note should carry, given how the run ended.
 fn summary_tags(truncated: bool) -> Vec<yk_core::model::ItemTag> {
-    let mut tags =
-        vec![yk_core::model::ItemTag { tag: SUMMARY_TAG.into(), r#type: AUTOMATIC }];
+    generated_note_tags(None, SUMMARY_TAG, truncated)
+}
+
+pub(super) fn generated_note_tags(
+    existing: Option<&Item>,
+    marker: &str,
+    truncated: bool,
+) -> Vec<ItemTag> {
+    let mut tags: Vec<_> = existing
+        .into_iter()
+        .flat_map(|note| &note.tags)
+        .filter(|tag| {
+            !(tag.r#type == AUTOMATIC && (tag.tag == marker || tag.tag == TRUNCATED_TAG))
+        })
+        .cloned()
+        .collect();
+    tags.push(ItemTag { tag: marker.into(), r#type: AUTOMATIC });
     if truncated {
-        tags.push(yk_core::model::ItemTag { tag: TRUNCATED_TAG.into(), r#type: AUTOMATIC });
+        tags.push(ItemTag { tag: TRUNCATED_TAG.into(), r#type: AUTOMATIC });
     }
     tags
 }
 
-/// How a summary note is listed: the opening of the summary itself.
-fn summary_title(reply: &str) -> String {
-    yk_core::text::note_title(reply, yk_core::text::NOTE_TITLE_CHARS).to_string()
+pub(super) fn is_generated_note(note: &Item, marker: &str) -> bool {
+    note.item_type == "note"
+        && note.tags.iter().any(|tag| tag.tag == marker && tag.r#type == AUTOMATIC)
+}
+
+/// Only an absent title or the old body's exact auto-title is replaced.
+pub(super) fn generated_note_title<'a>(existing: Option<&'a Item>, default: &'a str) -> &'a str {
+    if let Some(note) = existing {
+        let title = note.title();
+        let legacy = yk_core::text::note_title(
+            note.field("note").unwrap_or_default(),
+            yk_core::text::NOTE_TITLE_CHARS,
+        );
+        if !title.trim().is_empty() && title != legacy {
+            return title;
+        }
+    }
+    default
 }
 
 /// The patch that makes an existing note hold this summary.
@@ -59,14 +89,12 @@ fn summary_title(reply: &str) -> String {
 /// text. A patch shape that silently means "do nothing" is the worst kind of
 /// mistake to make, because every layer above it looks like it worked.
 ///
-/// The title goes in too: it is the only part of a note most screens show, and
-/// it was left describing the summary it had just replaced. Tags go in for the
-/// same reason in reverse — regenerating a truncated summary successfully has
-/// to *clear* the warning, or the first bad run marks the note for good.
-fn summary_fields(reply: &str, truncated: bool) -> serde_json::Value {
+/// A legacy prose-derived title becomes the default; a custom title stays.
+/// Regenerating a truncated summary successfully clears its internal warning.
+fn summary_fields(existing: Option<&Item>, reply: &str, truncated: bool) -> serde_json::Value {
     json!({
-        "fields": { "note": reply, "title": summary_title(reply) },
-        "tags": summary_tags(truncated),
+        "fields": { "note": reply, "title": generated_note_title(existing, "Summary") },
+        "tags": generated_note_tags(existing, SUMMARY_TAG, truncated),
     })
 }
 
@@ -79,7 +107,7 @@ fn summary_fields(reply: &str, truncated: bool) -> serde_json::Value {
 fn summary_draft(reply: &str, truncated: bool) -> ItemDraft {
     let mut draft = ItemDraft::new("note")
         .with_field("note", reply)
-        .with_field("title", summary_title(reply).as_str());
+        .with_field("title", "Summary");
     draft.tags = summary_tags(truncated);
     draft
 }
@@ -180,35 +208,11 @@ async fn summarise(
         return Err(e.into());
     }
 
-    // One summary per item: regenerating replaces rather than accumulating a
-    // pile of near-identical notes nobody will ever reconcile.
-    let existing = app
-        .store()
-        .items
-        .children(lib, &parent)
-        .await?
-        .into_iter()
-        .find(|c| c.item_type == "note" && c.tags.iter().any(|t| t.tag == SUMMARY_TAG));
-
-    let note = match existing {
-        Some(note) => {
-            app.store()
-                .items
-                .update(
-                    lib,
-                    &note.key,
-                    serde_json::from_value(summary_fields(&turn.reply, turn.truncated))
-                        .map_err(internal)?,
-                    // No version check: regenerating deliberately overwrites
-                    // whatever summary was there.
-                    None,
-                )
-                .await?
-        }
-        None => {
-            let mut draft = summary_draft(&turn.reply, turn.truncated);
-            draft.parent_key = Some(parent.clone());
-            app.store().items.create(lib, draft).await?
+    let note = match save(app.store(), lib, &parent, &turn.reply, turn.truncated).await {
+        Ok(note) => note,
+        Err(e) => {
+            app.tasks().fail(&task, &e);
+            return Err(e.into());
         }
     };
 
@@ -229,6 +233,43 @@ async fn summarise(
         // the difference between a summary worth keeping and a paraphrase.
         "readInFull": paper.read_in_full(),
     })))
+}
+
+/// One summary per item: regenerate the automatic note, never a user-tagged one.
+async fn save(
+    store: &yk_store::Store,
+    lib: i64,
+    parent: &yk_core::Key,
+    reply: &str,
+    truncated: bool,
+) -> Result<Item, Error> {
+    let existing = store
+        .items
+        .children(lib, parent)
+        .await?
+        .into_iter()
+        .find(|c| is_generated_note(c, SUMMARY_TAG));
+
+    match existing {
+        Some(note) => {
+            store
+                .items
+                .update(
+                    lib,
+                    &note.key,
+                    serde_json::from_value(summary_fields(Some(&note), reply, truncated))
+                        .map_err(internal)?,
+                    // A concurrent rename must not be overwritten by this snapshot.
+                    Some(note.version),
+                )
+                .await
+        }
+        None => {
+            let mut draft = summary_draft(reply, truncated);
+            draft.parent_key = Some(parent.clone());
+            store.items.create(lib, draft).await
+        }
+    }
 }
 
 /// What the model is asked.
@@ -343,12 +384,6 @@ mod tests {
         assert!(prompt(&item(), None, Language::English, ABSTRACT).contains("too thin"));
     }
 
-    /// Replacing a summary must rewrite the title too.
-    ///
-    /// It did not: the update path patched `note` alone, so the note went on
-    /// being *listed* under a sentence from the summary it had just replaced.
-    /// The title is the only part of a note most screens ever show, which is
-    /// what made this invisible in the response and obvious in the sidebar.
     /// The patch must actually be a patch.
     ///
     /// `ItemPatch` keeps its fields in a nested `fields` object and ignores
@@ -359,24 +394,21 @@ mod tests {
     #[test]
     fn a_replaced_summary_actually_replaces_it() {
         let patch: yk_core::model::ItemPatch =
-            serde_json::from_value(summary_fields("Evaluates on three benchmarks.", false))
+            serde_json::from_value(summary_fields(None, "Evaluates on three benchmarks.", false))
                 .unwrap();
         let fields = patch.fields.expect("the patch changes no fields at all");
         assert_eq!(
             fields.get("note").and_then(|v| v.as_str()),
             Some("Evaluates on three benchmarks."),
         );
-        assert!(
-            fields.get("title").and_then(|v| v.as_str()).unwrap().starts_with("Evaluates on"),
-            "the title would go on describing the summary it replaced",
-        );
+        assert_eq!(fields.get("title").and_then(|v| v.as_str()), Some("Summary"));
         assert!(patch.tags.is_some(), "the truncation warning would never be cleared");
     }
 
     /// A note outlives the toast that announced it.
     #[test]
     fn an_unfinished_summary_says_so_on_the_note() {
-        let tags = summary_fields("Half an ans", true)["tags"].clone();
+        let tags = summary_fields(None, "Half an ans", true)["tags"].clone();
         let names: Vec<String> =
             tags.as_array().unwrap().iter().map(|t| t["tag"].as_str().unwrap().into()).collect();
         assert!(names.contains(&SUMMARY_TAG.to_string()));
@@ -387,7 +419,7 @@ mod tests {
     /// otherwise the first bad run marks the note for good.
     #[test]
     fn a_finished_summary_clears_the_warning() {
-        let tags = summary_fields("A whole answer.", false)["tags"].clone();
+        let tags = summary_fields(None, "A whole answer.", false)["tags"].clone();
         let names: Vec<String> =
             tags.as_array().unwrap().iter().map(|t| t["tag"].as_str().unwrap().into()).collect();
         assert_eq!(names, vec![SUMMARY_TAG.to_string()], "a stale warning would stick forever");
@@ -405,11 +437,75 @@ mod tests {
     #[test]
     fn creating_and_replacing_agree() {
         let draft = summary_draft("Body text here.", true);
-        let patch = summary_fields("Body text here.", true);
+        let patch = summary_fields(None, "Body text here.", true);
         assert_eq!(draft.fields.get("note").and_then(|v| v.as_str()), Some("Body text here."));
         assert_eq!(draft.fields.get("title"), patch["fields"].get("title"));
         assert_eq!(serde_json::to_value(&draft.tags).unwrap(), patch["tags"]);
         assert_eq!(draft.item_type, "note");
+    }
+
+    #[tokio::test]
+    async fn generated_summary_defaults_and_regeneration_preserve_note_identity() {
+        let store = yk_store::Store::in_memory().unwrap();
+        let lib = store.default_library;
+        let parent = store.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+        let first = save(&store, lib, &parent.key, "Summary", true).await.unwrap();
+        assert_eq!(first.item_type, "note");
+        assert_eq!(first.title(), "Summary");
+        assert!(first.tags.iter().all(|tag| tag.r#type == AUTOMATIC));
+
+        let next = save(&store, lib, &parent.key, "A different body.", false).await.unwrap();
+        assert_eq!(next.key, first.key);
+        assert_eq!(next.parent_key, Some(parent.key));
+        assert_eq!(next.title(), "Summary", "a body matching the old title cannot rename it");
+        assert_eq!(next.field("note"), Some("A different body."));
+        assert_eq!(next.tags, summary_tags(false));
+        assert_eq!(
+            json!(store.items.get(lib, &next.key).await.unwrap()),
+            json!(next),
+        );
+    }
+
+    #[tokio::test]
+    async fn generated_summary_only_migrates_legacy_titles_and_keeps_custom_titles() {
+        let store = yk_store::Store::in_memory().unwrap();
+        let lib = store.default_library;
+        for old_body in [
+            "## English\n\nThe original summary.\n\n## 中文\n原来的总结。",
+            "<p>Q &amp; A <b>summary</b></p><p>Details.</p>",
+            &"原来的总结".repeat(20),
+        ] {
+            for custom in [false, true] {
+                let parent =
+                    store.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+                let legacy = yk_core::text::note_title(old_body, yk_core::text::NOTE_TITLE_CHARS);
+                let title = if custom { "My research summary" } else { &legacy };
+                let mut draft = summary_draft(old_body, true).with_field("title", title);
+                draft.parent_key = Some(parent.key.clone());
+                draft.tags.push(ItemTag { tag: "keep this tag".into(), r#type: 0 });
+                let original = store.items.create(lib, draft).await.unwrap();
+                let next = save(&store, lib, &parent.key, "New summary.", false).await.unwrap();
+                assert_eq!(next.key, original.key);
+                assert_eq!(next.title(), if custom { title } else { "Summary" });
+                assert_eq!(next.field("note"), Some("New summary."));
+                assert!(next.tags.iter().any(|tag| tag.tag == "keep this tag" && tag.r#type == 0));
+                assert!(!next.tags.iter().any(|tag| tag.tag == TRUNCATED_TAG));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn generated_summary_does_not_replace_a_manually_tagged_note() {
+        let store = yk_store::Store::in_memory().unwrap();
+        let lib = store.default_library;
+        let parent = store.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+        let mut draft = ItemDraft::new("note").with_field("note", "My own note");
+        draft.parent_key = Some(parent.key.clone());
+        draft.tags = vec![ItemTag { tag: SUMMARY_TAG.into(), r#type: 0 }];
+        let manual = store.items.create(lib, draft).await.unwrap();
+        let summary = save(&store, lib, &parent.key, "Generated.", false).await.unwrap();
+        assert_ne!(summary.key, manual.key);
+        assert_eq!(json!(store.items.get(lib, &manual.key).await.unwrap()), json!(manual));
     }
 
     /// The paper, not its abstract. Everything here was written from the

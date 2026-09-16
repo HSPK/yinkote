@@ -1,0 +1,33 @@
+.table-head.column-header .head-cell,
+.data-page .table-head.column-header .head-cell {
+  padding: 0;
+  align-self: stretch;
+}
+
+.column-header .head-cell[draggable] {
+  cursor: grab;
+}
+
+.column-header .head-cell:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.column-header .head-cell > button {
+  display: flex;
+  align-items: center;
+}
+
+.column-header .head-cell > button:disabled {
+  pointer-events: none;
+}
+
+.table-head.column-header.tasks-grid,
+.row.tasks-grid {
+  gap: 0;
+}
+
+.menu-item:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}

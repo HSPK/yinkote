@@ -147,6 +147,11 @@ export const Icon = {
       <path d="m6 3.6 4.4 4.4L6 12.4" />
     </Svg>
   ),
+  ChevronLeft: (p: IconProps) => (
+    <Svg {...p}>
+      <path d="m10 3.6-4.4 4.4 4.4 4.4" />
+    </Svg>
+  ),
   ChevronUp: (p: IconProps) => (
     <Svg {...p}>
       <path d="m4 9.8 4-3.6 4 3.6" />

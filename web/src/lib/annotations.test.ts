@@ -119,6 +119,16 @@ describe('rectsFromSelection', () => {
     const box = { left: 100, top: 50, width: 400, height: 100 }
     expect(rectsFromSelection(selection([[box, box]]), page)).toHaveLength(1)
   })
+
+  it('clips cross-page rectangles instead of writing coordinates outside the page', () => {
+    const got = rectsFromSelection(selection([[
+      { left: 90, top: 40, width: 100, height: 30 },
+      { left: 150, top: 1100, width: 100, height: 20 },
+    ]]), page)
+    expect(got).toEqual([{ x: 0, y: 0, w: 90 / 800, h: 20 / 1000 }])
+    expect(rectsFromSelection(selection([[{ left: 100, top: 50, width: 100, height: 10 }]]),
+      { ...page, width: 0 })).toEqual([])
+  })
 })
 
 describe('toDraft', () => {

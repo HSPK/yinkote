@@ -1,0 +1,19 @@
+.pdf-search-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  z-index: 3;
+}
+
+.pdf-search-hit {
+  position: absolute;
+  pointer-events: none;
+  background: rgb(255 211 64 / 38%);
+  border-radius: 2px;
+}
+
+.pdf-search-hit[data-current='true'] {
+  background: rgb(255 153 40 / 55%);
+  outline: 1px solid rgb(196 111 0 / 80%);
+}

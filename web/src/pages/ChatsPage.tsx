@@ -3,13 +3,7 @@ import { useMemo, useState } from 'react'
 import type { Conversation } from '../api/types'
 import { useT } from '../i18n'
 import { rankMatches } from '../lib/fuzzy'
-import {
-  CHAT_COLUMNS,
-  gridTemplate,
-  totalColumnWidth,
-  visibleColumns,
-  type ColumnDef,
-} from '../lib/columns'
+import { TableHeader, useTableColumns } from '../components/TableHeader'
 import { compact, shortDate } from '../lib/format'
 import { useStore } from '../state/store'
 import { Empty, Icon, contextMenu } from '../ui'
@@ -43,11 +37,8 @@ export function ChatsPage() {
 
   const filter = useStore((s) => s.filter)
   const collections = useStore((s) => s.collections)
-  const order = useStore((s) => s.columnOrders.chats)
-  const widths = useStore((s) => s.columnWidths)
-  const columns = useMemo<ColumnDef[]>(() => visibleColumns(order, CHAT_COLUMNS), [order])
-  const template = useMemo(() => `${gridTemplate(columns, widths)} 28px`, [columns, widths])
-  const width = useMemo(() => totalColumnWidth(columns, widths) + 28, [columns, widths])
+  const layout = useTableColumns('chats', { actionsWidth: 28 })
+  const { columns, grid: template, width } = layout
 
   const [sort, setSort] = useState<SortKey>('updated')
   const [descending, setDescending] = useState(true)
@@ -81,21 +72,6 @@ export function ChatsPage() {
 
   const hint = (c: Conversation, id: string) => (id === 'title' ? c.title : undefined)
 
-  const header = (key: SortKey, label: string) => (
-    <button
-      className={sort === key ? 'sorted' : undefined}
-      onClick={() => {
-        // Dates read newest-first by default; names read A to Z. Flipping to a
-        // date column and landing on the oldest thread is not what was asked.
-        setDescending(sort === key ? !descending : key === 'created' || key === 'updated')
-        setSort(key)
-      }}
-    >
-      {label}
-      {sort === key && <span className="sort-arrow">{descending ? '↓' : '↑'}</span>}
-    </button>
-  )
-
   const open = (key: string, title: string) => {
     openTab({ id: tabId('chat', key), kind: 'chat', title, target: key })
     void openConversation(key, true)
@@ -104,21 +80,16 @@ export function ChatsPage() {
   return (
     <div className="collections-browser">
       <div className="browser-scroll">
-      <div
-        className="table-head chats-grid"
-        style={{ gridTemplateColumns: template, minWidth: width }}
-      >
-        {columns.map((c) =>
-          c.sort ? (
-            <span key={c.id}>{header(c.sort, t(c.labelKey))}</span>
-          ) : (
-            <button key={c.id} disabled>
-              {t(c.labelKey)}
-            </button>
-          ),
-        )}
-        <span />
-      </div>
+      <TableHeader
+        layout={layout}
+        className="chats-grid"
+        sort={sort}
+        direction={descending ? 'desc' : 'asc'}
+        onSort={(key) => {
+          setDescending(sort === key ? !descending : key === 'created' || key === 'updated')
+          setSort(key)
+        }}
+      />
 
       <div className="browser-body" style={{ minWidth: width }}>
         {visible.length === 0 && <Empty>{t('chats.none')}</Empty>}

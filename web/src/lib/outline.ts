@@ -44,6 +44,10 @@ export async function pageOf(doc: PDFDocumentProxy, dest: RawNode['dest']): Prom
   try {
     const resolved = typeof dest === 'string' ? await doc.getDestination(dest) : dest
     const ref = Array.isArray(resolved) ? resolved[0] : null
+    // Explicit destinations may use a zero-based page index, including 0.
+    if (typeof ref === 'number') {
+      return Number.isInteger(ref) && ref >= 0 && ref < doc.numPages ? ref + 1 : null
+    }
     if (!ref || typeof ref !== 'object') return null
     const index = await doc.getPageIndex(ref as never)
     return index + 1

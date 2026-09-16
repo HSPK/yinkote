@@ -9,19 +9,23 @@ import type { StateCreator } from 'zustand'
 
 import { api } from '../../api/client'
 import { detectLocale, useI18n, type Locale } from '../../i18n'
-import { DEFAULT_COLUMNS, type TableId } from '../../lib/columns'
+import { CATALOGUE, DEFAULT_COLUMNS, columnWidthKey, restoredColumnOrders, type TableId } from '../../lib/columns'
+import { DEFAULT_READER_LAYOUT, readerLayoutFrom, type ReaderLayout } from '../../lib/reader-layout'
+import { failureOf } from '../../lib/errors'
 import { applyTheme, DEFAULT_THEME } from '../../lib/theme'
 import type { State } from '../store'
 
 export interface PrefsSlice {
   /** Pane widths in pixels; dragged by the splitters, persisted server-side. */
   layout: { sidebar: number; detail: number }
-  /** Item-table column widths in pixels, keyed by column id. */
+  /** Column widths; non-item tables namespace their column ids. */
   columnWidths: Record<string, number>
   /** Visible columns per table, in display order. */
   columnOrders: Record<TableId, string[]>
   /** Whether the right-hand detail pane is showing. */
   detailOpen: boolean
+  sidebarOpen: boolean
+  readerLayout: ReaderLayout
   /** Row height preference, persisted server-side under `ui.`. */
   density: string
   theme: string
@@ -35,6 +39,8 @@ export interface PrefsSlice {
   setColumnOrder: (table: TableId, order: string[]) => void
   resetColumns: (table: TableId) => void
   toggleDetail: (open?: boolean) => void
+  toggleSidebar: () => void
+  setReaderLayout: (patch: Partial<ReaderLayout>, commit?: boolean) => void
   setDensity: (d: string) => void
   setTheme: (id: string, accent?: string) => void
   setCitationStyle: (id: string) => void
@@ -48,6 +54,8 @@ export const createPrefsSlice: StateCreator<State, [], [], PrefsSlice> = (set, g
   columnWidths: {},
   columnOrders: { ...DEFAULT_COLUMNS },
   detailOpen: true,
+  sidebarOpen: true,
+  readerLayout: DEFAULT_READER_LAYOUT,
   density: 'compact',
   theme: DEFAULT_THEME,
   accent: '',
@@ -63,34 +71,66 @@ export const createPrefsSlice: StateCreator<State, [], [], PrefsSlice> = (set, g
   setColumnWidth(id, width, commit) {
     const columnWidths = { ...get().columnWidths, [id]: width }
     set({ columnWidths })
-    if (commit) void api.settings.put({ columnWidths: JSON.stringify(columnWidths) })
+    if (commit) {
+      void api.settings.put({ columnWidths: JSON.stringify(columnWidths) })
+        .catch((error: unknown) => set({ error: failureOf(error) }))
+    }
   },
 
   setColumnOrder(table, order) {
-    const columnOrders = { ...get().columnOrders, [table]: order }
+    if (!order.length) return
+    const columnOrders = { ...get().columnOrders, [table]: [...new Set(order)] }
     set({ columnOrders })
     void api.settings.put({ columnOrders: JSON.stringify(columnOrders) })
+      .catch((error: unknown) => set({ error: failureOf(error) }))
   },
 
   resetColumns(table) {
-    const columnOrders = { ...get().columnOrders, [table]: DEFAULT_COLUMNS[table] }
-    // Widths are keyed by column id across both tables, and resetting one
-    // table should not clear the other's; only the ids being reset go.
+    const columnOrders = { ...get().columnOrders, [table]: [...DEFAULT_COLUMNS[table]] }
     const columnWidths = { ...get().columnWidths }
     for (const id of Object.keys(columnWidths)) {
-      if (DEFAULT_COLUMNS[table].includes(id)) delete columnWidths[id]
+      if (table === 'items'
+        ? CATALOGUE.items.some((c) => c.id === id) || id.startsWith('badge:')
+        : id.startsWith(`${table}:`)) delete columnWidths[id]
+    }
+    // Explicit defaults prevent legacy shared widths from being migrated back
+    // into a table after its next reload.
+    if (table !== 'items') {
+      for (const column of CATALOGUE[table]) {
+        columnWidths[columnWidthKey(table, column.id)] = column.width
+      }
     }
     set({ columnOrders, columnWidths })
     void api.settings.put({
       columnOrders: JSON.stringify(columnOrders),
       columnWidths: JSON.stringify(columnWidths),
-    })
+    }).catch((error: unknown) => set({ error: failureOf(error) }))
   },
 
   toggleDetail(open) {
+    if (get().tabs.find((tab) => tab.id === get().activeTab)?.kind === 'reader') {
+      get().setReaderLayout({ detailsOpen: open ?? !get().readerLayout.detailsOpen })
+      return
+    }
     const detailOpen = open ?? !get().detailOpen
     set({ detailOpen })
     void api.settings.put({ detailOpen: String(detailOpen) })
+  },
+
+  toggleSidebar() {
+    const sidebarOpen = !get().sidebarOpen
+    set({ sidebarOpen })
+    void api.settings.put({ sidebarOpen: String(sidebarOpen) })
+      .catch((error: unknown) => set({ error: failureOf(error) }))
+  },
+
+  setReaderLayout(patch, commit = true) {
+    const readerLayout = readerLayoutFrom({ ...get().readerLayout, ...patch })
+    set({ readerLayout })
+    if (commit) {
+      void api.settings.put({ readerLayout: JSON.stringify(readerLayout) })
+        .catch((error: unknown) => set({ error: failureOf(error) }))
+    }
   },
 
   setDensity(density) {
@@ -131,18 +171,36 @@ export const createPrefsSlice: StateCreator<State, [], [], PrefsSlice> = (set, g
 
     if (text('ui.density')) get().setDensity(text('ui.density')!)
 
+    const savedWidths = parsed<unknown>('ui.columnWidths', {})
+    const columnWidths = Object.fromEntries(
+      Object.entries(savedWidths && typeof savedWidths === 'object' ? savedWidths : {})
+        .filter((entry): entry is [string, number] =>
+          typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0),
+    )
+    // Earlier collection/chat tables shared the item width map. Copy their
+    // saved widths once, so subsequent resizing and resetting are independent.
+    for (const table of ['collections', 'chats'] as const) {
+      for (const column of CATALOGUE[table]) {
+        const key = columnWidthKey(table, column.id)
+        if (columnWidths[key] === undefined && columnWidths[column.id] !== undefined) {
+          columnWidths[key] = columnWidths[column.id]!
+        }
+      }
+    }
+
     set({
       layout: parsed('ui.layout', get().layout),
-      columnWidths: parsed('ui.columnWidths', {}),
+      columnWidths,
       // `ui.columnOrder` is what single-table installs saved. It is still read
       // as the item table's order so that upgrading does not silently throw
       // away a layout somebody arranged.
-      columnOrders: {
-        ...DEFAULT_COLUMNS,
-        items: parsed('ui.columnOrder', DEFAULT_COLUMNS.items),
-        ...parsed<Partial<Record<TableId, string[]>>>('ui.columnOrders', {}),
-      },
+      columnOrders: restoredColumnOrders(
+        parsed<unknown>('ui.columnOrders', {}),
+        parsed<unknown>('ui.columnOrder', DEFAULT_COLUMNS.items),
+      ),
       detailOpen: text('ui.detailOpen') !== 'false',
+      sidebarOpen: text('ui.sidebarOpen') !== 'false',
+      readerLayout: readerLayoutFrom(parsed<unknown>('ui.readerLayout', {})),
       citationStyle: text('ui.citationStyle') ?? 'apa',
     })
 

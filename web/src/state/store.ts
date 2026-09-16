@@ -561,9 +561,8 @@ export const useStore = create<State>((set, get, store) => ({
     set({ tabs: keepTab(get().tabs, id) })
   },
 
-  /** Show a paper. A preview by default, so skimming a list of results does
-   *  not leave a tab behind for every one glanced at. */
-  openReader(itemKey, keep = false) {
+  /** Opening a PDF creates a reading session, not a replaceable preview. */
+  openReader(itemKey, keep = true) {
     const title = get().items.find((i) => i.key === itemKey)?.title
     get().openTab({
       id: tabId('reader', itemKey),

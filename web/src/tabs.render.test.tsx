@@ -147,7 +147,7 @@ describe('the tab model', () => {
     expect(store().view).toBe('library')
   })
 
-  it('gives a glance one slot, whatever kind it is', async () => {
+  it('keeps the PDF while another surface uses the preview slot', async () => {
     await render()
 
     await act(async () => store().openReader('A'))
@@ -156,7 +156,7 @@ describe('the tab model', () => {
     // Clicking through a list must not leave a tab behind for every glance,
     // and the slot is shared across kinds — otherwise each kind leaks one.
     expect(previews()).toHaveLength(1)
-    expect(ids()).toEqual(['library', 'graph:B'])
+    expect(ids()).toEqual(['library', 'reader:A', 'graph:B'])
   })
 
   it('keeps a tab the reader asked to keep, and stops reusing its slot', async () => {

@@ -1764,63 +1764,6 @@ option {
 
 /* ─── column picker ──────────────────────────────────────────────────────── */
 
-.column-anchor { position: relative; display: inline-flex; }
-
-.column-pop {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 4px);
-  z-index: 60;
-  width: 210px;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-1);
-  border: 1px solid var(--line-2);
-  box-shadow: 0 12px 30px rgb(0 0 0 / 40%);
-}
-
-.column-head {
-  padding: 5px 9px;
-  font: 10px/1.4 var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--fg-mute);
-  background: var(--bg-2);
-  border-bottom: 1px solid var(--line);
-}
-
-.column-list { max-height: 320px; overflow: auto; padding: 3px 0; }
-.column-row { display: flex; align-items: center; }
-
-.column-toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
-  padding: 3px 8px;
-  text-align: left;
-  font-size: 12px;
-  color: var(--fg-mute);
-}
-
-.column-toggle[data-checked] { color: var(--fg); }
-.column-row:hover { background: var(--bg-2); }
-.column-check { display: inline-block; width: 12px; color: var(--accent); }
-
-.column-move { display: flex; padding-right: 4px; }
-.column-move .icon-btn { width: 18px; height: 18px; }
-.column-sep { margin: 3px 0; border-top: 1px solid var(--line); }
-
-.column-foot {
-  display: flex;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 6px;
-  border-top: 1px solid var(--line);
-  background: var(--bg-2);
-}
-
 
 /* ─── workspace tabs ─────────────────────────────────────────────────────── */
 
@@ -1881,26 +1824,16 @@ option {
 /* ─── reader ─────────────────────────────────────────────────────────────── */
 
 .reader { display: flex; flex-direction: column; overflow: hidden; }
+.reader-session { display: flex; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
+.reader-session[hidden] { display: none; }
 
 .reader-files {
-  flex: none;
-  display: flex;
-  gap: 2px;
-  padding: 3px 6px;
-  background: var(--bg-2);
-  border-bottom: 1px solid var(--line);
-}
-
-.reader-files button {
+  min-width: 80px;
+  max-width: 220px;
   padding: 2px 8px;
   font: 11px/1.5 var(--mono);
-  color: var(--fg-mute);
-  border: 1px solid transparent;
-}
-
-.reader-files button[data-active='true'] {
   color: var(--fg);
-  background: var(--bg-3);
+  background: var(--bg-1);
   border-color: var(--line-2);
 }
 
@@ -1910,7 +1843,8 @@ option {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 6px;
   padding: 3px 8px;
   background: var(--bg-2);
   border-bottom: 1px solid var(--line);
@@ -1918,14 +1852,36 @@ option {
 
 .reader-bar .spacer { flex: 1; }
 .reader-zoom { font: 10px/1 var(--mono); color: var(--fg-mute); min-width: 32px; text-align: center; }
+.reader-page-control { display: flex; align-items: center; gap: 3px; font: 11px var(--mono); }
+.reader-page-control input {
+  width: 42px;
+  padding: 2px 4px;
+  text-align: right;
+  color: var(--fg);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+}
+.reader-bar [aria-pressed='true'] { color: var(--accent); background: var(--accent-dim); }
 
 .reader-body { flex: 1; display: flex; min-height: 0; }
-.reader-pages { flex: 1; min-width: 0; overflow: auto; padding: 12px; background: var(--bg); }
+.reader-pages {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 12px;
+  background: var(--bg);
+}
 
 .reader-notes {
   flex: none;
   width: 260px;
-  overflow: auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border-left: 1px solid var(--line);
   background: var(--bg-1);
 }
@@ -1947,6 +1903,19 @@ option {
 .note-card[data-colour='red'] { border-left-color: var(--c-red); }
 
 .note-page { display: block; font: 10px/1.6 var(--mono); color: var(--fg-mute); }
+.note-card-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+.note-card-meta time { flex: none; }
+.note-card-title {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reader-notes .rail-tabs { flex: none; }
 .note-text {
   display: -webkit-box;
   -webkit-line-clamp: 4;
@@ -2024,10 +1993,6 @@ option {
 .statusbar .dim { color: var(--fg-mute); }
 .statusbar .icon-btn { width: 18px; height: 18px; }
 .search-idle { visibility: hidden; }
-
-/* The picker opens upwards from the status bar, which is the bottom of the
-   window; opening downwards would put it off screen. */
-.statusbar .column-pop { bottom: calc(100% + 6px); }
 
 
 .browser-body .row[data-selected='true'] { background: var(--accent-dim); color: #fff; }
@@ -2730,6 +2695,9 @@ option {
   font-size: 12px;
   line-height: 1.5;
 }
+.reader-note-body.note-list { display: block; padding: 0; }
+.detail-section[data-section='notes'] { padding: 0; }
+.note-list .note-card { flex: none; }
 .reader-note-body p { margin: 0 0 8px; }
 .reader-note-body h1,
 .reader-note-body h2,
@@ -2819,53 +2787,6 @@ option {
    A note is written over minutes, so it is a tab and not a dialog, and it
    fills the surface: an editor that occupies a third of the pane invites
    short notes. */
-.note-view { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.note-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg-2);
-}
-.note-modes { display: flex; gap: 4px; }
-.note-state { font: 10px var(--mono); text-transform: uppercase; letter-spacing: .04em; }
-.note-editor {
-  flex: 1;
-  min-height: 0;
-  padding: 12px 16px;
-  background: var(--bg);
-  border: 0;
-  outline: 0;
-  color: var(--fg);
-  /* Monospace, because what is stored is markdown and the alignment of a list
-     or a table is part of reading it. */
-  font: 12px/1.65 var(--mono);
-  resize: none;
-  tab-size: 2;
-}
-.note-preview {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 12px 16px;
-  /* Bounded like prose, because a summary set across a 2000px pane is
-     unreadable however well it is rendered. */
-  max-width: 78ch;
-}
-
-/* Marked, because a summary the model wrote and a note the user wrote are
-   different things to trust. */
-.note-badge {
-  flex: none;
-  padding: 0 4px;
-  background: var(--bg-3);
-  border: 1px solid var(--line-2);
-  color: var(--fg-mute);
-  font: 9px var(--mono);
-  text-transform: uppercase;
-}
 
 /* A cover is recognised before it is read, so it goes at the top of the panel
    and is sized by the panel rather than by the page: PDFs come in letter, A4
@@ -2893,7 +2814,8 @@ option {
 /* The rail holds one of two panels; the width belongs to the container so
    switching tabs does not resize the reader beside it. */
 .reader-rail {
-  flex: 0 0 132px;
+  flex: none;
+  width: 200px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -2936,7 +2858,10 @@ option {
 .outline-row:hover:not(:disabled) { color: var(--text); background: var(--panel); }
 .outline-row[data-active='true'] { color: var(--text); border-left-color: var(--accent); }
 .outline-row:disabled { cursor: default; opacity: 0.55; }
-.outline-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outline-entry { display: flex; align-items: baseline; min-width: 0; }
+.outline-entry .outline-row { min-width: 0; flex: 1; }
+.outline-toggle { flex: none; width: 20px; color: var(--fg-mute); font: 12px var(--mono); }
+.outline-title { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .outline-page { font-variant-numeric: tabular-nums; opacity: 0.7; }
 
 .page-rail {
@@ -2951,6 +2876,7 @@ option {
 }
 .page-cell {
   display: grid;
+  flex: none;
   gap: 2px;
   justify-items: center;
   padding: 3px;
@@ -2972,19 +2898,24 @@ option {
   border: 1px solid var(--line);
 }
 .page-shot img { display: block; width: 100%; height: auto; }
+.page-raster canvas { display: block; width: 96px; height: auto; }
+.page-raster { display: block; font-size: 10px; }
 
 /* The selection popup: a question, not an action. Nothing is written to the
    library until one of these is clicked — releasing the mouse used to create a
    highlight, so reading with the mouse edited the document. */
 .selection-popup {
   position: fixed;
-  transform: translate(-50%, -100%);
   z-index: 40;
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 4px 6px;
-  background: var(--panel);
+  max-width: calc(100vw - 16px);
+  flex-wrap: wrap;
+  background: var(--bg-2, #1a1f24);
+  color: var(--fg, #d5dde5);
+  isolation: isolate;
   border: 1px solid var(--line);
   border-radius: 4px;
   box-shadow: 0 4px 14px rgb(0 0 0 / 0.35);
@@ -3008,11 +2939,28 @@ option {
   background: none;
   border: none;
   border-radius: 3px;
-  color: var(--text-dim);
+  color: var(--fg-dim);
   cursor: pointer;
 }
-.selection-popup .popup-action:hover { background: var(--bg); color: var(--text); }
+.selection-popup .popup-action:hover { background: var(--bg-3); color: var(--fg); }
 .selection-popup .underline-glyph { font-size: 12px; text-decoration: underline; line-height: 1; }
+.annotation-tools { display: flex; flex-direction: column; align-items: stretch; }
+.annotation-tools.editing { width: min(320px, calc(100vw - 16px)); }
+.annotation-tool-row { display: flex; align-items: center; gap: 4px; }
+.annotation-comment { display: grid; gap: 6px; padding-top: 5px; }
+.annotation-comment label { display: grid; gap: 4px; font-size: 11px; }
+.annotation-comment textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 6px;
+  resize: vertical;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  color: var(--fg);
+  font: 12px/1.45 var(--sans);
+}
+.annotation-comment .btn { justify-self: end; }
+.annotation-error { max-width: 300px; white-space: normal; font-size: 11px; }
 
 /* An underline marks the same rectangles as a highlight, but along the baseline
    rather than through the words — so the text stays as readable as it was. */

@@ -18,19 +18,16 @@ use serde::Deserialize;
 use serde_json::json;
 use yk_ai::ChatMessage;
 use yk_core::event::DomainEvent;
-use yk_core::model::{Item, ItemDraft, ItemTag};
+use yk_core::model::{Item, ItemDraft};
 use yk_core::Error;
 
-use super::summarise::Language;
+use super::summarise::{generated_note_tags, generated_note_title, is_generated_note, Language};
 use super::{announce, key};
 use crate::error::ApiResult;
 use crate::state::App;
 
 /// Marks the note as this feature's, so re-reading replaces rather than piles.
 pub const READING_TAG: &str = "close-reading";
-
-/// Type 1 is an automatic tag: the user did not write it.
-const AUTOMATIC: u8 = 1;
 
 pub fn router() -> Router<App> {
     Router::new().route("/libraries/:lib/items/:key/close-reading", post(close_reading))
@@ -96,7 +93,13 @@ async fn close_reading(
         return Err(e.into());
     }
 
-    let note = save(&app, lib, &parent, &turn.reply, turn.truncated).await?;
+    let note = match save(app.store(), lib, &parent, &turn.reply, turn.truncated).await {
+        Ok(note) => note,
+        Err(e) => {
+            app.tasks().fail(&task, &e);
+            return Err(e.into());
+        }
+    };
     app.tasks().finish(&task, json!({ "note": note.key.as_str() }));
 
     announce(&app, lib, |version| DomainEvent::ItemsChanged {
@@ -119,33 +122,22 @@ async fn close_reading(
 
 /// One close reading per item: re-reading replaces it.
 async fn save(
-    app: &App,
+    store: &yk_store::Store,
     lib: i64,
     parent: &yk_core::Key,
     reply: &str,
     truncated: bool,
 ) -> Result<Item, Error> {
-    let tags = {
-        let mut tags = vec![ItemTag { tag: READING_TAG.into(), r#type: AUTOMATIC }];
-        if truncated {
-            tags.push(ItemTag {
-                tag: super::summarise::TRUNCATED_TAG.into(),
-                r#type: AUTOMATIC,
-            });
-        }
-        tags
-    };
-    let title = yk_core::text::note_title(reply, yk_core::text::NOTE_TITLE_CHARS).to_string();
-
-    let existing = app
-        .store()
+    let existing = store
         .items
         .children(lib, parent)
         .await?
         .into_iter()
-        .find(|c| c.item_type == "note" && c.tags.iter().any(|t| t.tag == READING_TAG));
+        .find(|c| is_generated_note(c, READING_TAG));
+    let title = generated_note_title(existing.as_ref(), "Close reading");
+    let tags = generated_note_tags(existing.as_ref(), READING_TAG, truncated);
 
-    match existing {
+    match existing.as_ref() {
         Some(note) => {
             let patch = yk_core::model::ItemPatch {
                 fields: Some(
@@ -156,15 +148,15 @@ async fn save(
                 tags: Some(tags),
                 ..Default::default()
             };
-            app.store().items.update(lib, &note.key, patch, None).await
+            store.items.update(lib, &note.key, patch, Some(note.version)).await
         }
         None => {
             let mut draft = ItemDraft::new("note")
                 .with_field("note", reply)
-                .with_field("title", title.as_str());
+                .with_field("title", title);
             draft.tags = tags;
             draft.parent_key = Some(parent.clone());
-            app.store().items.create(lib, draft).await
+            store.items.create(lib, draft).await
         }
     }
 }
@@ -252,6 +244,70 @@ mod tests {
             truncated,
             total_chars: body.chars().count(),
         }
+    }
+
+    #[tokio::test]
+    async fn generated_close_reading_defaults_and_regeneration_preserve_note_identity() {
+        let store = yk_store::Store::in_memory().unwrap();
+        let lib = store.default_library;
+        let parent = store.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+        let first = save(&store, lib, &parent.key, "Close reading", true).await.unwrap();
+        assert_eq!(first.item_type, "note");
+        assert_eq!(first.title(), "Close reading");
+        assert!(first.tags.iter().all(|tag| tag.r#type == 1));
+        let next = save(&store, lib, &parent.key, "## Claim\nA new claim.", false).await.unwrap();
+        assert_eq!(next.key, first.key);
+        assert_eq!(next.parent_key, Some(parent.key));
+        assert_eq!(next.title(), "Close reading");
+        assert_eq!(next.field("note"), Some("## Claim\nA new claim."));
+        assert_eq!(next.tags, generated_note_tags(None, READING_TAG, false));
+        assert_eq!(json!(store.items.get(lib, &next.key).await.unwrap()), json!(next));
+    }
+
+    #[tokio::test]
+    async fn generated_close_reading_only_migrates_legacy_titles_and_keeps_custom_titles() {
+        let store = yk_store::Store::in_memory().unwrap();
+        let lib = store.default_library;
+        for old_body in [
+            "## Claim\n\nThe original claim.",
+            "<h2>Claim &amp; evidence</h2><p>Old findings.</p>",
+            &"精读论文的结论".repeat(20),
+        ] {
+            for custom in [false, true] {
+                let parent =
+                    store.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+                let legacy = yk_core::text::note_title(old_body, yk_core::text::NOTE_TITLE_CHARS);
+                let title = if custom { "My detailed reading" } else { &legacy };
+                let mut draft =
+                    ItemDraft::new("note").with_field("note", old_body).with_field("title", title);
+                draft.parent_key = Some(parent.key.clone());
+                draft.tags = generated_note_tags(None, READING_TAG, true);
+                draft.tags.push(yk_core::model::ItemTag { tag: "keep".into(), r#type: 0 });
+                let original = store.items.create(lib, draft).await.unwrap();
+                let next = save(&store, lib, &parent.key, "## Claim\nNew findings.", false)
+                    .await
+                    .unwrap();
+                assert_eq!(next.key, original.key);
+                assert_eq!(next.title(), if custom { title } else { "Close reading" });
+                assert_eq!(next.field("note"), Some("## Claim\nNew findings."));
+                assert!(next.tags.iter().any(|tag| tag.tag == "keep" && tag.r#type == 0));
+                assert!(!next.tags.iter().any(|tag| tag.tag == super::super::summarise::TRUNCATED_TAG));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn generated_close_reading_does_not_replace_a_manually_tagged_note() {
+        let store = yk_store::Store::in_memory().unwrap();
+        let lib = store.default_library;
+        let parent = store.items.create(lib, ItemDraft::new("journalArticle")).await.unwrap();
+        let mut draft = ItemDraft::new("note").with_field("note", "My reading");
+        draft.parent_key = Some(parent.key.clone());
+        draft.tags = vec![yk_core::model::ItemTag { tag: READING_TAG.into(), r#type: 0 }];
+        let manual = store.items.create(lib, draft).await.unwrap();
+        let reading = save(&store, lib, &parent.key, "Generated.", false).await.unwrap();
+        assert_ne!(reading.key, manual.key);
+        assert_eq!(json!(store.items.get(lib, &manual.key).await.unwrap()), json!(manual));
     }
 
     #[test]

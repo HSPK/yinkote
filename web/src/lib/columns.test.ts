@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest'
 
 import {
   BUILTIN_COLUMNS,
+  CATALOGUE,
+  DEFAULT_COLUMNS,
   DEFAULT_VISIBLE,
   allColumns,
   badgeColumn,
   gridTemplate,
   moveColumn,
+  reorderColumn,
+  restoredColumnOrders,
   toggleColumn,
   visibleColumns,
 } from './columns'
@@ -17,6 +21,14 @@ describe('columns', () => {
   it('defaults to columns that all exist', () => {
     const ids = BUILTIN_COLUMNS.map((c) => c.id)
     for (const id of DEFAULT_VISIBLE) expect(ids).toContain(id)
+  })
+
+  it('has a nonempty valid default for every table', () => {
+    for (const table of Object.keys(DEFAULT_COLUMNS) as (keyof typeof DEFAULT_COLUMNS)[]) {
+      expect(DEFAULT_COLUMNS[table].length).toBeGreaterThan(0)
+      expect(visibleColumns([], CATALOGUE[table])).toHaveLength(1)
+      for (const id of DEFAULT_COLUMNS[table]) expect(CATALOGUE[table].map((c) => c.id)).toContain(id)
+    }
   })
 
   it('namespaces badge columns by plugin so two plugins can both supply "if"', () => {
@@ -69,6 +81,18 @@ describe('columns', () => {
     expect(next).toEqual(['title', 'year', 'modified'])
   })
 
+  it('does not reset a manual order when enabling another column', () => {
+    const order = ['modified', 'year', 'title']
+    const next = toggleColumn(order, 'author', allColumns())
+    expect(next.filter((id) => id !== 'author')).toEqual(order)
+    expect(next).toContain('author')
+  })
+
+  it('does not hide the last available column when a plugin is missing', () => {
+    const order = ['title', badge.id]
+    expect(toggleColumn(order, 'title', allColumns())).toEqual(order)
+  })
+
   it('accumulates across repeated toggles, as a picker does', () => {
     // The regression this documents: the picker fed each toggle the order it
     // captured when it opened, so turning on a second badge column quietly
@@ -91,5 +115,29 @@ describe('columns', () => {
     expect(moveColumn(['a', 'b', 'c'], 'b', -1)).toEqual(['b', 'a', 'c'])
     expect(moveColumn(['a', 'b', 'c'], 'c', 1)).toEqual(['a', 'b', 'c'])
     expect(moveColumn(['a', 'b', 'c'], 'z', 1)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('drops at the target position without sorting the other columns', () => {
+    expect(reorderColumn(['c', 'b', 'a'], 'c', 'a')).toEqual(['b', 'a', 'c'])
+    expect(reorderColumn(['c', 'b', 'a'], 'a', 'c')).toEqual(['a', 'c', 'b'])
+    expect(reorderColumn(['a', 'b'], 'missing', 'a')).toEqual(['a', 'b'])
+  })
+
+  it('restores old settings with defaults for newly configurable tables', () => {
+    expect(restoredColumnOrders({ collections: ['items', 'name'] }, ['year', 'title'])).toEqual({
+      ...DEFAULT_COLUMNS,
+      items: ['year', 'title'],
+      collections: ['items', 'name'],
+    })
+  })
+
+  it('recovers invalid orders while retaining disabled plugin preferences', () => {
+    const restored = restoredColumnOrders({
+      items: [badge.id, 'title', 'title'], collections: [], chats: null, files: 'name',
+    })
+    expect(restored.items).toEqual([badge.id, 'title'])
+    expect(restored.collections).toEqual(DEFAULT_COLUMNS.collections)
+    expect(restored.chats).toEqual(DEFAULT_COLUMNS.chats)
+    expect(restored.files).toEqual(DEFAULT_COLUMNS.files)
   })
 })

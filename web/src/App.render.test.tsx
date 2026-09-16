@@ -31,6 +31,7 @@ async function render() {
 }
 
 beforeEach(() => {
+  useStore.setState({ sidebarOpen: true })
   container = document.createElement('div')
   document.body.append(container)
   root = createRoot(container)
@@ -42,6 +43,38 @@ afterEach(() => {
 })
 
 describe('the workbench', () => {
+  it('offers the top details toggle on every view that has a details panel', async () => {
+    for (const kind of ['library', 'collections', 'chats', 'note', 'files', 'reader', 'graph'] as const) {
+      useStore.setState({
+        ready: true,
+        tabs: [{ id: kind, kind, title: kind }],
+        activeTab: kind,
+        detailOpen: false,
+        readerLayout: { ...useStore.getState().readerLayout, detailsOpen: false },
+      })
+      await render()
+      const toggle = container.querySelector<HTMLButtonElement>('.toolbar [aria-controls="workspace-details"]')
+      expect(toggle?.disabled, kind).toBe(false)
+      await act(async () => toggle?.click())
+      expect(container.querySelector('#workspace-details'), kind).not.toBeNull()
+      await act(async () => toggle?.click())
+      expect(container.querySelector('#workspace-details'), kind).toBeNull()
+      expect(container.querySelector('.statusbar [title="Show details"]'), kind).toBeNull()
+    }
+  })
+
+  it('can hide and reopen the left sidebar without losing its width', async () => {
+    useStore.setState({ ready: true, tabs: [libraryTab('Library')], activeTab: 'library' })
+    await render()
+    const width = useStore.getState().layout.sidebar
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-controls="library-sidebar"]')?.click())
+    expect(container.querySelector('#library-sidebar')).toBeNull()
+    expect(container.querySelector('.workspace-main')).not.toBeNull()
+    expect(useStore.getState().layout.sidebar).toBe(width)
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-controls="library-sidebar"]')?.click())
+    expect(container.querySelector('#library-sidebar')).not.toBeNull()
+    expect(useStore.getState().layout.sidebar).toBe(width)
+  })
   it('shows a connecting state before the server answers', async () => {
     useStore.setState({ ready: false })
     await render()

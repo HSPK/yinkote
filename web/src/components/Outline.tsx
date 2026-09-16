@@ -20,7 +20,13 @@ export function Outline({
   onJump: (page: number) => void
 }) {
   const t = useT()
-  const rows = flatten(nodes)
+  const [collapsed, setCollapsed] = useState<Set<OutlineNode>>(() => new Set())
+  const rows = useMemo(() => flatten(nodes), [nodes])
+  const visible = useMemo(() => {
+    const collect = (nodes: OutlineNode[]): OutlineNode[] =>
+      nodes.flatMap((node) => [node, ...(collapsed.has(node) ? [] : collect(node.children))])
+    return collect(nodes)
+  }, [nodes, collapsed])
 
   // The heading being read is the last one at or before the current page. A
   // reader wants to know where they are, and the outline is the only thing on
@@ -32,12 +38,26 @@ export function Outline({
 
   return (
     <div className="outline" aria-label={t('reader.outline')}>
-      {rows.map((row, i) => (
+      {visible.map((row, i) => (
+        <div key={`${i}-${row.title}`} className="outline-entry">
+          {row.children.length > 0 && (
+            <button className="outline-toggle" aria-expanded={!collapsed.has(row)}
+              aria-label={t(collapsed.has(row) ? 'reader.expandHeading' : 'reader.collapseHeading', {
+                title: row.title,
+              })}
+              onClick={() => setCollapsed((was) => {
+                const next = new Set(was)
+                if (next.has(row)) next.delete(row)
+                else next.add(row)
+                return next
+              })}>
+              {collapsed.has(row) ? '+' : '−'}
+            </button>
+          )}
         <button
-          key={`${i}-${row.title}`}
           className="outline-row"
           style={{ paddingLeft: `${6 + Math.min(row.depth, 4) * 10}px` }}
-          data-active={i === active}
+          data-active={rows[active] === row}
           // A bookmark pointing at nothing is a defect in the file; the row
           // stays, because it still says what is in the document, but it does
           // not pretend to be a link.
@@ -48,7 +68,9 @@ export function Outline({
           <span className="outline-title">{row.title}</span>
           {row.page !== null && <span className="outline-page">{row.page}</span>}
         </button>
+        </div>
       ))}
     </div>
   )
 }
+import { useMemo, useState } from 'react'

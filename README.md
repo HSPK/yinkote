@@ -177,6 +177,11 @@ manifest path and the sideload instructions for your platform.
 hard-coded forms; nested collections; smart collections that are saved searches;
 tags with colours; a trash that really keeps things until you empty it.
 
+**Workbench controls.** Use the top toolbar to show or hide the sidebar and
+details panel. Right-click a table header and choose **Columns** to select
+visible fields; drag headers to reorder them. Layouts are saved independently
+for items, collections, conversations, files, downloads, jobs and missing works.
+
 **Search that finds things.** Four strategies fused into one ranking: keyword
 (BM25), fuzzy (trigram + edit distance, for when you mistype), semantic
 (vector), and field filters. The query language is what you would guess —
@@ -186,6 +191,9 @@ tags with colours; a trash that really keeps things until you empty it.
 **Reading.** A PDF reader with highlights, notes and an outline, rendered at
 device resolution. Markdown notes on any paper. Annotations gathered into a note
 in one gesture.
+PDF tabs stay open until explicitly closed, keeping their document, zoom and
+reading position when you switch to another tab. Summaries and close readings
+are ordinary entries in Notes, with the same row styling as annotations.
 
 **References.** A paper's bibliography from Crossref, from Semantic Scholar for
 preprints, or read off the PDF's own pages when nobody deposited one — and the

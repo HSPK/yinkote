@@ -5,11 +5,6 @@ import { type MessageKey, useSchemaLabel, useT } from '../i18n'
 import {
   allColumns,
   badgeColumn,
-  gridTemplate,
-  moveColumn,
-  totalColumnWidth,
-  toggleColumn,
-  visibleColumns,
   type ColumnDef,
 } from '../lib/columns'
 import { beginDrag, endDrag } from '../lib/dnd'
@@ -17,9 +12,10 @@ import { creatorSummary, displayTitle, modKey, shortDate, snippetParts, year } f
 import { tagColour } from '../lib/tags'
 import { searchText } from '../state/scope'
 import { useStore } from '../state/store'
-import { contextMenu, Icon, type MenuItem } from '../ui'
+import { contextMenu, Icon } from '../ui'
 import { itemMenu } from './menus'
 import { VirtualList } from './VirtualList'
+import { TableHeader, useTableColumns } from './TableHeader'
 
 /**
  * Tags in a table cell.
@@ -40,8 +36,6 @@ function TagDots({ tags }: { tags: string[] }) {
     </span>
   )
 }
-
-const MAX_WIDTH = 640
 
 const SOURCE_GLYPH: Record<MatchSource, string> = {
   keyword: 'K',
@@ -271,19 +265,12 @@ export function ItemTable() {
   const total = useStore((s) => s.total)
 
   const badgeDefs = useStore((s) => s.badgeDefs)
-  const order = useStore((s) => s.columnOrders.items)
-  const widths = useStore((s) => s.columnWidths)
-  const setColumnWidth = useStore((s) => s.setColumnWidth)
-  const setColumnOrder = useStore((s) => s.setColumnOrder)
 
   // A position rather than a command: the cursor *is* the identity of the
   // request, so landing on the same row twice asks for nothing new.
   const keepCursorInView = useMemo(() => ({ index: cursor, token: cursor }), [cursor])
 
   const available = useMemo(() => allColumns(badgeDefs.map((b) => badgeColumn(b))), [badgeDefs])
-  const columns = useMemo(() => visibleColumns(order, available), [order, available])
-  const grid = useMemo(() => gridTemplate(columns, widths), [columns, widths])
-  const totalWidth = useMemo(() => totalColumnWidth(columns, widths), [columns, widths])
 
   /** Labels differ in origin: builtin columns translate, badges carry plugin text. */
   const headerLabel = (c: ColumnDef) =>
@@ -296,79 +283,18 @@ export function ItemTable() {
   const headerContent = (c: ColumnDef) =>
     c.id === 'attachments' ? <Icon.Paperclip size={12} /> : headerLabel(c)
 
-  // Reads the live order at click time: a menu's items are captured when it
-  // opens, so anything acting on `order` from the closure would be stale.
-  const reorder = (id: string, delta: number) =>
-    setColumnOrder('items', moveColumn(useStore.getState().columnOrders.items, id, delta))
-
-  const headerMenu = (c: ColumnDef): MenuItem[] => [
-    { label: t('table.moveLeft'), onSelect: () => reorder(c.id, -1) },
-    { label: t('table.moveRight'), onSelect: () => reorder(c.id, 1) },
-    {},
-    { label: t('table.hideColumn'), onSelect: () => setColumnOrder('items', hideColumn(c.id)) },
-  ]
-
-  const hideColumn = (id: string) =>
-    toggleColumn(useStore.getState().columnOrders.items, id, available)
-
-  // Resizing tracks the pointer on the window so the drag survives leaving the
-  // 5px grip, which is otherwise almost impossible to stay inside.
-  const startResize = (c: ColumnDef) => (e: React.PointerEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const cell = (e.currentTarget as HTMLElement).parentElement
-    const from = e.clientX
-    const base = cell?.getBoundingClientRect().width ?? c.min
-    let last = base
-    const move = (ev: PointerEvent) => {
-      last = Math.max(c.min, Math.min(MAX_WIDTH, base + ev.clientX - from))
-      setColumnWidth(c.id, last)
-    }
-    const up = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      document.body.style.cursor = ''
-      setColumnWidth(c.id, last, true)
-    }
-    document.body.style.cursor = 'col-resize'
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-  }
-
+  const layout = useTableColumns('items', { available, label: headerLabel })
+  const { columns, grid, width: totalWidth } = layout
   const header = (
-    <div className="table-head" style={{ gridTemplateColumns: grid }}>
-      {columns.map((c) => (
-        <div
-          key={c.id}
-          className="head-cell"
-          data-column={c.id}
-          onContextMenu={contextMenu(() => headerMenu(c))}
-        >
-          {/* A ranked search returns its pool best-first and cannot honour a
-              column sort, so while one is running the header neither draws an
-              arrow nor accepts a click. It used to do both: the arrow moved,
-              the rows did not, and nothing said why. Sorting the pool instead
-              would be worse — the first title among three hundred hits,
-              presented as the first title in the library. */}
-          <button
-            className={!ranked && sort === c.sort ? 'sorted' : undefined}
-            disabled={!c.sort || ranked}
-            title={ranked ? t('table.rankedHint') : headerLabel(c)}
-            onClick={() => c.sort && setSort(c.sort)}
-          >
-            <span className="head-label">{headerContent(c)}</span>
-            {!ranked && sort === c.sort && (
-              <span className="sort-arrow">{direction === 'asc' ? '↑' : '↓'}</span>
-            )}
-          </button>
-          <span
-            className="col-grip"
-            onPointerDown={startResize(c)}
-            onDoubleClick={() => setColumnWidth(c.id, c.width, true)}
-          />
-        </div>
-      ))}
-    </div>
+    <TableHeader
+      layout={layout}
+      sort={sort}
+      direction={direction}
+      onSort={setSort}
+      sortDisabled={ranked}
+      sortHint={t('table.rankedHint')}
+      content={headerContent}
+    />
   )
 
   return (

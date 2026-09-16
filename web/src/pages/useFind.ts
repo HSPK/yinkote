@@ -1,73 +1,78 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 
-import { occurrences, step } from '../lib/find'
+import { step } from '../lib/find'
+import {
+  findPdfMatches,
+  pdfSearchQuery,
+  pdfTextIndex,
+  type PdfSearchDocument,
+  type PdfSearchMatch,
+} from '../lib/pdf-search'
 
-/**
- * Find-in-document over an already-rendered text layer.
- *
- * Works on the DOM rather than on pdf.js's text content because the reader must
- * be able to *show* a match: the spans are where the coordinates already are,
- * so wrapping them needs no second coordinate system to keep in step with the
- * first.
- */
-export function useFind(root: React.RefObject<HTMLElement | null>, query: string, ready: unknown) {
-  const [total, setTotal] = useState(0)
-  const [index, setIndex] = useState(0)
-  const marks = useRef<HTMLElement[]>([])
+const idleSubscribe = () => () => {}
+const idleSnapshot = () => 0
 
-  const clear = useCallback(() => {
-    for (const span of root.current?.querySelectorAll<HTMLElement>('[data-found]') ?? []) {
-      // Collapsing puts the split text nodes back, so repeated searches do not
-      // shred the layer into ever smaller pieces.
-      span.replaceWith(...span.childNodes)
-      span.parentElement?.normalize()
-    }
-    marks.current = []
-  }, [root])
-
-  useEffect(() => {
-    clear()
-    const needle = query.trim()
-    if (!needle || !root.current) {
-      setTotal(0)
-      return
-    }
-
-    const found: HTMLElement[] = []
-    const walker = document.createTreeWalker(root.current, NodeFilter.SHOW_TEXT)
-    const texts: Text[] = []
-    while (walker.nextNode()) texts.push(walker.currentNode as Text)
-
-    for (const node of texts) {
-      const hits = occurrences(node.data, needle)
-      // Right to left, so each split leaves the earlier offsets valid.
-      for (const [start, end] of [...hits].reverse()) {
-        const tail = node.splitText(start)
-        tail.splitText(end - start)
-        const mark = document.createElement('span')
-        mark.dataset.found = 'true'
-        tail.replaceWith(mark)
-        mark.append(tail)
-        found.unshift(mark)
+/** Search the document, not whichever text layers happen to be on screen. */
+export function useFind(doc: PdfSearchDocument | null | undefined, query: string) {
+  const needle = pdfSearchQuery(query)
+  const source = useMemo(() => doc ? pdfTextIndex(doc) : null, [doc])
+  const enabled = Boolean(source && needle)
+  const version = useSyncExternalStore(
+    enabled ? source!.subscribe : idleSubscribe,
+    enabled ? source!.getSnapshot : idleSnapshot,
+    idleSnapshot,
+  )
+  const pageMatches = useMemo(() => new Map<number, PdfSearchMatch[]>(), [source, needle])
+  const { matches, matchesByPage } = useMemo(() => {
+    const byPage = new Map<number, PdfSearchMatch[]>()
+    if (source && needle) {
+      for (const pageNumber of [...source.pages.keys()].sort((a, b) => a - b)) {
+        let found = pageMatches.get(pageNumber)
+        if (!found) {
+          found = findPdfMatches(source.pages.get(pageNumber)!, needle, pageNumber)
+          pageMatches.set(pageNumber, found)
+        }
+        if (found.length) byPage.set(pageNumber, found)
       }
     }
-
-    marks.current = found
-    setTotal(found.length)
-    setIndex(0)
-    return clear
-  }, [query, ready, root, clear])
+    return { matches: [...byPage.values()].flat(), matchesByPage: byPage }
+  }, [source, needle, pageMatches, version])
+  const [selection, setSelection] = useState<{
+    source: typeof source
+    needle: string
+    id: string
+  } | null>(null)
+  const selected = selection?.source === source && selection.needle === needle
+    ? matches.findIndex((match) => match.id === selection.id) : -1
+  const activeIndex = selected < 0 ? 0 : selected
+  const active = matches[activeIndex] ?? null
 
   useEffect(() => {
-    marks.current.forEach((mark, i) => {
-      mark.dataset.current = i === index ? 'true' : 'false'
+    if (!active) {
+      setSelection(null)
+    } else if (selected < 0) {
+      // Keep the same target when an earlier page finishes indexing later.
+      setSelection({ source, needle, id: active.id })
+    }
+  }, [active, selected, source, needle])
+
+  const go = useCallback((delta: number) => {
+    if (!matches.length) return
+    setSelection((previous) => {
+      const current = previous?.source === source && previous.needle === needle
+        ? matches.findIndex((match) => match.id === previous.id) : -1
+      const next = matches[step(current < 0 ? 0 : current, matches.length, delta)]!
+      return { source, needle, id: next.id }
     })
-    marks.current[index]?.scrollIntoView({ block: 'center', behavior: 'smooth' })
-  }, [index, total])
+  }, [matches, source, needle])
 
   return {
-    total,
-    index: total ? index + 1 : 0,
-    go: (delta: number) => setIndex((i) => step(i, marks.current.length, delta)),
+    total: matches.length,
+    index: active ? activeIndex + 1 : 0,
+    go,
+    loading: enabled && source!.loading,
+    error: enabled ? source!.errors.values().next().value ?? null : null,
+    matchesByPage,
+    active,
   }
 }

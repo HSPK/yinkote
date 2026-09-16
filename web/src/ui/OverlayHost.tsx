@@ -6,7 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { t } from '../i18n'
 import { Button } from './controls'
-import { useOverlays, type MenuItem } from './overlays'
+import { useOverlays, type MenuItem, type MenuSource } from './overlays'
 
 // ─── dialog ─────────────────────────────────────────────────────────────────
 
@@ -120,23 +120,63 @@ function DialogHost() {
 
 function MenuRow({ item, onDone }: { item: MenuItem; onDone: () => void }) {
   const [open, setOpen] = useState(false)
+  const anchor = useRef<HTMLDivElement>(null)
+  const submenu = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState({ left: 0, top: 0 })
 
-  if (!item.label) return <div className="menu-sep" />
+  useLayoutEffect(() => {
+    if (!open || !anchor.current || !submenu.current) return
+    const rect = anchor.current.getBoundingClientRect()
+    const child = submenu.current.getBoundingClientRect()
+    setPosition({
+      left: Math.max(8, rect.right + child.width > window.innerWidth - 8
+        ? rect.left - child.width : rect.right),
+      top: Math.max(8, Math.min(rect.top, window.innerHeight - child.height - 8)),
+    })
+  }, [open, item.items])
+
+  if (!item.label) return <div className="menu-sep" role="separator" />
 
   if (item.items?.length) {
     return (
       <div
+        ref={anchor}
         className="menu-item"
+        role="menuitem"
+        aria-label={item.label}
+        tabIndex={item.disabled ? -1 : 0}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-disabled={item.disabled || undefined}
         data-disabled={item.disabled || undefined}
-        onMouseEnter={() => setOpen(true)}
+        onMouseEnter={() => !item.disabled && setOpen(true)}
         onMouseLeave={() => setOpen(false)}
+        onClick={() => !item.disabled && setOpen(true)}
+        onKeyDown={(e) => {
+          if (item.disabled || e.target !== e.currentTarget) return
+          if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+            e.preventDefault()
+            setOpen(true)
+            requestAnimationFrame(() => submenu.current?.querySelector<HTMLElement>('[role^="menuitem"]')?.focus())
+          }
+          if (e.key === 'ArrowLeft') setOpen(false)
+        }}
       >
         <span>{item.label}</span>
         <span className="menu-hint">›</span>
         {open && (
-          <div className="menu submenu">
+          <div ref={submenu} className="menu submenu" role="menu"
+            style={{ position: 'fixed', ...position, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' }}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowLeft') return
+              event.preventDefault()
+              event.stopPropagation()
+              setOpen(false)
+              anchor.current?.focus()
+            }}
+          >
             {item.items.map((child, i) => (
-              <MenuRow key={i} item={child} onDone={onDone} />
+              <MenuRow key={child.id ?? i} item={child} onDone={onDone} />
             ))}
           </div>
         )}
@@ -148,6 +188,9 @@ function MenuRow({ item, onDone }: { item: MenuItem; onDone: () => void }) {
   return (
     <button
       className="menu-item"
+      role={checkable ? 'menuitemcheckbox' : 'menuitem'}
+      aria-label={item.label}
+      aria-checked={checkable ? item.checked : undefined}
       data-danger={item.danger || undefined}
       data-checked={item.checked || undefined}
       disabled={item.disabled}
@@ -156,9 +199,10 @@ function MenuRow({ item, onDone }: { item: MenuItem; onDone: () => void }) {
         // and reopening the menu between each is needless work.
         if (!checkable) onDone()
         void item.onSelect?.()
+        if (checkable) useOverlays.getState().refreshMenu()
       }}
     >
-      {checkable && <span className="menu-check">{item.checked ? '✓' : ''}</span>}
+      {checkable && <span className="menu-check" aria-hidden="true">{item.checked ? '✓' : ''}</span>}
       <span>{item.label}</span>
       {item.hint && <span className="menu-hint">{item.hint}</span>}
     </button>
@@ -170,6 +214,19 @@ function MenuHost() {
   const close = useOverlays((s) => s.closeMenu)
   const ref = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState({ x: 0, y: 0 })
+  const menuId = menu?.id
+
+  useEffect(() => {
+    if (menuId === undefined) return
+    const previous = document.activeElement as HTMLElement | null
+    const frame = requestAnimationFrame(() =>
+      ref.current?.querySelector<HTMLElement>('[role^="menuitem"]:not(:disabled):not([aria-disabled="true"])')?.focus(),
+    )
+    return () => {
+      cancelAnimationFrame(frame)
+      if (previous?.isConnected) previous.focus()
+    }
+  }, [menuId])
 
   // Flip the menu when it would run off screen; measure before paint so the
   // user never sees it jump.
@@ -177,8 +234,8 @@ function MenuHost() {
     if (!menu || !ref.current) return
     const rect = ref.current.getBoundingClientRect()
     setPosition({
-      x: Math.min(menu.x, window.innerWidth - rect.width - 8),
-      y: Math.min(menu.y, window.innerHeight - rect.height - 8),
+      x: Math.max(8, Math.min(menu.x, window.innerWidth - rect.width - 8)),
+      y: Math.max(8, Math.min(menu.y, window.innerHeight - rect.height - 8)),
     })
   }, [menu])
 
@@ -200,11 +257,26 @@ function MenuHost() {
       <div
         ref={ref}
         className="menu"
+        role="menu"
         style={{ left: position.x, top: position.y }}
         onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(event) => {
+          if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+          const current = event.target as HTMLElement
+          const parent = current.closest('[role="menu"]')
+          const rows = [...(parent?.querySelectorAll<HTMLElement>(
+            ':scope > [role^="menuitem"]:not(:disabled):not([aria-disabled="true"])',
+          ) ?? [])]
+          if (!rows.length) return
+          event.preventDefault()
+          const index = rows.indexOf(current)
+          const next = event.key === 'Home' ? 0 : event.key === 'End' ? rows.length - 1
+            : (index + (event.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length
+          rows[next]?.focus()
+        }}
       >
         {menu.items.map((item, i) => (
-          <MenuRow key={i} item={item} onDone={close} />
+          <MenuRow key={item.id ?? i} item={item} onDone={close} />
         ))}
       </div>
     </div>
@@ -257,11 +329,10 @@ export function OverlayHost() {
 }
 
 /** Attach to `onContextMenu`. Returns a handler that opens `items`. */
-export function contextMenu(items: MenuItem[] | (() => MenuItem[])) {
+export function contextMenu(items: MenuSource) {
   return (event: React.MouseEvent) => {
     event.preventDefault()
     event.stopPropagation()
-    const resolved = typeof items === 'function' ? items() : items
-    useOverlays.getState().openMenu(event.clientX, event.clientY, resolved)
+    useOverlays.getState().openMenu(event.clientX, event.clientY, items)
   }
 }

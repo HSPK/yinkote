@@ -4,6 +4,7 @@ import { Icon } from '../ui'
 import { tabId } from '../lib/tabs'
 import { QuickAdd } from './QuickAdd'
 import { SearchBar } from './SearchBar'
+import { TABS } from '../workspace/registry'
 
 /**
  * A thin strip, not a navigation bar.
@@ -15,10 +16,24 @@ export function TopBar() {
   const t = useT()
   const openSettings = useStore((s) => s.openSettings)
   const openTab = useStore((s) => s.openTab)
+  const sidebarOpen = useStore((s) => s.sidebarOpen)
+  const toggleSidebar = useStore((s) => s.toggleSidebar)
+  const activeTab = useStore((s) => s.tabs.find((tab) => tab.id === s.activeTab))
+  const detailOpen = useStore((s) => s.detailOpen)
+  const readerDetailsOpen = useStore((s) => s.readerLayout.detailsOpen)
+  const toggleDetail = useStore((s) => s.toggleDetail)
+  const canInspect = activeTab ? Boolean(TABS[activeTab.kind].withDetail) : false
+  const inspecting = canInspect && (activeTab?.kind === 'reader' ? readerDetailsOpen : detailOpen)
 
   return (
     <header className="toolbar">
       <div className="toolbar-left">
+        <button className="icon-btn" aria-expanded={sidebarOpen} aria-controls="library-sidebar"
+          title={t(sidebarOpen ? 'sidebar.hide' : 'sidebar.show')}
+          aria-label={t(sidebarOpen ? 'sidebar.hide' : 'sidebar.show')}
+          onClick={toggleSidebar}>
+          <Icon.Panel size={14} />
+        </button>
         <span className="brand">YINKOTE</span>
       </div>
 
@@ -28,6 +43,13 @@ export function TopBar() {
 
       <div className="toolbar-right">
         <QuickAdd />
+        <button className="icon-btn" disabled={!canInspect} aria-pressed={inspecting}
+          aria-controls="workspace-details"
+          title={t(!canInspect ? 'detail.unavailable' : inspecting ? 'detail.hide' : 'detail.show')}
+          aria-label={t(inspecting ? 'detail.hide' : 'detail.show')}
+          onClick={() => toggleDetail()}>
+          <Icon.Panel size={14} />
+        </button>
         <button
           className="icon-btn"
           title={t('nav.plugins')}

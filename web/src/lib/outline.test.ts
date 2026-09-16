@@ -6,6 +6,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist'
 /** Just enough of a pdf.js document for the parts under test. */
 function doc(over: Partial<Record<string, unknown>> = {}): PDFDocumentProxy {
   return {
+    numPages: 12,
     getOutline: vi.fn(async () => []),
     getDestination: vi.fn(async () => null),
     // pdf.js counts from zero; everything a reader sees counts from one.
@@ -15,6 +16,12 @@ function doc(over: Partial<Record<string, unknown>> = {}): PDFDocumentProxy {
 }
 
 describe('resolving a bookmark to a page', () => {
+  it('supports numeric destinations including page zero', async () => {
+    expect(await pageOf(doc(), [0, { name: 'Fit' }])).toBe(1)
+    expect(await pageOf(doc(), [11, { name: 'Fit' }])).toBe(12)
+    expect(await pageOf(doc(), [12, { name: 'Fit' }])).toBeNull()
+    expect(await pageOf(doc(), [-1, { name: 'Fit' }])).toBeNull()
+  })
   it('follows an explicit destination array', async () => {
     expect(await pageOf(doc(), [{ num: 4 }, { name: 'XYZ' }])).toBe(5)
   })

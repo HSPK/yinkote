@@ -45,6 +45,8 @@ interface PendingDialog extends DialogSpec {
 // ─── context menu ───────────────────────────────────────────────────────────
 
 export interface MenuItem {
+  /** Stable identity for menus whose labels or check states refresh in place. */
+  id?: string
   /** A separator when omitted. */
   label?: string
   hint?: string
@@ -57,10 +59,14 @@ export interface MenuItem {
   items?: MenuItem[]
 }
 
+export type MenuSource = MenuItem[] | (() => MenuItem[])
+
 interface OpenMenu {
+  id: number
   x: number
   y: number
   items: MenuItem[]
+  source: MenuSource
 }
 
 // ─── toasts ─────────────────────────────────────────────────────────────────
@@ -83,7 +89,8 @@ interface OverlayState {
 
   ask: (spec: DialogSpec) => Promise<DialogResult>
   resolveDialog: (result: DialogResult) => void
-  openMenu: (x: number, y: number, items: MenuItem[]) => void
+  openMenu: (x: number, y: number, source: MenuSource) => void
+  refreshMenu: (source?: MenuSource) => void
   closeMenu: () => void
   pushToast: (toast: Omit<Toast, 'id'>) => number
   dismissToast: (id: number) => void
@@ -116,8 +123,15 @@ export const useOverlays = create<OverlayState>((set, get) => ({
     dialog.resolve(result)
   },
 
-  openMenu(x, y, items) {
-    set({ menu: items.length ? { x, y, items } : null })
+  openMenu(x, y, source) {
+    const items = typeof source === 'function' ? source() : source
+    set({ menu: items.length ? { id: nextId(), x, y, items, source } : null })
+  },
+
+  refreshMenu(source) {
+    const menu = get().menu
+    if (!menu || (source && menu.source !== source) || typeof menu.source !== 'function') return
+    set({ menu: { ...menu, items: menu.source() } })
   },
 
   closeMenu() {

@@ -11,6 +11,7 @@ import { useT } from './i18n'
 import { useStore } from './state/store'
 import { Button, ErrorBoundary, OverlayHost, Splitter } from './ui'
 import { KeyGate } from './components/KeyGate'
+import { ReaderView } from './pages/ReaderView'
 
 /** True when a keystroke belongs to whatever the user is typing into. */
 function isEditing(target: EventTarget | null): boolean {
@@ -28,7 +29,10 @@ function useGlobalKeys() {
   const store = useStore()
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
       const mod = e.metaKey || e.ctrlKey
+      const active = store.tabs.find((tab) => tab.id === store.activeTab)
+      const isLibrary = active?.kind === 'library'
 
       if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault()
@@ -44,7 +48,7 @@ function useGlobalKeys() {
         box?.select()
         return
       }
-      if (mod && e.key.toLowerCase() === 'a' && !isEditing(e.target)) {
+      if (mod && e.key.toLowerCase() === 'a' && !isEditing(e.target) && isLibrary) {
         e.preventDefault()
         store.selectAll()
         return
@@ -53,6 +57,8 @@ function useGlobalKeys() {
         if (store.paletteOpen) return store.togglePalette(false)
       }
       if (isEditing(e.target)) return
+      // Retained PDF sessions must not turn document keys into library edits.
+      if (!isLibrary && ['j', 'k', 'ArrowDown', 'ArrowUp', 'g', 'G', 'Delete', 'Backspace'].includes(e.key)) return
 
       switch (e.key) {
         case '/':
@@ -91,6 +97,7 @@ function useGlobalKeys() {
           store.togglePalette(true)
           break
         case 'i':
+          if (!active || !TABS[active.kind].withDetail) break
           e.preventDefault()
           store.toggleDetail()
           break
@@ -131,6 +138,8 @@ export function App() {
   const activeTab = useStore((s) => s.activeTab)
   const layout = useStore((s) => s.layout)
   const detailOpen = useStore((s) => s.detailOpen)
+  const sidebarOpen = useStore((s) => s.sidebarOpen)
+  const readerDetailsOpen = useStore((s) => s.readerLayout.detailsOpen)
   const setLayout = useStore((s) => s.setLayout)
   const bootstrap = useStore((s) => s.bootstrap)
 
@@ -166,7 +175,8 @@ export function App() {
           it. One report, in the place that has room for it. */}
 
       <div className="workspace">
-        <div className="pane sidebar" style={{ width: layout.sidebar }}>
+        {sidebarOpen && <>
+        <div id="library-sidebar" className="pane sidebar" style={{ width: layout.sidebar }}>
           <Sidebar />
         </div>
         <Splitter
@@ -177,9 +187,17 @@ export function App() {
           onResize={(sidebar) => setLayout({ sidebar })}
           onCommit={(sidebar) => setLayout({ sidebar }, true)}
         />
+        </>}
 
         <div className="workspace-main">
           <TabBar />
+          {tabs.filter((tab) => tab.kind === 'reader').map((reader) => (
+            <div key={reader.id} className="reader-session" hidden={reader.id !== activeTab}>
+              <ErrorBoundary resetKey={reader.id}>
+                <ReaderView target={reader.target} active={reader.id === activeTab} />
+              </ErrorBoundary>
+            </div>
+          ))}
           {/* Per surface, so a reader that cannot draw a page does not cost
               you the library in the tab beside it. */}
           <ErrorBoundary resetKey={activeTab}>
@@ -189,7 +207,7 @@ export function App() {
                 every note: type in one, switch to another, and the pending
                 autosave wrote the first note's text into the second. The same
                 shape cost a paper its publication in the detail panel. */}
-            {current ? (
+            {current?.tab.kind === 'reader' ? null : current ? (
               <current.def.Body key={current.tab.id} target={current.tab.target} />
             ) : (
               <NoTab />
@@ -197,7 +215,7 @@ export function App() {
           </ErrorBoundary>
         </div>
 
-        {showDetail && detailOpen && (
+        {showDetail && (tab?.kind === 'reader' ? readerDetailsOpen : detailOpen) && (
           <>
             <Splitter
               size={layout.detail}
@@ -207,7 +225,7 @@ export function App() {
               onResize={(detail) => setLayout({ detail })}
               onCommit={(detail) => setLayout({ detail }, true)}
             />
-            <div className="pane detail-pane" style={{ width: layout.detail }}>
+            <div id="workspace-details" className="pane detail-pane" style={{ width: layout.detail }}>
               <ErrorBoundary resetKey={activeTab}>
                 <Detail />
               </ErrorBoundary>

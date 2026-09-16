@@ -267,14 +267,14 @@ describe("a paper's notes", () => {
     expect(row?.textContent).not.toContain('<p>')
   })
 
-  it('marks the ones the model wrote', async () => {
+  it('uses ordinary note rows without generated-note badges', async () => {
     await render()
     await openTab(/Notes|笔记/)
     // A summary the model wrote and a note the user wrote are different
     // things to trust.
-    const rows = [...container.querySelectorAll('.note-row')]
-    expect(rows[0]?.querySelector('.note-badge')).not.toBeNull()
-    expect(rows[1]?.querySelector('.note-badge')).toBeNull()
+    const rows = [...container.querySelectorAll('.note-card[data-note]')]
+    expect(rows[0]?.querySelector('.note-comment')).toBeNull()
+    expect(rows[1]?.querySelector('.note-comment')).toBeNull()
   })
 
   /// The section used to disappear when a paper had no notes, so the one
@@ -284,8 +284,8 @@ describe("a paper's notes", () => {
     children = []
     await render()
     await openTab(/Notes|笔记/)
-    const add = container.querySelector('.note-row.add')
+    const add = container.querySelector('.note-card.add')
     expect(add, 'a paper with no notes must still offer to take one').not.toBeNull()
-    expect(container.querySelectorAll('.note-row')).toHaveLength(1)
+    expect(container.querySelectorAll('.note-card')).toHaveLength(1)
   })
 })

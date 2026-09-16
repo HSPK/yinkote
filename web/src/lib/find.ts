@@ -1,9 +1,4 @@
-/** Finding text in a rendered document.
- *
- *  The matching itself is pure and tested here; the DOM work is a thin layer
- *  above it, because "which occurrences are there" is the part that goes wrong
- *  and the part worth pinning down.
- */
+/** Small string-search and navigation utilities. PDF indexing lives in pdf-search. */
 
 /** Where a needle occurs in a haystack, as [start, end) character offsets. */
 export function occurrences(haystack: string, needle: string): [number, number][] {

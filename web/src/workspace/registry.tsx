@@ -28,7 +28,6 @@ import {
   GapsFooter,
   GraphFooter,
   LibraryFooter,
-  ReaderFooter,
 } from './footers'
 
 export interface TabDefinition {
@@ -94,7 +93,6 @@ export const TABS: Record<TabKind, TabDefinition> = {
     icon: 'Library',
     labelKey: 'reader.title',
     withDetail: true,
-    Footer: ReaderFooter,
     search: 'find',
   },
   graph: {

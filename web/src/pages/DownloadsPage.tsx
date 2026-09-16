@@ -14,13 +14,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { Download } from '../api/types'
 import { VirtualList } from '../components/VirtualList'
+import { TableCells, TableHeader, useTableColumns } from '../components/TableHeader'
 import { useT } from '../i18n'
 import { bytes as formatBytes } from '../lib/format'
 import { useStore } from '../state/store'
 import { Button, Empty, Icon, toast } from '../ui'
-
-/** Narrower than this the columns scroll sideways rather than crush. */
-const DOWNLOAD_COLUMNS = 880
 
 /** Whether two polls describe the same queue.
  *
@@ -64,6 +62,7 @@ export function DownloadsPage() {
   const t = useT()
   const library = useStore((s) => s.library)
   const setDownloadCount = useStore((s) => s.setDownloadCount)
+  const layout = useTableColumns('downloads', { actionsWidth: 160 })
 
   const [rows, setRows] = useState<Download[]>([])
   const [loading, setLoading] = useState(true)
@@ -109,18 +108,7 @@ export function DownloadsPage() {
 
   const failed = rows.filter((r) => r.state === 'failed').map((r) => r.id)
 
-  const header = (
-    <div className="table-head downloads-grid">
-      <div className="head-cell">{t('downloads.col.title')}</div>
-      <div className="head-cell">{t('downloads.col.url')}</div>
-      <div className="head-cell">{t('downloads.col.state')}</div>
-      <div className="head-cell num">{t('downloads.col.size')}</div>
-      {/* The actions column has no name, because "Retry" and "Remove" say
-          what they are. A heading here would be a word for the sake of a
-          heading. */}
-      <div className="head-cell" />
-    </div>
-  )
+  const header = <TableHeader layout={layout} className="downloads-grid" />
 
   return (
     <div className="pane main data-page">
@@ -155,37 +143,42 @@ export function DownloadsPage() {
         rows={rows}
         keyOf={(row) => String(row.id)}
         header={header}
-        minWidth={DOWNLOAD_COLUMNS}
+        minWidth={layout.width}
         empty={<Empty>{loading ? t('downloads.loading') : t('downloads.none')}</Empty>}
       >
         {(row) => (
-          <div className="row browser-grid downloads-grid" data-state={row.state}>
-            <div className="cell name-cell" title={row.title || row.url}>
-              <Icon.Download className="glyph" />
-              <span className="name">{row.title || row.url}</span>
-            </div>
-            <div className="cell dim mono" title={row.url}>
-              {row.url}
-            </div>
-            <div className="cell state-cell">
-              <span className="download-state" data-state={row.state}>
-                {t(`downloads.state.${row.state}`)}
-              </span>
-              {/* The reason lives beside the row, not in a log: it is what the
-                  decision to retry is made from. One line, full text on hover —
-                  a message that wraps breaks the rhythm of every row under it. */}
-              {row.error && (
-                // Translated from the word the server puts first, with the
-                // server's own sentence on hover. It used to print reqwest's
-                // "error sending request for url (…)" — developer English,
-                // never in a catalogue, and silent about which of several
-                // quite different things went wrong.
-                <span className="download-error" title={row.error}>
-                  {failureText(t, row.error)}
-                </span>
-              )}
-            </div>
-            <div className="cell num dim">{row.bytes ? formatBytes(row.bytes) : ''}</div>
+          <div
+            className="row browser-grid downloads-grid"
+            data-state={row.state}
+            style={{ gridTemplateColumns: layout.grid }}
+          >
+            <TableCells
+              layout={layout}
+              cells={{
+                title: (
+                  <div className="cell name-cell" title={row.title || row.url}>
+                    <Icon.Download className="glyph" />
+                    <span className="name">{row.title || row.url}</span>
+                  </div>
+                ),
+                url: <div className="cell dim mono" title={row.url}>{row.url}</div>,
+                state: (
+                  <div className="cell state-cell">
+                    <span className="download-state" data-state={row.state}>
+                      {t(`downloads.state.${row.state}`)}
+                    </span>
+                    {/* Translate the failure category; keep the full server
+                        message on hover without allowing the row to wrap. */}
+                    {row.error && (
+                      <span className="download-error" title={row.error}>
+                        {failureText(t, row.error)}
+                      </span>
+                    )}
+                  </div>
+                ),
+                size: <div className="cell num dim">{row.bytes ? formatBytes(row.bytes) : ''}</div>,
+              }}
+            />
             {/* One tone for every row action, and a retry only where retrying
                 means something: a row of buttons that do nothing is a row of
                 questions about what they would do. */}

@@ -1,8 +1,10 @@
-import { useEffect } from 'react'
-
 import { useT } from '../i18n'
 import { HIGHLIGHT_COLOURS, type HighlightColour, type Mark } from '../lib/annotations'
 import { Icon } from '../ui'
+import type { ScreenRect } from '../lib/selection-toolbar'
+import { FloatingTools } from './FloatingTools'
+
+const NO_RECTS: ScreenRect[] = []
 
 /**
  * What to do with the text somebody just selected.
@@ -22,6 +24,7 @@ export function SelectionPopup({
   onCopy,
   onCite,
   onDismiss,
+  selection = NO_RECTS,
 }: {
   /** Where the selection ended, in viewport coordinates. */
   at: { x: number; y: number }
@@ -30,23 +33,12 @@ export function SelectionPopup({
   onCopy: () => void
   onCite: () => void
   onDismiss: () => void
+  selection?: readonly ScreenRect[]
 }) {
   const t = useT()
 
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && onDismiss()
-    window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
-  }, [onDismiss])
-
   return (
-    <div
-      className="selection-popup"
-      // Above the selection and clear of it, so the popup never covers the
-      // words being decided about.
-      style={{ left: at.x, top: at.y }}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
+    <FloatingTools at={at} selection={selection} label={t('reader.selectionTools')} onDismiss={onDismiss}>
       <div className="swatches">
         {HIGHLIGHT_COLOURS.map((c) => (
           <button
@@ -68,6 +60,6 @@ export function SelectionPopup({
       <button className="popup-action" title={t('reader.copyCitation')} onClick={onCite}>
         <Icon.Library size={12} />
       </button>
-    </div>
+    </FloatingTools>
   )
 }

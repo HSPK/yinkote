@@ -600,7 +600,7 @@ async fn note_from_annotations(
     let mut draft = ItemDraft::new("note");
     draft.parent_key = Some(paper_key.clone());
     draft.fields.insert("note".into(), html.into());
-    let note = app.store().items.create(lib, draft).await?;
+    let note = app.store().create_numbered_note(lib, draft).await?;
 
     let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
         library_id: lib,
@@ -610,4 +610,81 @@ async fn note_from_annotations(
     .await?;
 
     Ok(Json(json!({ "note": note, "annotations": count, "version": version })))
+}
+
+#[cfg(test)]
+mod annotation_note_tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn selected_annotations_and_groups_get_numeric_titles_without_losing_their_sources() {
+        let root = tempfile::Builder::new().prefix(".annotation-note-").tempdir_in(".").unwrap();
+        let store = yk_store::Store::in_memory().unwrap();
+        let lib = store.default_library;
+        let paper = store
+            .items
+            .create(lib, ItemDraft::new("journalArticle").with_field("title", "A paper"))
+            .await
+            .unwrap();
+        let mut attachment = ItemDraft::new("attachment");
+        attachment.parent_key = Some(paper.key.clone());
+        let attachment = store.items.create(lib, attachment).await.unwrap();
+        let mut sources = Vec::new();
+        for (page, text, comment) in [(2, "First quote", "My comment"), (7, "Second quote", "")] {
+            let mut draft = ItemDraft::new("annotation")
+                .with_field("annotationType", "highlight")
+                .with_field("annotationPage", page.to_string())
+                .with_field("annotationText", text)
+                .with_field("annotationComment", comment)
+                .with_field("annotationColor", "#ffd400")
+                .with_field("annotationPosition", "{\"rects\":[[10,20,30,40]]}");
+            draft.parent_key = Some(attachment.key.clone());
+            sources.push(store.items.create(lib, draft).await.unwrap());
+        }
+        let config = crate::config::Config {
+            data_dir: Some(root.path().to_path_buf()),
+            ..Default::default()
+        };
+        let app = crate::build_with_store(config, store.clone()).await.unwrap();
+        let router = router().with_state(app);
+        let path = format!("/libraries/{lib}/items/{}/notes/from-annotations", paper.key);
+        for (number, selected, count) in [
+            (1, vec![sources[0].key.as_str()], 1),
+            (2, vec![sources[0].key.as_str(), sources[1].key.as_str()], 2),
+            (3, vec![], 2),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(
+                    Request::post(&path)
+                        .header("content-type", "application/json")
+                        .body(Body::from(json!({ "annotationKeys": selected }).to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert!(response.status().is_success());
+            let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+            let response: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(response["annotations"], count);
+            assert_eq!(response["note"]["title"], number.to_string());
+            assert_eq!(response["note"]["itemType"], "note");
+            assert_eq!(response["note"]["parentKey"], paper.key.as_str());
+            let html = response["note"]["note"].as_str().unwrap();
+            assert!(html.contains("<h1>A paper</h1>"));
+            assert!(html.contains("<blockquote>First quote</blockquote>"));
+            assert!(html.contains("<p>My comment</p>"));
+            assert!(html.contains("p. 2"));
+            assert_eq!(html.contains("Second quote"), count == 2);
+            assert_eq!(html.contains("p. 7"), count == 2);
+            let key = Key::parse(response["note"]["key"].as_str().unwrap()).unwrap();
+            assert_eq!(json!(store.items.get(lib, &key).await.unwrap()), response["note"]);
+        }
+        for source in sources {
+            assert_eq!(json!(store.items.get(lib, &source.key).await.unwrap()), json!(source));
+        }
+    }
 }

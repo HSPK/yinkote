@@ -7,6 +7,8 @@
  *  zooming, and back again.
  */
 import type { Item } from '../api/types'
+import { continuousRects } from './selection-geometry'
+import type { ScreenRect } from './selection-toolbar'
 
 /** Highlight colours, from the same palette collections use. */
 export const HIGHLIGHT_COLOURS = ['amber', 'green', 'blue', 'violet', 'red'] as const
@@ -59,6 +61,7 @@ export type Mark = (typeof MARKS)[number]
 
 export interface Annotation {
   key: string
+  version?: number
   kind: Mark
   page: number
   rects: Rect[]
@@ -138,6 +141,7 @@ export function toAnnotation(item: Item): Annotation | null {
   const kind = String(item.annotationType ?? 'highlight')
   return {
     key: item.key,
+    version: item.version,
     page: position.page,
     rects: position.rects,
     space: position.space,
@@ -148,6 +152,21 @@ export function toAnnotation(item: Item): Annotation | null {
       ? (colour as HighlightColour)
       : 'amber',
   }
+}
+
+/** Hit-test through the text layer, so marks stay clickable without blocking
+ *  native text selection with a pointer-catching overlay. */
+export function annotationAt(
+  annotations: Annotation[],
+  point: { x: number; y: number },
+  page: { width: number; height: number },
+): Annotation | undefined {
+  return [...annotations].reverse().find((annotation) =>
+    drawableRects(annotation, page).some((rect) =>
+      point.x >= rect.x && point.x <= rect.x + rect.w &&
+      point.y >= rect.y && point.y <= rect.y + rect.h,
+    ),
+  )
 }
 
 /** The fields to store, given a selection. */
@@ -177,43 +196,33 @@ export function toDraft(
  * paragraph, which looks like a mistake.
  */
 export function rectsFromSelection(selection: Selection, page: DOMRect): Rect[] {
-  const out: Rect[] = []
-  for (let i = 0; i < selection.rangeCount; i += 1) {
-    const range = selection.getRangeAt(i)
+  return rectsFromRanges(
+    Array.from({ length: selection.rangeCount }, (_, i) => selection.getRangeAt(i)),
+    page,
+  )
+}
+
+export function rectsFromRanges(ranges: Range[], page: DOMRect): Rect[] {
+  const out: ScreenRect[] = []
+  if (page.width <= 0 || page.height <= 0) return []
+  for (const range of ranges) {
     for (const box of Array.from(range.getClientRects())) {
-      // Zero-area rectangles come from collapsed ranges at line ends.
-      if (box.width < 1 || box.height < 1) continue
+      const left = Math.max(box.left, page.left)
+      const top = Math.max(box.top, page.top)
+      const right = Math.min(box.left + box.width, page.left + page.width)
+      const bottom = Math.min(box.top + box.height, page.top + page.height)
+      if (right - left < 1 || bottom - top < 1) continue
       out.push({
-        x: (box.left - page.left) / page.width,
-        y: (box.top - page.top) / page.height,
-        w: box.width / page.width,
-        h: box.height / page.height,
+        left, top, width: right - left, height: bottom - top,
       })
     }
   }
-  return merge(out)
-}
-
-/**
- * Drop rectangles wholly inside another.
- *
- * A selection crossing element boundaries reports the same visual line more
- * than once, and drawing it twice makes the highlight visibly darker there.
- */
-function merge(rects: Rect[]): Rect[] {
-  return rects.filter(
-    (r, i) =>
-      !rects.some(
-        (other, j) =>
-          j !== i &&
-          other.x <= r.x + 0.001 &&
-          other.y <= r.y + 0.001 &&
-          other.x + other.w >= r.x + r.w - 0.001 &&
-          other.y + other.h >= r.y + r.h - 0.001 &&
-          // Keep the first of two identical rectangles rather than neither.
-          (other.w * other.h > r.w * r.h || j < i),
-      ),
-  )
+  return continuousRects(out).map((box) => ({
+    x: (box.left - page.left) / page.width,
+    y: (box.top - page.top) / page.height,
+    w: box.width / page.width,
+    h: box.height / page.height,
+  }))
 }
 
 /** Reading order: down the page, then across. */

@@ -1,0 +1,102 @@
+.pdf-page .pdf-canvas {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pdf-page .pdf-canvas canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.pdf-page .pdf-highlights { z-index: 1; }
+.pdf-page .pdf-highlight { pointer-events: none; cursor: inherit; }
+.pdf-page .pdf-highlight[data-active='true'] {
+  outline: 1px solid rgb(var(--mark) / 100%);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 30%);
+}
+.pdf-page .pdf-number { pointer-events: none; user-select: none; }
+
+.pdf-page .pdf-text {
+  opacity: 1;
+  overflow: visible;
+  text-align: initial;
+  letter-spacing: normal;
+  word-spacing: normal;
+  color-scheme: only light;
+  caret-color: CanvasText;
+  z-index: 2;
+}
+
+/* PDF.js 6 emits these custom properties, not inline font sizes/transforms. */
+.pdf-page .pdf-text-layer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  transform-origin: 0 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+.pdf-page .pdf-text-layer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0 0;
+  user-select: text;
+}
+
+.pdf-page .pdf-text-layer > :not(.markedContent),
+.pdf-page .pdf-text-layer .markedContent span:not(.markedContent):not([data-found]) {
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-page .pdf-text-layer .markedContent { display: contents; }
+.pdf-page .pdf-text-layer span[role='img'] { user-select: none; cursor: default; }
+.pdf-page .pdf-text-layer[data-main-rotation='90'] { transform: rotate(90deg) translateY(-100%); }
+.pdf-page .pdf-text-layer[data-main-rotation='180'] { transform: rotate(180deg) translate(-100%, -100%); }
+.pdf-page .pdf-text-layer[data-main-rotation='270'] { transform: rotate(270deg) translateX(-100%); }
+
+/* Find wraps text inside a positioned run; its marks must remain inline. */
+.pdf-page .pdf-text-layer [data-found] {
+  position: static;
+  font-size: inherit;
+  white-space: inherit;
+  transform: none;
+}
+
+.pdf-page .pdf-text ::selection { color: transparent; background: rgb(77 163 255 / 45%); }
+.pdf-page .pdf-text br::selection { background: transparent; }
+
+.reader-pages[data-continuous-selection] .pdf-text ::selection {
+  background: transparent;
+}
+.pdf-live-selection {
+  position: fixed;
+  pointer-events: none;
+  user-select: none;
+  overflow: hidden;
+  z-index: 4;
+}
+.pdf-live-selection-line {
+  position: absolute;
+  pointer-events: none;
+  background: rgb(77 163 255 / 45%);
+}
+
+.pdf-page .pdf-render-error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  color: #8a2020;
+  background: rgb(255 255 255 / 85%);
+  z-index: 3;
+}
