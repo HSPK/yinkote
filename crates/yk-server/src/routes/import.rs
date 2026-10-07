@@ -54,19 +54,19 @@ async fn run(
     State(app): State<App>,
     Path(lib): Path<i64>,
     Json(body): Json<Source>,
-) -> Json<serde_json::Value> {
-    let task = app.tasks().start("zotero", "task.readingZotero");
+) -> ApiResult<Json<serde_json::Value>> {
+    let task = app.tasks().start("zotero", "task.readingZotero").await?;
     let worker = app.clone();
     let handle = task.clone();
     let path = std::path::PathBuf::from(&body.path);
     tokio::spawn(async move {
         match import(&worker, lib, path, &handle).await {
-            Ok((result, false)) => worker.tasks().finish(&handle, result),
-            Ok((result, true)) => worker.tasks().stopped(&handle, result),
-            Err(e) => worker.tasks().fail(&handle, e),
+            Ok((result, false)) => worker.tasks().finish(&handle, result).await,
+            Ok((result, true)) => worker.tasks().stopped(&handle, result).await,
+            Err(e) => worker.tasks().fail(&handle, e).await,
         }
     });
-    Json(json!({ "task": task.snapshot() }))
+    Ok(Json(json!({ "task": task.snapshot() })))
 }
 
 /// Returns what arrived, and whether it stopped early because it was asked to.

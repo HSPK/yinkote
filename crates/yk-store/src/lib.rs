@@ -8,6 +8,7 @@ pub mod counts;
 mod collections;
 mod conversations;
 mod db;
+mod recovery;
 pub mod filter;
 pub mod downloads;
 pub mod graph;

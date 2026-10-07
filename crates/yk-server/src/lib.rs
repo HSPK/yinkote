@@ -15,6 +15,7 @@ pub mod browser;
 pub const CONNECTOR_PORT_SETTING: &str = "server.connectorPort";
 
 pub mod config;
+pub mod deletion;
 pub mod connector_listener;
 mod error;
 pub mod hostapi;
@@ -62,6 +63,8 @@ pub async fn build(config: Config) -> anyhow::Result<App> {
 }
 
 pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<App> {
+    store.downloads.recover_interrupted().await?;
+    let tasks = tasks::Tasks::open(store.db().clone()).await?;
     let embedder = make_embedder(&config);
     tracing::info!(provider = embedder.id(), dim = embedder.dimensions(), "embeddings");
 
@@ -104,7 +107,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         started: Instant::now(),
         runs: Default::default(),
         sessions: Default::default(),
-        tasks: Default::default(),
+        tasks,
         smart_counts: Default::default(),
         stats: Default::default(),
         connector: Default::default(),
@@ -148,7 +151,7 @@ pub fn build_agent(
 
     match agent::provider(&config.agent) {
         Ok(provider) => {
-            let mut tools = agent::tools(&services.store, &services.search, &services.scrape, &services.outside);
+            let mut tools = agent::tools(&services.store, &services.search, &services.scrape, &services.outside, &services.events);
             if !skills.is_empty() {
                 tools.push(Arc::new(yk_agent::skills::ReadSkill { skills: skills.clone() }));
             }

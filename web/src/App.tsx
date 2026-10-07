@@ -26,10 +26,10 @@ function isEditing(target: EventTarget | null): boolean {
 }
 
 function useGlobalKeys() {
-  const store = useStore()
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return
+      const store = useStore.getState()
       const mod = e.metaKey || e.ctrlKey
       const active = store.tabs.find((tab) => tab.id === store.activeTab)
       const isLibrary = active?.kind === 'library'
@@ -107,7 +107,7 @@ function useGlobalKeys() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [store])
+  }, [])
 }
 
 /** What the workspace shows when every tab has been closed.

@@ -66,6 +66,10 @@ pub struct ItemFilter {
     /// AND-ed tag names. A leading `-` negates.
     pub tags: Vec<String>,
     pub item_types: Vec<String>,
+    pub creators: Vec<String>,
+    pub year_from: Option<i32>,
+    pub year_to: Option<i32>,
+    pub phrases: Vec<String>,
     pub top_level_only: bool,
     pub trash: TrashScope,
     /// Only objects with `version > since`.

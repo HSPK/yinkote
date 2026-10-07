@@ -187,6 +187,9 @@ for items, collections, conversations, files, downloads, jobs and missing works.
 (vector), and field filters. The query language is what you would guess —
 `tag:survey type:journalArticle author:hinton year:2020..2024 -tag:archived
 "exact phrase"` — and Chinese is searchable without configuration.
+The default offline vectors are hashed word/character features: they find
+lexically similar papers, not learned semantic equivalents. Configure an
+OpenAI-compatible embedding endpoint for model-based semantic retrieval.
 
 **Reading.** A PDF reader with highlights, notes and an outline, rendered at
 device resolution. Markdown notes on any paper. Annotations gathered into a note
@@ -213,8 +216,15 @@ at a local Ollama or llama.cpp and it never leaves the machine.
 and no privileged access to the database. Three ship as examples, including
 journal metrics (impact factor, JCR, CAS).
 
-**Citations.** CSL styles, a bibliography from any selection, and live citation
-fields in Word.
+**Citations.** Built-in citation styles, a bibliography from any selection, and
+live citation fields in Word. CSL-JSON interchange is supported; arbitrary CSL
+stylesheets are not.
+
+**Recovery.** Task creation and completion are persisted. After a restart,
+unfinished tasks and interrupted downloads are marked failed with an explanation,
+not silently resumed; inspect partial results before retrying. Permanent deletion
+records file cleanup in the same database transaction, then removes the files
+and retries unsuccessful cleanup in the background.
 
 ---
 
@@ -309,7 +319,7 @@ crates/
 ├─ yk-search    hybrid retrieval: BM25 + fuzzy + vector, fused
 ├─ yk-pdf       text extraction, reference parsing
 ├─ yk-scrape    identifier resolution, metadata sources, external search
-├─ yk-cite      CSL citation and bibliography rendering
+├─ yk-cite      built-in citation styles and bibliography interchange
 ├─ yk-ai        embedding and chat provider abstractions
 ├─ yk-agent     the assistant: tools, turns, skills
 ├─ yk-import    Zotero and bibliography import

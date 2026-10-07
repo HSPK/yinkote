@@ -65,20 +65,24 @@ impl ParsedQuery {
     pub fn apply_to(&self, filter: &mut ItemFilter) {
         filter.tags.extend(self.tags.iter().cloned());
         filter.item_types.extend(self.item_types.iter().cloned());
+        filter.creators.extend(self.creators.iter().cloned());
+        filter.year_from = match (filter.year_from, self.year_from) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        };
+        filter.year_to = match (filter.year_to, self.year_to) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        filter.phrases.extend(self.phrases.iter().cloned());
     }
 
     /// Whether [`apply_to`](Self::apply_to) carries the whole query.
     ///
-    /// Only tags and types become filter clauses. Free text has to be ranked,
-    /// and authors and years have no `ItemFilter` field at all — they are
-    /// applied by the engine after retrieval. A caller that wants to answer a
-    /// query from the store alone must ask this first: treating `year:2020` as
-    /// a filter that happens to be empty counts the entire library.
+    /// Free text needs ranking; every structural operator is handled by the
+    /// same predicate used by listing, counting and ranked retrieval.
     pub fn is_fully_filterable(&self) -> bool {
         self.text.trim().is_empty()
-            && self.creators.is_empty()
-            && self.year_from.is_none()
-            && self.year_to.is_none()
     }
 }
 
@@ -255,13 +259,11 @@ mod filterable_tests {
     }
 
     #[test]
-    fn authors_and_years_are_not_either() {
-        // These have no ItemFilter field, so a caller answering from the store
-        // alone would silently count everything.
-        assert!(!ParsedQuery::parse("year:2020").is_fully_filterable());
-        assert!(!ParsedQuery::parse("year:2020..2024").is_fully_filterable());
-        assert!(!ParsedQuery::parse("author:zhang").is_fully_filterable());
-        assert!(!ParsedQuery::parse("tag:survey year:2020").is_fully_filterable());
+    fn authors_and_years_are_carried_by_the_filter() {
+        assert!(ParsedQuery::parse("year:2020").is_fully_filterable());
+        assert!(ParsedQuery::parse("year:2020..2024").is_fully_filterable());
+        assert!(ParsedQuery::parse("author:zhang").is_fully_filterable());
+        assert!(ParsedQuery::parse("tag:survey year:2020").is_fully_filterable());
     }
 
     #[test]

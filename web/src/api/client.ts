@@ -109,7 +109,25 @@ function mirrorToCookie(key: string | null) {
 // page load after a restart shows a library with no thumbnails.
 mirrorToCookie(apiKey())
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+const pendingReads = new Map<string, Promise<unknown>>()
+let generation = 0
+
+function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // A write retires both reads started before it and reads made while it ran.
+  const writing = init?.method !== undefined && init.method !== 'GET'
+  if (writing) generation++
+  const id = init === undefined ? JSON.stringify([generation, apiKey(), path]) : null
+  const existing = id === null ? undefined : pendingReads.get(id)
+  if (existing) return existing as Promise<T>
+  const pending = send<T>(path, init).finally(() => {
+    if (id !== null) pendingReads.delete(id)
+    if (writing) generation++
+  })
+  if (id !== null) pendingReads.set(id, pending)
+  return pending
+}
+
+async function send<T>(path: string, init?: RequestInit): Promise<T> {
   const key = apiKey()
   const res = await fetch(BASE + path, {
     ...init,

@@ -51,6 +51,9 @@ pub struct DownloadDraft {
 
 #[async_trait]
 pub trait DownloadQueue: Send + Sync {
+    /// Called once, before workers start. Interrupted transfers require an
+    /// explicit retry: blindly repeating may duplicate a file already stored.
+    async fn recover_interrupted(&self) -> Result<u64>;
     /// Add files to fetch. Returns how many were new.
     ///
     /// Asking twice for the same file is the same request, not two — the
@@ -106,6 +109,15 @@ fn map(r: &rusqlite::Row<'_>) -> rusqlite::Result<Download> {
 
 #[async_trait]
 impl DownloadQueue for SqliteDownloadQueue {
+    async fn recover_interrupted(&self) -> Result<u64> {
+        self.db.call(|c| {
+            c.execute(
+                "UPDATE fetch_queue SET state=?1, error=?2, updated_at=?3 WHERE state=?4",
+                params![state::FAILED, "The server stopped during this download; check the attachment before retrying.",
+                    now_ms(), state::RUNNING],
+            ).map(|n| n as u64).map_err(sql_err)
+        }).await
+    }
     async fn enqueue(&self, library_id: i64, drafts: Vec<DownloadDraft>) -> Result<u64> {
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || {
@@ -159,6 +171,16 @@ impl DownloadQueue for SqliteDownloadQueue {
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || {
             let mut conn = db.conn()?;
+            // Polling an empty queue must not take the writer lock or reset
+            // the quiet period housekeeping waits for. Recheck after locking.
+            let waiting: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM fetch_queue WHERE library_id=?1 AND state=?2)",
+                params![library_id, state::WAITING],
+                |r| r.get(0),
+            ).map_err(sql_err)?;
+            if !waiting {
+                return Ok(None);
+            }
             let tx = write_tx(&mut conn)?;
 
             let found: Option<Download> = tx

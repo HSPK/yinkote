@@ -8,7 +8,8 @@
 import type { StateCreator } from 'zustand'
 
 import { api } from '../../api/client'
-import type { AgentStatus, Collection, SmartCollection, Tag } from '../../api/types'
+import { failureOf } from '../../lib/errors'
+import type { Collection, SmartCollection, Tag } from '../../api/types'
 import type { CollectionValues } from '../../components/CollectionEditor'
 import type { State } from '../store'
 
@@ -17,7 +18,7 @@ export interface SidebarSlice {
   smartCollections: SmartCollection[]
   tags: Tag[]
 
-  reloadSidebar: () => Promise<void>
+  reloadSidebar: (scope?: 'all' | 'library' | 'plugins') => Promise<void>
   createSmart: (name: string, query: string) => Promise<void>
   updateSmart: (key: string, patch: { name?: string; query?: string }) => Promise<void>
   removeSmart: (key: string) => Promise<void>
@@ -40,14 +41,18 @@ export const createSidebarSlice: StateCreator<State, [], [], SidebarSlice> = (se
   smartCollections: [],
   tags: [],
 
-  async reloadSidebar() {
+  async reloadSidebar(scope = 'all') {
     const s = get()
     try {
-      const [collections, smartCollections, conversations, tags, stats, plugins, badgeDefs, agent] =
+      if (scope === 'plugins') {
+        const [plugins, badgeDefs] = await Promise.all([api.plugins.list(), api.badges.descriptors()])
+        set({ plugins, badgeDefs })
+        return
+      }
+      const [collections, smartCollections, tags, stats, extras] =
         await Promise.all([
           api.collections.list(s.library),
           api.smart.list(s.library, true),
-          api.conversations.list(s.library),
           // No `limit`: the server has a default, and it is the number the
           // startup warm-up computes. A second number here is a cache that
           // fills a slot nobody asks for.
@@ -56,10 +61,19 @@ export const createSidebarSlice: StateCreator<State, [], [], SidebarSlice> = (se
             trash: s.view === 'trash' ? 'only' : 'exclude',
           }),
           api.stats(),
-          api.plugins.list(),
-          api.badges.descriptors(),
-          api.agent().catch(() => ({ configured: false }) as AgentStatus),
+          scope === 'all' ? Promise.all([
+            api.conversations.list(s.library),
+            api.plugins.list(),
+            api.badges.descriptors(),
+            api.agent(),
+          ]) : Promise.resolve(null),
         ])
+      if (extras) {
+        const [conversations, plugins, badgeDefs, agent] = extras
+        set({ conversations, plugins, badgeDefs, agent })
+      }
+      const current = get()
+      if (s.library !== current.library || s.view !== current.view || s.collection !== current.collection) return
       // Colours are remembered by name across the whole session, not just for
       // the tags this view happens to show: the facet list changes with the
       // filter, and a chip must not lose its colour because the sidebar is
@@ -72,16 +86,12 @@ export const createSidebarSlice: StateCreator<State, [], [], SidebarSlice> = (se
       set({
         collections,
         smartCollections,
-        conversations,
         tags,
         tagColours,
         stats,
-        plugins,
-        badgeDefs,
-        agent,
       })
-    } catch {
-      /* sidebar is decoration; never block the main view on it */
+    } catch (error) {
+      set({ error: failureOf(error) })
     }
   },
 

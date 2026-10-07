@@ -16,11 +16,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use yk_agent::Cancel;
 
 /// What a job is doing, from the outside.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Phase {
     Running,
@@ -29,7 +29,7 @@ pub enum Phase {
     Cancelled,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskState {
     pub id: String,
     /// `export`, `import`, `backup`, `reindex`…
@@ -107,13 +107,6 @@ impl Task {
         self.state.lock().expect("task state").clone()
     }
 
-    fn finish(&self, phase: Phase, result: Option<serde_json::Value>, error: Option<String>) {
-        let mut state = self.state.lock().expect("task state");
-        state.phase = phase;
-        state.finished_at = Some(now_secs());
-        state.result = result;
-        state.error = error;
-    }
 }
 
 /// How many finished tasks to remember.
@@ -123,20 +116,40 @@ impl Task {
 const KEEP_FINISHED: usize = 50;
 
 #[derive(Clone, Default)]
-pub struct Tasks(Arc<Mutex<HashMap<String, Arc<Task>>>>);
+pub struct Tasks(Arc<Mutex<HashMap<String, Arc<Task>>>>, Option<yk_store::Db>);
 
 impl Tasks {
+    pub async fn open(db: yk_store::Db) -> yk_core::Result<Self> {
+        let tasks = Self(Default::default(), Some(db.clone()));
+        for record in db.task_records().await? {
+            let mut state: TaskState = serde_json::from_value(record)?;
+            if state.phase == Phase::Running {
+                state.phase = Phase::Failed;
+                state.finished_at = Some(now_secs());
+                state.error = Some("The server stopped before this task finished. Review any partial changes before starting it again.".into());
+                db.save_task_record(state.id.clone(), serde_json::to_value(&state)?).await?;
+            }
+            tasks.0.lock().expect("tasks").insert(state.id.clone(), Arc::new(Task {
+                state: Mutex::new(state),
+                cancel: Cancel::default(),
+            }));
+        }
+        tasks.forget_old().await;
+        Ok(tasks)
+    }
+
     /// Register a job and hand back the handle it reports through.
-    pub fn start(&self, kind: &str, message: &str) -> Arc<Task> {
+    pub async fn start(&self, kind: &str, message: &str) -> yk_core::Result<Arc<Task>> {
         let id = next_id();
         let task = Arc::new(Task {
             state: Mutex::new(TaskState::new(id.clone(), kind.into(), message.into())),
             cancel: Cancel::default(),
         });
-        let mut tasks = self.0.lock().expect("tasks");
-        tasks.insert(id, task.clone());
-        prune(&mut tasks);
-        task
+        if let Some(db) = &self.1 {
+            db.save_task_record(id.clone(), serde_json::to_value(task.snapshot())?).await?;
+        }
+        self.0.lock().expect("tasks").insert(id, task.clone());
+        Ok(task)
     }
 
     /// Jobs that write in bulk, and must not be interrupted by anything that
@@ -199,36 +212,65 @@ impl Tasks {
     /// stopped early is something only the job knows. Reading the flag here
     /// reported a rebuild that ran to completion as cancelled, because asking
     /// it to stop is not the same as it stopping — see [`Tasks::stopped`].
-    pub fn finish(&self, task: &Arc<Task>, result: serde_json::Value) {
-        task.finish(Phase::Done, Some(result), None);
-        self.forget_old();
+    pub async fn finish(&self, task: &Arc<Task>, result: serde_json::Value) {
+        self.complete(task, Phase::Done, Some(result), None).await;
     }
 
     /// Record that a job noticed the cancel flag and stopped early.
     ///
     /// `partial` is whatever it managed, which is worth reporting: an import
     /// that stopped after four hundred items has added four hundred items.
-    pub fn stopped(&self, task: &Arc<Task>, partial: serde_json::Value) {
-        task.finish(Phase::Cancelled, Some(partial), None);
-        self.forget_old();
+    pub async fn stopped(&self, task: &Arc<Task>, partial: serde_json::Value) {
+        self.complete(task, Phase::Cancelled, Some(partial), None).await;
     }
 
-    pub fn fail(&self, task: &Arc<Task>, error: impl std::fmt::Display) {
-        task.finish(Phase::Failed, None, Some(error.to_string()));
-        self.forget_old();
+    pub async fn fail(&self, task: &Arc<Task>, error: impl std::fmt::Display) {
+        self.complete(task, Phase::Failed, None, Some(error.to_string())).await;
+    }
+
+    async fn complete(
+        &self,
+        task: &Arc<Task>,
+        phase: Phase,
+        result: Option<serde_json::Value>,
+        error: Option<String>,
+    ) {
+        let mut state = task.snapshot();
+        state.phase = phase;
+        state.finished_at = Some(now_secs());
+        state.result = result;
+        state.error = error;
+        if let Some(db) = &self.1 {
+            let saved = match serde_json::to_value(&state) {
+                Ok(value) => db.save_task_record(state.id.clone(), value).await,
+                Err(error) => Err(error.into()),
+            };
+            if let Err(error) = saved {
+                tracing::error!(task = %state.id, %error, "could not persist task completion");
+                state.phase = Phase::Failed;
+                state.error = Some(format!("Could not persist task completion: {error}"));
+            }
+        }
+        *task.state.lock().expect("task state") = state;
+        self.forget_old().await;
     }
 
     /// Pruned when a task *finishes*, which is the moment the number of
     /// finished tasks grows. Doing it only on start leaves whatever finished
     /// since the last start hanging around — correct, but a bound nobody can
     /// state in one sentence.
-    fn forget_old(&self) {
-        prune(&mut self.0.lock().expect("tasks"));
+    async fn forget_old(&self) {
+        let removed = prune(&mut self.0.lock().expect("tasks"));
+        if let Some(db) = &self.1 {
+            if let Err(error) = db.forget_task_records(removed).await {
+                tracing::warn!(%error, "could not prune task history");
+            }
+        }
     }
 }
 
 /// Forget the oldest finished tasks, never a running one.
-fn prune(tasks: &mut HashMap<String, Arc<Task>>) {
+fn prune(tasks: &mut HashMap<String, Arc<Task>>) -> Vec<String> {
     let mut finished: Vec<(String, i64)> = tasks
         .iter()
         .filter_map(|(id, t)| {
@@ -237,12 +279,15 @@ fn prune(tasks: &mut HashMap<String, Arc<Task>>) {
         })
         .collect();
     if finished.len() <= KEEP_FINISHED {
-        return;
+        return Vec::new();
     }
-    finished.sort_by_key(|(_, at)| *at);
+    finished.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+    let mut removed = Vec::new();
     for (id, _) in finished.iter().take(finished.len() - KEEP_FINISHED) {
         tasks.remove(id);
+        removed.push(id.clone());
     }
+    removed
 }
 
 fn now_secs() -> i64 {
@@ -252,21 +297,26 @@ fn now_secs() -> i64 {
         .unwrap_or(0)
 }
 
-/// Short, ordered, and unique within a run of the server.
+/// Ordered within a process and unique across restarts.
 fn next_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(1);
-    format!("t{:06}", NEXT.fetch_add(1, Ordering::Relaxed))
+    format!(
+        "t{:020}-{:016}-{}",
+        yk_core::now_ms(),
+        NEXT.fetch_add(1, Ordering::Relaxed),
+        uuid::Uuid::new_v4()
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_started_task_is_running_and_findable() {
+    #[tokio::test]
+    async fn a_started_task_is_running_and_findable() {
         let tasks = Tasks::default();
-        let task = tasks.start("export", "Packing…");
+        let task = tasks.start("export", "Packing…").await.unwrap();
         let id = task.snapshot().id;
 
         let found = tasks.get(&id).expect("the task");
@@ -275,12 +325,12 @@ mod tests {
         assert!(found.finished_at.is_none());
     }
 
-    #[test]
-    fn progress_is_visible_while_it_runs() {
+    #[tokio::test]
+    async fn progress_is_visible_while_it_runs() {
         // The whole point: a client that polls must see movement, not a
         // spinner that could equally mean "stuck".
         let tasks = Tasks::default();
-        let task = tasks.start("import", "Reading…");
+        let task = tasks.start("import", "Reading…").await.unwrap();
         task.progress("task.writingItems", 40, 120);
 
         let seen = tasks.get(&task.snapshot().id).unwrap();
@@ -288,13 +338,13 @@ mod tests {
         assert_eq!(seen.message, "task.writingItems");
     }
 
-    #[test]
-    fn a_result_waits_to_be_collected() {
+    #[tokio::test]
+    async fn a_result_waits_to_be_collected() {
         // A client that reloaded during the job must still be able to find out
         // how it went.
         let tasks = Tasks::default();
-        let task = tasks.start("export", "Packing…");
-        tasks.finish(&task, serde_json::json!({ "name": "out.yinkote" }));
+        let task = tasks.start("export", "Packing…").await.unwrap();
+        tasks.finish(&task, serde_json::json!({ "name": "out.yinkote" })).await;
 
         let done = tasks.get(&task.snapshot().id).unwrap();
         assert_eq!(done.phase, Phase::Done);
@@ -302,29 +352,29 @@ mod tests {
         assert!(done.finished_at.is_some());
     }
 
-    #[test]
-    fn a_job_that_stopped_early_says_so_and_keeps_what_it_did() {
+    #[tokio::test]
+    async fn a_job_that_stopped_early_says_so_and_keeps_what_it_did() {
         let tasks = Tasks::default();
-        let task = tasks.start("import", "Reading…");
+        let task = tasks.start("import", "Reading…").await.unwrap();
         assert!(tasks.cancel(&task.snapshot().id));
         assert!(task.cancelled());
 
-        tasks.stopped(&task, serde_json::json!({ "items": 12 }));
+        tasks.stopped(&task, serde_json::json!({ "items": 12 })).await;
         let state = tasks.get(&task.snapshot().id).unwrap();
         assert_eq!(state.phase, Phase::Cancelled);
         assert_eq!(state.result.unwrap()["items"], 12, "what it managed still counts");
     }
 
-    #[test]
-    fn asking_a_job_to_stop_is_not_the_same_as_it_stopping() {
+    #[tokio::test]
+    async fn asking_a_job_to_stop_is_not_the_same_as_it_stopping() {
         // Not every job can stop: rebuilding the index is two passes inside a
         // library that does not check the flag. Reporting it as cancelled
         // because somebody asked would be a lie about work that was done.
         let tasks = Tasks::default();
-        let task = tasks.start("reindex", "Rebuilding…");
+        let task = tasks.start("reindex", "Rebuilding…").await.unwrap();
         tasks.cancel(&task.snapshot().id);
 
-        tasks.finish(&task, serde_json::json!({ "reindexed": 100 }));
+        tasks.finish(&task, serde_json::json!({ "reindexed": 100 })).await;
         assert_eq!(
             tasks.get(&task.snapshot().id).unwrap().phase,
             Phase::Done,
@@ -332,56 +382,56 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_bulk_write_is_recognised_whatever_its_kind() {
+    #[tokio::test]
+    async fn a_bulk_write_is_recognised_whatever_its_kind() {
         // The checkpoint worker asks this before taking the database
         // exclusively. Getting it wrong is not a wrong answer on screen; it is
         // the program refusing writes for as long as the timeout allows.
         let tasks = Tasks::default();
         assert!(!tasks.bulk_write_running());
 
-        let importing = tasks.start("import", "Reading");
+        let importing = tasks.start("import", "Reading").await.unwrap();
         assert!(tasks.bulk_write_running());
-        tasks.finish(&importing, serde_json::json!({}));
+        tasks.finish(&importing, serde_json::json!({})).await;
         assert!(!tasks.bulk_write_running());
 
         // An export copies the database but does not write to it.
-        let exporting = tasks.start("export", "Packing");
+        let exporting = tasks.start("export", "Packing").await.unwrap();
         assert!(!tasks.bulk_write_running(), "an export is not a bulk write");
-        tasks.finish(&exporting, serde_json::json!({}));
+        tasks.finish(&exporting, serde_json::json!({})).await;
     }
 
-    #[test]
-    fn a_kind_that_must_not_overlap_can_ask_whether_it_is_going() {
+    #[tokio::test]
+    async fn a_kind_that_must_not_overlap_can_ask_whether_it_is_going() {
         let tasks = Tasks::default();
         assert!(!tasks.running("harvest"));
 
-        let task = tasks.start("harvest", "Fetching");
+        let task = tasks.start("harvest", "Fetching").await.unwrap();
         assert!(tasks.running("harvest"));
         assert!(!tasks.running("export"), "a different kind is a different question");
 
-        tasks.finish(&task, serde_json::json!({}));
+        tasks.finish(&task, serde_json::json!({})).await;
         assert!(!tasks.running("harvest"), "a finished run does not block the next one");
     }
 
-    #[test]
-    fn a_job_can_report_counters_only_it_understands() {
+    #[tokio::test]
+    async fn a_job_can_report_counters_only_it_understands() {
         // Harvesting has to say how many reference lists it stored and how
         // many publishers deposited none. Neither means anything to an export,
         // and putting them in the message would make the interface read prose.
         let tasks = Tasks::default();
-        let task = tasks.start("harvest", "Fetching");
+        let task = tasks.start("harvest", "Fetching").await.unwrap();
         task.detail(serde_json::json!({ "stored": 40, "empty": 3 }));
 
         let seen = tasks.get(&task.snapshot().id).unwrap();
         assert_eq!(seen.detail.unwrap()["stored"], 40);
     }
 
-    #[test]
-    fn a_failure_keeps_its_reason() {
+    #[tokio::test]
+    async fn a_failure_keeps_its_reason() {
         let tasks = Tasks::default();
-        let task = tasks.start("backup", "Copying…");
-        tasks.fail(&task, "the disk is full");
+        let task = tasks.start("backup", "Copying…").await.unwrap();
+        tasks.fail(&task, "the disk is full").await;
 
         let state = tasks.get(&task.snapshot().id).unwrap();
         assert_eq!(state.phase, Phase::Failed);
@@ -394,14 +444,14 @@ mod tests {
         assert!(!Tasks::default().cancel("t999999"));
     }
 
-    #[test]
-    fn old_tasks_are_forgotten_and_running_ones_never_are() {
+    #[tokio::test]
+    async fn old_tasks_are_forgotten_and_running_ones_never_are() {
         let tasks = Tasks::default();
-        let long = tasks.start("import", "Reading…");
+        let long = tasks.start("import", "Reading…").await.unwrap();
 
         for _ in 0..(KEEP_FINISHED + 20) {
-            let t = tasks.start("backup", "Copying…");
-            tasks.finish(&t, serde_json::json!({}));
+            let t = tasks.start("backup", "Copying…").await.unwrap();
+            tasks.finish(&t, serde_json::json!({})).await;
         }
 
         let all = tasks.list();
@@ -413,11 +463,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_newest_task_is_first() {
+    #[tokio::test]
+    async fn the_newest_task_is_first() {
         let tasks = Tasks::default();
-        let first = tasks.start("backup", "one");
-        let second = tasks.start("export", "two");
+        let first = tasks.start("backup", "one").await.unwrap();
+        let second = tasks.start("export", "two").await.unwrap();
         let listed = tasks.list();
         assert_eq!(listed[0].id, second.snapshot().id);
         assert_eq!(listed[1].id, first.snapshot().id);

@@ -8,7 +8,8 @@ import { create } from 'zustand'
 import { failureOf, type Failure } from '../lib/errors'
 import { displayTitle } from '../lib/format'
 
-import { ApiError, api, connectEvents, setApiKey } from '../api/client'
+import { ApiError, api, setApiKey } from '../api/client'
+import { watchEvents } from './events'
 import { follow } from '../lib/tasks'
 import { schemaLabel, t, useI18n } from '../i18n'
 import { createPrefsSlice, type PrefsSlice } from './slices/prefs'
@@ -185,6 +186,7 @@ const DEBOUNCE_MS = 140
 
 let debounce: number | undefined
 let requestSeq = 0
+let disconnectEvents: (() => void) | undefined
 
 export const useStore = create<State>((set, get, store) => ({
   ...createPrefsSlice(set, get, store),
@@ -225,6 +227,8 @@ export const useStore = create<State>((set, get, store) => ({
   },
 
   async bootstrap() {
+    disconnectEvents?.()
+    disconnectEvents = undefined
     try {
       const server = await api.ping()
       // Collections are deliberately absent here: `reloadSidebar` below fetches
@@ -247,29 +251,15 @@ export const useStore = create<State>((set, get, store) => ({
       })
       // Restore preferences before the first paint of real content.
       get().restorePrefs(settings)
-      await Promise.all([get().refresh(), get().reloadSidebar()])
-
-      connectEvents((event) => {
-        const type = event.type as string
-        if (type === 'connected') set({ connected: true })
-        else if (type === 'disconnected') set({ connected: false })
-        else if (type.startsWith('items') || type === 'collectionsChanged' || type === 'tagsChanged') {
-          // The server pushes only that *something* changed; refetching the
-          // current page is cheap and always correct.
-          void get().refresh()
-          void get().reloadSidebar()
-        } else if (type === 'agentProgress') {
-          // A turn belongs to the conversation, so progress arrives whether or
-          // not the chat tab is in front — and is kept, so switching to it
-          // shows the turn already under way rather than an empty pane.
-          get().applyRun(String(event.conversation ?? ''), event.state)
-        } else if (type === 'pluginsChanged') {
-          // Badge columns come and go with their plugin, and any answers the
-          // old one gave are no longer trustworthy.
-          set({ badges: {} })
-          void get().reloadSidebar()
-        }
+      disconnectEvents = watchEvents({
+        library: () => get().library,
+        connected: (connected) => set({ connected }),
+        refresh: () => get().refresh(),
+        sidebar: (scope) => get().reloadSidebar(scope),
+        run: (conversation, state) => get().applyRun(conversation, state),
+        pluginsChanged: () => set({ badges: {} }),
       })
+      await Promise.all([get().refresh(), get().reloadSidebar()])
     } catch (e) {
       // A server started with YK_API_KEY answers 401 to everything, and the
       // page has no way to know that except by being told. Without this the

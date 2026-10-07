@@ -30,6 +30,8 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("013_attachment_browse", include_str!("../migrations/013_attachment_browse.sql")),
     ("014_ranked_search_join", include_str!("../migrations/014_ranked_search_join.sql")),
     ("015_collection_dates", include_str!("../migrations/015_collection_dates.sql")),
+    ("016_recovery", include_str!("../migrations/016_recovery.sql")),
+    ("017_embedding_queue_indexes", include_str!("../migrations/017_embedding_queue_indexes.sql")),
 ];
 
 /// Handle to the SQLite database.
@@ -91,6 +93,13 @@ impl Db {
         }
 
         let manager = manager.with_init(|c| {
+            c.create_scalar_function(
+                "yk_normalize",
+                1,
+                rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                    | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+                |ctx| Ok(yk_core::text::normalize(&ctx.get::<String>(0)?)),
+            )?;
             c.execute_batch(
                 "PRAGMA busy_timeout = 15000;
                  PRAGMA synchronous = NORMAL;

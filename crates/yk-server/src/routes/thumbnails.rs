@@ -192,22 +192,31 @@ async fn store(
 ///
 /// Called from the same place attachments are forgotten. A thumbnail that
 /// outlives its PDF is a picture of something the library no longer has.
-pub async fn forget(app: &App, keys: &[Key]) {
+pub async fn forget(app: &App, keys: &[Key]) -> Result<()> {
     let dir = cache_dir(app);
-    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else { return };
+    let mut entries = match tokio::fs::read_dir(&dir).await {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
     // One pass over the directory rather than a stat per key per width per
     // page: the number of cached pages is unrelated to the number of keys
     // being deleted, and the product of the three is unbounded.
     let doomed: std::collections::HashSet<&str> = keys.iter().map(|k| k.as_str()).collect();
-    while let Ok(Some(entry)) = entries.next_entry().await {
+    while let Some(entry) = entries.next_entry().await? {
         let name = entry.file_name();
         let name = name.to_string_lossy();
         if let Some((owner, _)) = name.split_once("-p") {
             if doomed.contains(owner) {
-                tokio::fs::remove_file(entry.path()).await.ok();
+                match tokio::fs::remove_file(entry.path()).await {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(e.into()),
+                }
             }
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]

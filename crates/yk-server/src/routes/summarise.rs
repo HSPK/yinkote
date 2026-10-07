@@ -182,7 +182,7 @@ async fn summarise(
     // A job for the same reason a close reading is one: it reads the whole
     // paper and waits on a model, and the jobs surface should be able to say
     // that is what the server is doing.
-    let task = app.tasks().start("summarise", "task.summarising");
+    let task = app.tasks().start("summarise", "task.summarising").await?;
     task.progress("task.summarising", 0, 1);
 
     let turn = match agent
@@ -197,21 +197,21 @@ async fn summarise(
     {
         Ok(turn) => turn,
         Err(e) => {
-            app.tasks().fail(&task, &e);
+            app.tasks().fail(&task, &e).await;
             return Err(e.into());
         }
     };
 
     if turn.reply.trim().is_empty() {
         let e = Error::internal("the model returned nothing");
-        app.tasks().fail(&task, &e);
+        app.tasks().fail(&task, &e).await;
         return Err(e.into());
     }
 
     let note = match save(app.store(), lib, &parent, &turn.reply, turn.truncated).await {
         Ok(note) => note,
         Err(e) => {
-            app.tasks().fail(&task, &e);
+            app.tasks().fail(&task, &e).await;
             return Err(e.into());
         }
     };
@@ -223,7 +223,7 @@ async fn summarise(
     })
     .await?;
 
-    app.tasks().finish(&task, json!({ "note": note.key.as_str() }));
+    app.tasks().finish(&task, json!({ "note": note.key.as_str() })).await;
 
     Ok(Json(json!({
         "note": note,

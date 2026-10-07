@@ -1,156 +1,130 @@
-# 01 · 系统架构
+# 01 · 当前系统架构
 
-## 1. 总体架构图
+本页描述已经实现的架构。其他设计文档中的 Tauri、Tantivy、QuickJS、Node agentd、
+同步节点和生成式 SDK 属于早期方案或未来候选，不代表当前依赖。
 
-```mermaid
-graph TB
-  subgraph Clients["客户端（都只是 API 消费者）"]
-    WEB["Web 工作台<br/>React SPA / PWA"]
-    TRAY["Tauri 托盘壳<br/>WebView 内嵌同一份 SPA"]
-    EXT["浏览器扩展 MV3<br/>Chrome / Edge / Firefox"]
-    WORD["Word / WPS 加载项<br/>Office.js"]
-    CLI["CLI / 脚本 / 第三方"]
-  end
+## 1. 部署与进程
 
-  subgraph Server["Yinkote Server（单进程，本机 127.0.0.1）"]
-    direction TB
-    HTTP["HTTP 层 axum<br/>REST + WebSocket + 静态资源"]
-    AUTH["认证/鉴权<br/>Session Cookie · API Key · Scope"]
-    APP["应用服务层<br/>Items/Collections/Notes/Annotations/Citation"]
-    subgraph Engines["引擎层"]
-      TRANS["Translate 引擎<br/>QuickJS 沙箱 + translators"]
-      CITE["Citeproc 引擎<br/>CSL 样式渲染"]
-      SEARCH["检索引擎<br/>Tantivy + CJK 分词 + 向量"]
-      PDF["PDF 引擎<br/>pdfium: 抽文本/缩略图/元数据"]
-      GRAPH["图谱引擎<br/>petgraph: PageRank/社区/布局"]
-      AGENTB["Agent 桥<br/>JSON-RPC → agentd"]
-      SYNCE["同步引擎"]
-    end
-    REPO["仓储层 sqlx"]
-  end
-
-  subgraph Storage["本地存储"]
-    DB[("SQLite<br/>yinkote.db (WAL)")]
-    IDX[("检索索引<br/>index/")]
-    FILES[("附件库<br/>storage/&lt;key&gt;/")]
-    CFG[("配置/日志<br/>config.toml, logs/")]
-  end
-
-  subgraph Remote["可选远端"]
-    SYNC["同步节点 / WebDAV / S3"]
-    META["元数据源<br/>Crossref · OpenAlex · PubMed · arXiv · CNKI"]
-    LLM["LLM Provider<br/>OpenAI 兼容 · Ollama"]
-  end
-
-  subgraph AgentProc["yinkote-agentd（可选 Node sidecar）"]
-    PI["pi-coding-agent SDK<br/>Discovery Agent · Library Agent"]
-  end
-
-  WEB & TRAY & EXT & WORD & CLI -->|HTTPS/HTTP + JSON| HTTP
-  HTTP --> AUTH --> APP --> Engines --> REPO
-  APP --> REPO
-  REPO --> DB
-  SEARCH --> IDX
-  APP --> FILES
-  SYNCE <--> SYNC
-  TRANS --> META
-  AGENTB <-->|stdio JSON-RPC| PI
-  PI -->|受限 scope API Key| HTTP
-  PI --> LLM
+```text
+React 工作台 / Word 加载项 / Zotero Connector / HTTP 客户端
+                            |
+                      REST + WebSocket
+                            |
+                 yinkote (Axum + Tokio)
+                            |
+       +--------------------+----------------------+
+       |                    |                      |
+    yk-store             能力模块               yk-plugin
+       |          搜索 / AI / PDF / 抓取            |
+  SQLite (WAL)       引用 / 导入              JSON-RPC 子进程
+       |
+  storage/<key>/ 附件文件
 ```
 
-> Agent 层的完整设计见 [11-agents](11-agents.md)。核心约束：**`agentd` 是可选组件、独立进程、只能通过受限 scope 的公开 API 访问数据，且无权直接写入文献库**。
+默认监听 `127.0.0.1:23130`。浏览器连接器的兼容端口可选；Word 加载项资源由同一服务提供。
+工作台构建产物嵌入二进制，也可通过 `--web-dir` 使用磁盘资源。普通运行不需要 Node 或 Python；
+插件和外部 PDF 解析器可能需要自己的运行时。
 
-## 2. 进程模型
+## 2. 模块与依赖
 
-**单进程为主，无外部依赖**（不需要用户装 Node、Python、数据库）。
-
-| 进程 | 说明 | 是否必须 |
-| --- | --- | --- |
-| `yinkote-server` | 核心服务：HTTP API + 所有引擎 + SQLite | ✅ 必须，开机自启 |
-| `yinkote-tray`（Tauri） | 托盘图标、开机自启注册、自动更新、"打开工作台"、原生文件对话框 | 桌面端默认，Server 模式可不要 |
-| `yinkote-agentd`（Node） | Agent 运行时：pi-coding-agent SDK + Yinkote 工具集 | ❌ 可选组件，懒启动、空闲自退 |
-| 索引/OCR worker | 重活（PDF 抽文本、OCR、embedding）放在**同进程的独立线程池**，可选拆为 sidecar | 可选 |
-
-> 设计原则：**Server 可独立运行**。放到 NAS / Linux 服务器上时，只跑 `yinkote-server`，Docker 一条命令起服务；桌面端只是多了一个托盘壳。
-
-### 端口约定
-
-| 端口 | 用途 |
+| 模块 | 职责 |
 | --- | --- |
-| `23130` | Yinkote 主 API + Web UI（HTTP，仅绑定 127.0.0.1） |
-| `23131` | 本地 HTTPS 端口（供 Office 加载项等强制 https 的宿主使用，见 08 文档） |
-| `23119` | **可选**的 Zotero Connector 兼容端口；仅当检测到 Zotero 未运行时占用 |
+| `yk-core` | Item、Collection、查询条件、schema、事件与仓储接口 |
+| `yk-store` | rusqlite + r2d2、迁移、事务、计数缓存、索引维护、持久队列 |
+| `yk-search` | FTS5 BM25、trigram 模糊检索、向量余弦扫描、RRF 融合 |
+| `yk-ai` | Chat/Embedding Provider、流式响应与请求重试 |
+| `yk-agent` | 与数据库和 Provider 实现无关的 Rust 工具循环、取消和步数预算 |
+| `yk-scrape` | 标识符解析、元数据抓取、外部文献搜索 |
+| `yk-import` | Zotero 文库导入 |
+| `yk-pdf` | pdf-extract 文本提取；可选外部程序接口 |
+| `yk-cite` | 内置引用样式及 BibTeX/RIS/CSL-JSON 等交换格式，不是完整 CSL processor |
+| `yk-plugin` | 插件发现、独立进程、JSON-RPC、能力声明和 Host API |
+| `yk-server` | 组装上述模块、HTTP、业务编排、文件管理和后台 worker |
+| `web` | React 18 + TypeScript + Zustand + Vite；TanStack Virtual 与 pdf.js |
 
-## 3. 分层与模块职责
+接口主要定义在 `yk-core::ports`，具体实现由 server 组装。应用逻辑仍有一部分在路由和工具中；
+新增跨入口功能应复用应用用例，不要让 HTTP、Agent 和插件各写一份业务规则。
 
-```
-┌─ interface   HTTP 路由、DTO、序列化、WS 广播、静态文件服务
-├─ application 用例编排、事务边界、领域事件、权限检查
-├─ domain      实体与不变量：Item / Collection / Attachment / Annotation / Citation
-├─ engines     可替换的能力实现（translate / citeproc / search / pdf / ai / sync）
-└─ infra       SQLite 仓储、文件存储、HTTP 客户端、任务队列、配置、日志
-```
+## 3. 数据与事务
 
-**依赖方向严格向内**：`interface → application → domain`，`engines`/`infra` 通过 trait（接口）注入，便于测试与替换（例如检索引擎从 FTS5 换成 Tantivy 不影响上层）。
+文献、附件、笔记和批注统一为 Item，以 `itemType` 区分，以 `parentKey` 关联。
+可变字段和作者存为 JSON，排序与检索常用字段另有派生列和索引。
 
-### 领域事件与实时推送
+- 每个文库有递增版本；写操作更新版本，客户端可进行乐观并发控制。
+- SQLite 工作通过阻塞线程池执行，避免阻塞 Tokio 请求线程。
+- FTS/trigram 与 embedding 队列跟随条目事务更新，不依赖 WebSocket 通知。
+- 按名称记录前向迁移；新增迁移不得重用已经发布的名称。
+- 永久删除通过数据库触发器登记 `file_cleanup`，包括级联删除的子条目。
+  事务提交后清理附件与缩略图；失败保留记录，后台重试。回滚不删除文件。
+- 文件清理遇到重新导入的同 key 条目时保留现存文件；后台清理避让批量导入。
 
-写操作在事务提交后发布领域事件 → 事件总线 → 两个订阅者：
-1. **WebSocket 广播**：`{type:"item.updated", libraryId, key, version}`，前端做增量刷新（不是全量重拉）。
-2. **异步任务队列**：索引重建、PDF 抽文本、缩略图、元数据补全、AI 打标签。任务持久化在 `tasks` 表，进程重启可恢复。
+## 4. 搜索
 
-## 4. 任务队列设计
+一个共享 `ItemFilter` 表达标签、类型、收藏夹、作者、年份及短语约束。
+纯结构查询交给仓储分页并精确计数；含文本查询在满足约束后进行候选截断和排序融合。
+短语遵循全文索引的分词和规范化规则，不是逐字节匹配。
 
-- 单表 `tasks(id, kind, payload, state, priority, attempts, run_after, error)`。
-- 内置 worker 池（`tokio` 任务），按 `kind` 分配并发度：`pdf_extract=2`、`ai=1`、`fetch_metadata=4`。
-- 幂等：每个 task 有 `dedup_key`，重复入队合并。
-- 前端通过 `/api/v1/tasks` + WS 展示"正在处理 3 个附件"的进度条。
+每个排名通道最多贡献 300 个候选；达到上限时通过 `capped` / `approximate` 告知客户端。
+这个排名预算不是结构过滤集合的上限：结构集合不会在 20,000 条处截断。
 
-## 5. 仓库目录结构（monorepo）
+查询 embedding 和词法召回并行启动，向量扫描在阻塞线程池执行，排名搜索使用有界并发。
+结构集合与模糊候选先从同一读事务中交给排名任务，使语义扫描、模糊重排与后续 BM25
+并行，而不是等待全部 SQL 完成再开始计算。取消请求后，仍在运行的检索和重排阻塞任务继续占用
+并发额度，避免反复取消绕过资源限制。
+向量保存在 SQLite，并有内存副本；默认 local-hash 是词面投影，真正语义向量来自用户配置的
+OpenAI 兼容端点。目前没有 chunk 级 PDF 全文向量索引或 ANN 服务。
+无额外结构约束时，可检索条目的 ID 集合按文库版本缓存；版本与集合在同一读事务中获取，
+避免每次向量查询扫描整个文库，也避免使用已经删除或移入回收站的旧集合。
+小范围的向量查询直接访问允许集合中的成员；大范围仍进行完整扫描，均使用精确余弦分数，
+同分时以条目 ID 排序，不通过减少候选预算换取速度。模糊重排复用查询分词，编辑距离的
+ASCII 快路径和首尾裁剪保持原有 Unicode 字符距离结果。
 
-```
-yinkote/
-├─ apps/
-│  ├─ server/              # Rust 二进制入口（axum）
-│  ├─ agentd/              # Node/TS Agent 运行时（pi-coding-agent SDK）
-│  ├─ web/                 # React + TS 工作台（Vite）
-│  ├─ desktop/             # Tauri v2 托盘壳
-│  ├─ word-addin/          # Office.js 任务窗格（React）
-│  └─ browser-ext/         # MV3 扩展（WXT）
-├─ crates/
-│  ├─ yk-core/             # domain + application
-│  ├─ yk-store/            # sqlx 仓储 + migrations
-│  ├─ yk-search/           # Tantivy / FTS5 封装 + 分词 + 向量
-│  ├─ yk-translate/        # QuickJS 沙箱 + translators 运行时
-│  ├─ yk-citeproc/         # CSL 引擎封装 + 样式/语言包管理
-│  ├─ yk-pdf/              # pdfium 绑定：文本、页面渲染、大纲
-│  ├─ yk-graph/            # 图谱构建、PageRank、Louvain、布局
-│  ├─ yk-agent/            # agentd 进程管理 + JSON-RPC 桥 + workspace 物化
-│  ├─ yk-sync/             # 同步协议实现
-│  └─ yk-ai/               # LLM/Embedding Provider 抽象
-├─ packages/
-│  ├─ api-client/          # 由 OpenAPI 生成的 TS SDK（web/word/ext/agentd 共用）
-│  ├─ ui/                  # 共享 React 组件（条目选择器等）
-│  └─ schema/              # 条目类型 schema、CSL 类型定义（Rust/TS 共享 JSON）
-├─ resources/
-│  ├─ translators/         # 抓取脚本（见 10-licensing）
-│  ├─ styles/              # CSL 样式
-│  ├─ agent/               # Agent 系统提示词、Skills、AGENTS.md 模板
-│  └─ locales/             # CSL 语言包 + UI i18n
-├─ docs/
-└─ tests/e2e/              # Playwright 端到端
-```
+## 5. 任务与恢复
 
-工具链：**Cargo workspace + pnpm workspace**，用 `just` 或 `cargo xtask` 统一编排（`just dev` 同时起 server 热重载与 Vite）。
+| 机制 | 生命周期 |
+| --- | --- |
+| `embed_queue` | SQLite 持久队列，后台分批计算和写入 |
+| `fetch_queue` | 下载队列；启动时把遗留 running 转为带原因的 failed，等待用户检查后重试 |
+| `task_records` | 导入、导出、重建、摘要等通用任务；创建和终态持久化 |
+| Agent Run | 每个对话的进程内运行状态，独立于通用 Task；完成后的对话另行持久化 |
+| `file_cleanup` | 数据库删除提交后的文件清理，幂等重试 |
 
-## 6. 关键架构决策
+向量任务按入队时间与条目 ID 的索引读取，不在每一批重新排序整个积压队列。
+提交时核对队列的内容哈希，只移除仍对应本次计算的记录；计算期间发生的新编辑保留在队列中，
+删除或移入回收站的条目不会被旧结果重新写回。先提交数据库，再发布内存向量；
+维度错误或包含非有限数的响应报错并保留待重试记录。向量维护与重建在同一引擎内串行协调。
 
-| 决策 | 选择 | 理由 |
-| --- | --- | --- |
-| 单体 vs 微服务 | **单体** | 本地软件，进程越少越好；模块化用 crate 边界保证 |
-| 数据库 | **嵌入式 SQLite** | 零运维、单文件备份、WAL 下读写并发足够 |
-| 前后端 | **前后端分离，同源部署** | Server 直接托管构建产物，避免 CORS 与端口困扰 |
-| 客户端一致性 | **所有客户端走同一套公开 API** | 插件不是特权公民，dogfooding 保证 API 质量 |
-| 离线能力 | **服务端本地优先** | 数据在本机，天然离线；网络仅用于抓取与同步 |
-| 扩展机制 | **HTTP API + Webhook + 未来 WASM 插件** | 避免 Zotero 式的进程内 XPI 耦合 |
+空下载队列和空文件清理队列只读取状态，不申请写锁、不重置后台维护的空闲计时。
+下载 worker 同样避让批量导入；索引维护遇到繁忙时每 5 秒重新检查，
+实际执行后才进入 30 分钟的常规维护间隔。
+没有批量任务时，WAL 每 5 秒进行非阻塞的 PASSIVE 检查点；TRUNCATE 还要求至少空闲 5 秒，
+避免持续向量写入期间日志只能增长、无法回收。
+向量 worker 保留按批次耗时退避的策略，并至少让步 50 ms，避免队列读取加速后反而把全部
+收益变成更密集的后台写入；这不是交互延迟的硬保证。
+
+重启会把未结束的通用任务标为失败，而不是声称仍在运行或自动重放副作用。
+进度在运行期间保存在内存，不保证崩溃前的最新进度被保存，也不提供断点续跑。
+保留最近 50 个终态任务；任务 ID 跨重启唯一。数据库和文件系统没有分布式事务，
+因此需要“事务登记 + 可重试清理”，不能先删文件再尝试提交数据库。
+
+## 6. 前端状态与事件
+
+Zustand 保存工作台状态，偏好、聊天和侧栏按 slice 组织。标签页注册表统一页面定义；
+文献标签拥有自己的 scope，PDF 标签保留会话直到明确关闭。
+
+WebSocket 是非持久广播：慢客户端会收到 `lagged`。前端合并短时间内的事件，
+条目变化只刷新文库相关数据，插件变化只刷新贡献；断线重连或丢事件时重新同步。
+相同的在途 GET 请求共享响应，写操作前后淘汰旧请求的复用资格，不缓存已完成的 GET。
+
+大列表共用虚拟化组件；pdf.js 动态加载。全局快捷键按触发时的 store 快照工作，
+不让 App 因为订阅整个 store 而响应每一次无关状态更新。
+
+## 7. 容错与演进边界
+
+Release 使用 unwind，使 PDF 提取器的 `catch_unwind` 能捕获 Rust panic。
+这不是完整进程隔离，不能恢复 OOM、进程终止或所有原生库故障。
+更强的解析器隔离、ANN、自动续跑、完整 CSL 和生成式 SDK 应分别以具体需求推动，
+不作为当前架构已经具有的能力。
+
+继续保持模块化单体、同源部署和本地存储；优先统一业务不变量与减少重复工作，
+再用端到端数据决定是否需要更复杂的基础设施。

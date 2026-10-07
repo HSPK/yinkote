@@ -102,15 +102,15 @@ fn graph_shapes_speak_camel_case() {
     );
 }
 
-#[test]
-fn agent_shapes_speak_camel_case() {
+#[tokio::test]
+async fn agent_shapes_speak_camel_case() {
     use yk_server::runs::{RunState, Step};
     use yk_server::tasks::Tasks;
 
     // Harvesting used to have a shape of its own here; it is a task now, and
     // the guard moves with the value that is actually on the wire.
     let tasks = Tasks::default();
-    let task = tasks.start("harvest", "Fetching");
+    let task = tasks.start("harvest", "Fetching").await.unwrap();
     task.progress("Fetching", 1, 2);
     assert_camel("TaskState", task.snapshot());
 

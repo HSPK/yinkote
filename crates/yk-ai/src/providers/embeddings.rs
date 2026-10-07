@@ -78,7 +78,11 @@ impl EmbeddingProvider for LocalEmbedder {
     }
 
     async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-        Ok(texts.iter().map(|t| self.encode(t)).collect())
+        let texts = texts.to_vec();
+        let embedder = self.clone();
+        tokio::task::spawn_blocking(move || texts.iter().map(|t| embedder.encode(t)).collect())
+            .await
+            .map_err(|e| Error::internal(format!("local embeddings: {e}")))
     }
 }
 

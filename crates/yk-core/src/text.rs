@@ -100,6 +100,13 @@ pub fn trigrams(input: &str) -> Vec<String> {
 
 /// Normalised Levenshtein similarity in `[0,1]`.
 pub fn similarity(a: &str, b: &str) -> f32 {
+    if a == b {
+        return 1.0;
+    }
+    if a.is_ascii() && b.is_ascii() {
+        let max = a.len().max(b.len());
+        return 1.0 - (levenshtein(a.as_bytes(), b.as_bytes()) as f32 / max as f32);
+    }
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     if a.is_empty() && b.is_empty() {
@@ -112,24 +119,32 @@ pub fn similarity(a: &str, b: &str) -> f32 {
     1.0 - (levenshtein(&a, &b) as f32 / max as f32)
 }
 
-fn levenshtein(a: &[char], b: &[char]) -> usize {
+fn levenshtein<T: Eq>(a: &[T], b: &[T]) -> usize {
+    let prefix = a.iter().zip(b).take_while(|(a, b)| a == b).count();
+    let (a, b) = (&a[prefix..], &b[prefix..]);
+    let suffix = a.iter().rev().zip(b.iter().rev()).take_while(|(a, b)| a == b).count();
+    let (a, b) = (&a[..a.len() - suffix], &b[..b.len() - suffix]);
+    // The row is scratch space for the shorter input, regardless of which
+    // argument supplied it. Removing shared ends preserves the exact distance.
+    let (a, b) = if a.len() < b.len() { (b, a) } else { (a, b) };
     if a.is_empty() {
         return b.len();
     }
     if b.is_empty() {
         return a.len();
     }
-    let mut prev: Vec<usize> = (0..=b.len()).collect();
-    let mut cur = vec![0usize; b.len() + 1];
+    let mut row: Vec<usize> = (0..=b.len()).collect();
     for (i, ca) in a.iter().enumerate() {
-        cur[0] = i + 1;
+        let mut diagonal = row[0];
+        row[0] = i + 1;
         for (j, cb) in b.iter().enumerate() {
             let cost = usize::from(ca != cb);
-            cur[j + 1] = (prev[j + 1] + 1).min(cur[j] + 1).min(prev[j] + cost);
+            let above = row[j + 1];
+            row[j + 1] = (above + 1).min(row[j] + 1).min(diagonal + cost);
+            diagonal = above;
         }
-        std::mem::swap(&mut prev, &mut cur);
     }
-    prev[b.len()]
+    row[b.len()]
 }
 
 #[cfg(test)]
@@ -172,6 +187,52 @@ mod tests {
         assert!(similarity("attention", "attention") > 0.99);
         assert!(similarity("attention", "attension") > 0.8);
         assert!(similarity("attention", "banana") < 0.4);
+    }
+
+    #[test]
+    fn optimized_similarity_matches_the_full_unicode_distance() {
+        fn reference(a: &str, b: &str) -> f32 {
+            let a: Vec<char> = a.chars().collect();
+            let b: Vec<char> = b.chars().collect();
+            let maximum = a.len().max(b.len());
+            if maximum == 0 {
+                return 1.0;
+            }
+            let mut matrix = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+            for (i, row) in matrix.iter_mut().enumerate() {
+                row[0] = i;
+            }
+            for (j, value) in matrix[0].iter_mut().enumerate() {
+                *value = j;
+            }
+            for (i, left) in a.iter().enumerate() {
+                for (j, right) in b.iter().enumerate() {
+                    matrix[i + 1][j + 1] = (matrix[i][j + 1] + 1)
+                        .min(matrix[i + 1][j] + 1)
+                        .min(matrix[i][j] + usize::from(left != right));
+                }
+            }
+            1.0 - matrix[a.len()][b.len()] as f32 / maximum as f32
+        }
+
+        let mut inputs = vec![String::new()];
+        let mut level = inputs.clone();
+        for _ in 0..3 {
+            level = level.iter().flat_map(|prefix| {
+                ['a', 'b', '中', 'é', '\u{301}'].map(|ch| format!("{prefix}{ch}"))
+            }).collect();
+            inputs.extend(level.iter().cloned());
+        }
+        inputs.extend([
+            "prefix".repeat(30),
+            format!("{}a{}", "prefix".repeat(10), "suffix".repeat(10)),
+            format!("{}b{}", "prefix".repeat(10), "suffix".repeat(10)),
+        ]);
+        for a in &inputs {
+            for b in &inputs {
+                assert_eq!(similarity(a, b).to_bits(), reference(a, b).to_bits(), "{a:?} / {b:?}");
+            }
+        }
     }
 }
 

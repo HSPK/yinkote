@@ -95,6 +95,27 @@ describe('request handling', () => {
 
     expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/v1/libraries/3/collections')
   })
+
+  it('shares concurrent identical reads but never caches completed responses', async () => {
+    const fetchMock = spyFetch('[]')
+    vi.stubGlobal('fetch', fetchMock)
+    await Promise.all([api.collections.list(3), api.collections.list(3)])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await api.collections.list(3)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('never reuses a pending read across a write', async () => {
+    const replies: Array<(response: Response) => void> = []
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => replies.push(resolve)))
+    vi.stubGlobal('fetch', fetchMock)
+    const first = api.collections.list(3)
+    const write = api.items.update(3, 'ABCD1234', { title: 'Changed' })
+    const second = api.collections.list(3)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    for (const reply of replies) reply(new Response('{}', { status: 200 }))
+    await Promise.all([first, write, second])
+  })
 })
 
 describe('citations', () => {

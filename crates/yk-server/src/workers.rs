@@ -13,9 +13,23 @@ pub fn spawn(app: App) {
     embedding_worker(app.clone());
     checkpoint_worker(app.clone());
     download_worker(app.clone());
+    cleanup_worker(app.clone());
     keep_statistics_current(app.clone());
     warm_first_load(app.clone());
     startup_hook(app);
+}
+
+fn cleanup_worker(app: App) {
+    tokio::spawn(async move {
+        loop {
+            if !app.tasks().bulk_write_running() {
+                if let Err(error) = crate::deletion::cleanup(&app).await {
+                    tracing::warn!(%error, "file cleanup will be retried");
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        }
+    });
 }
 
 /// How long the database must have been left alone before a worker will take
@@ -84,6 +98,11 @@ fn keep_statistics_current(app: App) {
                     }
                     Err(error) => tracing::debug!(%error, "could not measure the search indexes"),
                 }
+            } else {
+                // A busy tick deferred the work; it did not perform the
+                // maintenance that earns a thirty-minute pause.
+                tokio::time::sleep(QUIET).await;
+                continue;
             }
             // Often enough to follow a big import, rare enough to be invisible.
             tokio::time::sleep(Duration::from_secs(60 * 30)).await;
@@ -156,7 +175,9 @@ fn warm_first_load(app: App) {
 const EMBED_DUTY: u32 = 4;
 
 /// Never spin, and never disappear for so long that progress looks stalled.
-const EMBED_MIN_PAUSE: Duration = Duration::from_millis(20);
+/// Indexed queue reads made passes cheaper; leave some of that saving to
+/// foreground requests rather than spending it all on more frequent writes.
+const EMBED_MIN_PAUSE: Duration = Duration::from_millis(50);
 const EMBED_MAX_PAUSE: Duration = Duration::from_secs(2);
 
 /// Drains the embedding queue that the store fills on every item write.
@@ -225,7 +246,7 @@ const WAL_TRUNCATE_BYTES: u64 = 64 * 1024 * 1024;
 /// has one — so this escalates once the log is large. See `Db::checkpoint`.
 fn checkpoint_worker(app: App) {
     tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(Duration::from_secs(30));
+        let mut ticker = tokio::time::interval(QUIET);
         ticker.tick().await; // the first tick fires immediately
         loop {
             ticker.tick().await;
@@ -237,14 +258,18 @@ fn checkpoint_worker(app: App) {
             // The log is reclaimed when the job finishes; a big file for a few
             // minutes is cheaper than a program that will not accept a
             // keystroke.
-            // A registered bulk job, or anybody at all writing. The registry
-            // only knows about jobs that announce themselves; `writes_quiet_for`
-            // watches the write path itself, which is what a client posting
-            // items in a loop actually touches.
-            if app.tasks().bulk_write_running() || !yk_store::writes_quiet_for(QUIET) {
+            if app.tasks().bulk_write_running() {
                 continue;
             }
-            match app.store().db().checkpoint(WAL_TRUNCATE_BYTES).await {
+            // PASSIVE may copy finished frames while traffic continues.
+            // Only TRUNCATE needs the quiet window; deferring both lets a
+            // fast embedding backlog grow the WAL for the entire session.
+            let truncate_at = if yk_store::writes_quiet_for(QUIET) {
+                WAL_TRUNCATE_BYTES
+            } else {
+                u64::MAX
+            };
+            match app.store().db().checkpoint(truncate_at).await {
                 Ok(bytes) => tracing::trace!(bytes, "wal checkpoint"),
                 Err(e) => tracing::debug!(error = %e, "wal checkpoint skipped"),
             }
@@ -268,6 +293,10 @@ const BETWEEN: Duration = Duration::from_millis(400);
 fn download_worker(app: App) {
     tokio::spawn(async move {
         loop {
+            if app.tasks().bulk_write_running() {
+                tokio::time::sleep(IDLE).await;
+                continue;
+            }
             let claimed = match app.store().downloads.claim(app.services.default_library).await {
                 Ok(job) => job,
                 Err(e) => {

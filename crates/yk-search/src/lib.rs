@@ -38,25 +38,35 @@ use vector::VectorStore;
 /// How many candidates each retriever contributes before fusion.
 const CANDIDATES: usize = 300;
 
-/// How wide the structural set has to be when it is a *restriction* rather
-/// than the answer: the ranked legs draw from the whole library, so a hit can
-/// sit anywhere in it.
-const CANDIDATE_SET: usize = 20_000;
 /// Minimum edit-distance similarity for a fuzzy hit to count.
 const FUZZY_FLOOR: f32 = 0.45;
 /// Rows written per background transaction. Small on purpose — see
 /// `embed_pending`.
 const WRITE_CHUNK: usize = 200;
 
+/// Queue reads must walk an ordered index, not sort every pending document.
+pub const PENDING_EMBEDDINGS_SQL: &str =
+    "SELECT item_id, library_id, text, content_hash FROM embed_queue \
+     ORDER BY queued_at, item_id LIMIT ?1";
+
+/// Count from the provider index without reading vector blobs.
+pub const STORED_VECTORS_SQL: &str =
+    "SELECT count(*) FROM item_vectors WHERE provider = ?1 AND dim = ?2";
+
 const W_KEYWORD: f32 = 1.0;
 const W_SEMANTIC: f32 = 0.9;
 const W_FUZZY: f32 = 0.55;
+
+type EmbeddingPass = Arc<tokio::sync::OwnedMutexGuard<()>>;
 
 pub struct SearchEngine {
     store: Store,
     db: Db,
     embedder: Arc<dyn EmbeddingProvider>,
     vectors: Arc<RwLock<VectorStore>>,
+    eligible: Arc<yk_store::counts::Versioned<Arc<HashSet<i64>>>>,
+    searches: Arc<tokio::sync::Semaphore>,
+    embedding_pass: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl SearchEngine {
@@ -67,6 +77,9 @@ impl SearchEngine {
             store,
             db,
             vectors: Arc::new(RwLock::new(VectorStore::new(embedder.dimensions()))),
+            eligible: Default::default(),
+            searches: Arc::new(tokio::sync::Semaphore::new(2)),
+            embedding_pass: Default::default(),
             embedder,
         };
         engine.load_vectors()?;
@@ -79,7 +92,7 @@ impl SearchEngine {
     ///
     /// Cheap in the ordinary case: one count against an indexed table, and no
     /// work at all unless something was deleted.
-    async fn discard_vectors_of_deleted_items(&self) -> Result<()> {
+    async fn discard_vectors_of_deleted_items(&self, pass: EmbeddingPass) -> Result<()> {
         let cached = self.vectors.read().len();
         if cached == 0 {
             return Ok(());
@@ -89,46 +102,59 @@ impl SearchEngine {
         let stored: i64 = self
             .db
             .call(move |c| {
-                c.query_row(
-                    "SELECT count(*) FROM item_vectors WHERE provider = ?1 AND dim = ?2",
-                    params![provider, dim],
-                    |r| r.get(0),
-                )
-                .map_err(sql_err)
+                c.query_row(STORED_VECTORS_SQL, params![provider, dim], |r| r.get(0))
+                    .map_err(sql_err)
             })
             .await?;
 
         if (stored as usize) < cached {
-            let loaded = self.load_vectors()?;
+            let loaded = self.reload_vectors(pass).await?;
             tracing::debug!(was = cached, now = loaded, "pruned vectors of deleted items");
         }
         Ok(())
     }
-
-
     fn load_vectors(&self) -> Result<usize> {
         let conn = self.db.conn()?;
+        let cache = Self::read_vectors(&conn, self.embedder.id(), self.embedder.dimensions())?;
+        let n = cache.len();
+        *self.vectors.write() = cache;
+        Ok(n)
+    }
+
+    fn read_vectors(conn: &Connection, provider: &str, dimensions: usize) -> Result<VectorStore> {
         let mut stmt = conn
             .prepare(
                 "SELECT item_id, library_id, vec FROM item_vectors \
                  WHERE provider = ?1 AND dim = ?2",
             )
             .map_err(sql_err)?;
-        let mut cache = self.vectors.write();
-        cache.reset(self.embedder.dimensions());
-        let mut n = 0;
+        let mut cache = VectorStore::new(dimensions);
         let mut rows = stmt
-            .query(params![self.embedder.id(), self.embedder.dimensions() as i64])
+            .query(params![provider, dimensions as i64])
             .map_err(sql_err)?;
         while let Some(r) = rows.next().map_err(sql_err)? {
             let blob: Vec<u8> = r.get(2).map_err(sql_err)?;
-            if let Some(v) = decode(&blob, self.embedder.dimensions()) {
+            if let Some(v) = decode(&blob, dimensions) {
                 cache.upsert(r.get(0).map_err(sql_err)?, r.get(1).map_err(sql_err)?, &v);
-                n += 1;
             }
         }
-        tracing::debug!(vectors = n, provider = self.embedder.id(), "vector cache warmed");
-        Ok(n)
+        tracing::debug!(vectors = cache.len(), provider, "vector cache warmed");
+        Ok(cache)
+    }
+
+    async fn reload_vectors(&self, pass: EmbeddingPass) -> Result<usize> {
+        let provider = self.embedder.id().to_string();
+        let dimensions = self.embedder.dimensions();
+        let vectors = self.vectors.clone();
+        self.db
+            .call(move |c| {
+                let _pass = pass;
+                let cache = Self::read_vectors(c, &provider, dimensions)?;
+                let n = cache.len();
+                *vectors.write() = cache;
+                Ok(n)
+            })
+            .await
     }
 
     /// The most semantically similar items to one already in the library.
@@ -153,61 +179,13 @@ impl SearchEngine {
             .collect()
     }
 
-    /// Item ids permitted by the structural filter, or `None` when the filter
-    /// adds nothing beyond "this library, not trashed" — which every retriever
-    /// already enforces in SQL.
-    ///
-    /// Returns them ordered so a pure filter query (`tag:survey` with no text)
-    /// can reuse the same scan instead of running it twice.
-    /// The ids a structural filter allows, or `None` when nothing narrows it.
-    ///
-    /// `want` is how many are actually going to be used. When the query has no
-    /// words the ids *are* the answer, in order, and only a page of them is
-    /// wanted; when there are words they are a set the ranked legs get filtered
-    /// against, and it has to be wide enough to contain the hits. Fetching
-    /// twenty thousand either way meant `tag:survey` read 20,000 rows to return
-    /// fifty.
-    fn allowed(
-        conn: &Connection,
-        filter: &ItemFilter,
-        want: Option<usize>,
-    ) -> Result<Option<Vec<i64>>> {
-        let structural = filter.collection.is_some()
-            || !filter.tags.is_empty()
-            || !filter.item_types.is_empty()
-            || filter.keys.is_some()
-            || filter.since.is_some()
-            || filter.top_level_only
-            || filter.trash != TrashScope::Exclude;
-        if !structural {
-            return Ok(None);
-        }
-        Ok(Some(Self::matching_ids(conn, filter, want.unwrap_or(CANDIDATE_SET))?))
-    }
-
-    fn matching_ids(conn: &Connection, filter: &ItemFilter, limit: usize) -> Result<Vec<i64>> {
+    fn predicate(conn: &Connection, filter: &ItemFilter) -> Result<Predicate> {
         let collections = match &filter.collection {
             Some(key) => Some(resolve_collection_ids(conn, filter, key)?),
             None => None,
         };
 
-        // The same choice `items::list` makes, through the same function — but
-        // there the exact total is already in hand and here it is not, so the
-        // tag is counted only as far as the crossover.
-        let p = Predicate::for_page(conn, filter, collections.as_deref(), limit as i64, None);
-        let hint = p.index_hint(SortField::DateModified);
-
-        let sql = format!(
-            "SELECT i.id FROM items i {hint} WHERE {} ORDER BY i.date_modified DESC LIMIT {limit}",
-            p.sql
-        );
-        let mut stmt = conn.prepare_cached(&sql).map_err(sql_err)?;
-        let out = stmt
-            .query_map(params_from_iter(p.params.iter()), |r| r.get(0))
-            .map_err(sql_err)?
-            .collect::<rusqlite::Result<Vec<i64>>>()
-            .map_err(sql_err);
-        out
+        Ok(Predicate::build(filter, collections.as_deref()))
     }
 }
 
@@ -335,14 +313,9 @@ fn substring_bonus(query: &str, title: &str) -> f32 {
 /// "attention is all you need" scores badly purely because the title is long.
 /// So we take the best of three views — whole string, literal containment, and
 /// per-token best match — which is what a human means by "close enough".
-fn fuzzy_score(query: &str, target: &str) -> f32 {
+fn fuzzy_score(query: &str, query_tokens: &[String], target: &str) -> f32 {
     if query.is_empty() || target.is_empty() {
         return 0.0;
-    }
-    let mut query_tokens = text::tokenize(query);
-    // Single characters match almost anything; drop them when we have better.
-    if query_tokens.iter().any(|t| t.chars().count() > 1) {
-        query_tokens.retain(|t| t.chars().count() > 1);
     }
     let target_tokens = text::tokenize(target);
 
@@ -352,7 +325,14 @@ fn fuzzy_score(query: &str, target: &str) -> f32 {
         let sum: f32 = query_tokens
             .iter()
             .map(|q| {
-                target_tokens.iter().map(|t| text::similarity(q, t)).fold(0.0f32, f32::max)
+                let mut best = 0.0f32;
+                for target in &target_tokens {
+                    best = best.max(text::similarity(q, target));
+                    if best == 1.0 {
+                        break;
+                    }
+                }
+                best
             })
             .sum();
         sum / query_tokens.len() as f32
@@ -372,98 +352,154 @@ impl SearchIndex for SearchEngine {
         let mode = request.mode;
         let library_id = filter.library_id;
 
-        // Embedding is the only step that may hit the network; do it first so
-        // the database work happens in one uninterrupted blocking call.
-        let query_vec = if mode.uses(SearchMode::Semantic) && !query_text.trim().is_empty() {
-            match self.embedder.embed(std::slice::from_ref(&query_text)).await {
-                Ok(mut v) if !v.is_empty() => Some(v.remove(0)),
-                Ok(_) => None,
-                Err(e) => {
-                    tracing::warn!(error = %e, "semantic search unavailable, degrading");
-                    None
-                }
+        if query_text.trim().is_empty() {
+            let constrained = parsed.has_constraints()
+                || filter.collection.is_some()
+                || !filter.tags.is_empty()
+                || !filter.item_types.is_empty()
+                || !filter.creators.is_empty()
+                || !filter.phrases.is_empty()
+                || filter.year_from.is_some()
+                || filter.year_to.is_some()
+                || filter.keys.is_some()
+                || filter.since.is_some()
+                || filter.top_level_only
+                || filter.trash != TrashScope::Exclude;
+            if !constrained {
+                return Ok(SearchPage { hits: Vec::new(), total: 0, capped: false });
             }
-        } else {
-            None
+            let page = self.store.items.list(&ItemQuery {
+                filter,
+                limit: request.limit,
+                offset: request.offset,
+                ..Default::default()
+            }).await?;
+            return Ok(SearchPage {
+                hits: page.items.into_iter().map(|item| SearchHit {
+                    key: item.key,
+                    score: 1.0,
+                    snippet: None,
+                    sources: vec![MatchSource::Field],
+                }).collect(),
+                total: page.total,
+                capped: false,
+            });
+        }
+
+        // Blocking work survives cancellation of its caller. It must retain
+        // its permit too, or rapid cancelled searches bypass the work limit.
+        let permit = Arc::new(self.searches.clone().acquire_owned().await
+            .map_err(|e| Error::internal(format!("search scheduler: {e}")))?);
+        // Network latency and lexical retrieval are independent.
+        let embedding = async {
+            if mode.uses(SearchMode::Semantic) {
+                match self.embedder.embed(std::slice::from_ref(&query_text)).await {
+                    Ok(mut v) if !v.is_empty() => Some(v.remove(0)),
+                    Ok(_) => None,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "semantic search unavailable, degrading");
+                        None
+                    }
+                }
+            } else {
+                None
+            }
         };
 
         let filter_for_db = filter.clone();
         let text_for_db = query_text.clone();
-        // What a pure filter query will actually return, plus a little slack so
-        // the caller can tell "that is the last page" from "there is more".
-        let needed = (request.offset as usize)
-            .saturating_add(request.limit as usize)
-            .saturating_add(1)
-            .min(CANDIDATE_SET);
-        let (allowed_ids, keyword_hits, fuzzy_hits) = self
+        let eligible = self.eligible.clone();
+        let db_permit = permit.clone();
+        let (prepared_tx, prepared_rx) = tokio::sync::oneshot::channel();
+        let retrieval = self
             .db
             .call(move |c| {
-                let text_empty = text_for_db.trim().is_empty();
-                // With no words to rank, the filter's own order is the answer,
-                // so only a page of it is ever read.
-                let want = text_empty.then_some(needed);
-                let allowed = SearchEngine::allowed(c, &filter_for_db, want)?;
+                let _permit = db_permit;
+                let tx = c.transaction().map_err(sql_err)?;
+                let c = &tx;
+                let predicate = SearchEngine::predicate(c, &filter_for_db)?;
+                let allowed = if mode.uses(SearchMode::Semantic) {
+                    let key = yk_store::counts::Versioned::<Arc<HashSet<i64>>>::key(library_id, &predicate);
+                    let version = c.query_row("SELECT version FROM libraries WHERE id=?1",
+                        [library_id], |r| r.get::<_, i64>(0)).map_err(sql_err)?;
+                    // Cache only the broad live set, not a library-sized set
+                    // for every one-off query. A write retires it immediately.
+                    let cached = predicate.base_only.then(|| eligible.get(&key, version)).flatten();
+                    let ids = match cached {
+                        Some(ids) => ids,
+                        None => {
+                            let mut stmt = c.prepare(&format!("SELECT i.id FROM items i WHERE {}", predicate.sql))
+                                .map_err(sql_err)?;
+                            let ids = Arc::new(stmt.query_map(params_from_iter(predicate.params.iter()), |r| r.get::<_, i64>(0))
+                                .map_err(sql_err)?
+                                .collect::<rusqlite::Result<HashSet<i64>>>()
+                                .map_err(sql_err)?);
+                            if predicate.base_only {
+                                eligible.put(key, version, ids.clone());
+                            }
+                            ids
+                        }
+                    };
+                    Some(ids)
+                } else {
+                    None
+                };
 
-                let keyword = if !text_empty && mode.uses(SearchMode::Keyword) {
-                    lexical::keyword(c, library_id, &text_for_db, CANDIDATES)?
+                let fuzzy = if mode.uses(SearchMode::Fuzzy) {
+                    lexical::fuzzy_filtered(c, library_id, &text_for_db, CANDIDATES, Some(&predicate))?
+                } else {
+                    Vec::new()
+                };
+                // Share this read snapshot's candidates before the expensive
+                // BM25 pass. CPU ranking can run while SQLite ranks keywords.
+                prepared_tx.send((allowed, fuzzy))
+                    .map_err(|_| Error::Unavailable("search cancelled".into()))?;
+                let keyword = if mode.uses(SearchMode::Keyword) {
+                    lexical::keyword_filtered(c, library_id, &text_for_db, CANDIDATES, Some(&predicate))?
                 } else {
                     Vec::new()
                 };
 
-                let fuzzy = if !text_empty && mode.uses(SearchMode::Fuzzy) {
-                    let norm = text::normalize(&text_for_db);
-                    let mut scored: Vec<(i64, f32)> =
-                        lexical::fuzzy(c, library_id, &text_for_db, CANDIDATES)?
-                            .into_iter()
-                            .filter_map(|cand| {
-                                let s = fuzzy_score(&norm, &cand.title)
-                                    .max(fuzzy_score(&norm, &cand.creator));
-                                (s >= FUZZY_FLOOR).then_some((cand.id, s))
-                            })
-                            .collect();
-                    scored.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
-                    scored.truncate(CANDIDATES);
-                    scored
-                } else {
-                    Vec::new()
+                tx.commit().map_err(sql_err)?;
+                Ok(keyword)
+            });
+        let ranking = async {
+            let (query_vec, prepared) = tokio::join!(embedding, prepared_rx);
+            let (allowed, fuzzy) = prepared
+                .map_err(|e| Error::internal(format!("search candidates: {e}")))?;
+            if query_vec.is_none() && fuzzy.is_empty() {
+                return Ok((Vec::new(), Vec::new()));
+            }
+            let vectors = self.vectors.clone();
+            let query = query_text.clone();
+            let compute_permit = permit.clone();
+            tokio::task::spawn_blocking(move || {
+                let _permit = compute_permit;
+                let norm = text::normalize(&query);
+                let mut tokens = text::tokenize(&norm);
+                if tokens.iter().any(|t| t.chars().count() > 1) {
+                    tokens.retain(|t| t.chars().count() > 1);
+                }
+                let mut fuzzy_hits: Vec<(i64, f32)> = fuzzy.into_iter().filter_map(|cand| {
+                    let score = fuzzy_score(&norm, &tokens, &cand.title)
+                        .max(fuzzy_score(&norm, &tokens, &cand.creator));
+                    (score >= FUZZY_FLOOR).then_some((cand.id, score))
+                }).collect();
+                fuzzy_hits.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
+                fuzzy_hits.truncate(CANDIDATES);
+                let semantic_hits = match query_vec {
+                    Some(v) => vectors.read().search(library_id, &v, CANDIDATES, allowed.as_deref()),
+                    None => Vec::new(),
                 };
-
-                Ok((allowed, keyword, fuzzy))
-            })
-            .await?;
-
-        // A pure filter query (`tag:survey` with no words) is answered by the
-        // filter scan itself — reused here rather than run a second time.
-        let filter_only = if query_text.trim().is_empty() {
-            allowed_ids.clone().unwrap_or_default()
-        } else {
-            Vec::new()
+                (semantic_hits, fuzzy_hits)
+            }).await.map_err(|e| Error::internal(format!("search ranking: {e}")))
         };
-
-        // ...but that scan deliberately stops at `needed`, so counting it would
-        // report the size of the page window as the size of the library:
-        // `tag:survey` answered 4 at offset 0 and 504 at offset 500, for a tag
-        // on 28,802 items. A filter has an exact total and it is already
-        // cached, so ask for it rather than infer one from a window.
-        let filter_total = if query_text.trim().is_empty() && !filter_only.is_empty() {
-            Some(self.store.items.count(&filter).await?)
-        } else {
-            None
-        };
-
-        let allowed: Option<HashSet<i64>> =
-            allowed_ids.map(|ids| ids.into_iter().collect());
-
-        let semantic_hits = match &query_vec {
-            Some(v) => self.vectors.read().search(library_id, v, CANDIDATES, allowed.as_ref()),
-            None => Vec::new(),
-        };
+        let (keyword_hits, ranked) = tokio::join!(retrieval, ranking);
+        let keyword_hits = keyword_hits?;
+        let (semantic_hits, fuzzy_hits) = ranked?;
 
         let keep = |hits: Vec<(i64, f32)>| -> Vec<i64> {
-            hits.into_iter()
-                .filter(|(id, _)| allowed.as_ref().map(|a| a.contains(id)).unwrap_or(true))
-                .map(|(id, _)| id)
-                .collect()
+            hits.into_iter().map(|(id, _)| id).collect()
         };
 
         let (keyword_len, fuzzy_len) = (keyword_hits.len(), fuzzy_hits.len());
@@ -477,7 +513,6 @@ impl SearchIndex for SearchEngine {
                 ids: keep(semantic_hits),
             },
             RankedList { source: MatchSource::Fuzzy, weight: W_FUZZY, ids: keep(fuzzy_hits) },
-            RankedList { source: MatchSource::Tag, weight: 1.0, ids: filter_only },
         ];
         let fused = fusion::fuse(&lists);
 
@@ -488,12 +523,11 @@ impl SearchIndex for SearchEngine {
         // For a pure filter the exact number is known, so it is used and the
         // answer is not a floor. For a word query it is what the retrievers
         // between them produced.
-        let total = filter_total.unwrap_or(fused.len() as i64);
+        let total = fused.len() as i64;
         // A retriever that returned exactly what it was allowed to return had
         // more to give. That is the difference between "three hundred matches"
         // and "the first three hundred of twenty thousand".
-        let capped = filter_total.is_none()
-            && [keyword_len, semantic_len, fuzzy_len].iter().any(|n| *n >= CANDIDATES);
+        let capped = [keyword_len, semantic_len, fuzzy_len].iter().any(|n| *n >= CANDIDATES);
 
         let start = request.offset as usize;
         let page: Vec<fusion::Fused> =
@@ -608,6 +642,9 @@ impl SearchIndex for SearchEngine {
     }
 
     async fn embed_pending(&self, batch: u32) -> Result<u32> {
+        // A cancelled caller cannot release serialization while its blocking
+        // commit is still running: each commit holds a clone of this guard.
+        let pass = Arc::new(self.embedding_pass.clone().lock_owned().await);
         // Deleted items leave the table by cascade and used to stay in this
         // cache, which is only ever upserted. A scratch library holding 26
         // documents reported 99,719 embedded, and would have gone on growing
@@ -621,16 +658,13 @@ impl SearchIndex for SearchEngine {
         // the mirror asks. It only ever *shrinks* behind the table, so one
         // comparison is enough to notice, and rebuilding is what a restart
         // already does.
-        self.discard_vectors_of_deleted_items().await?;
+        self.discard_vectors_of_deleted_items(pass.clone()).await?;
 
         let rows: Vec<(i64, i64, String, String)> = self
             .db
             .call(move |c| {
                 let mut stmt = c
-                    .prepare_cached(
-                        "SELECT item_id, library_id, text, content_hash FROM embed_queue \
-                         ORDER BY queued_at LIMIT ?1",
-                    )
+                    .prepare_cached(PENDING_EMBEDDINGS_SQL)
                     .map_err(sql_err)?;
                 let out = stmt
                     .query_map(params![batch], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
@@ -650,22 +684,18 @@ impl SearchIndex for SearchEngine {
         if vectors.len() != rows.len() {
             return Err(Error::Search("embedding provider returned the wrong count".into()));
         }
-
-        {
-            let mut cache = self.vectors.write();
-            for ((id, lib, _, _), v) in rows.iter().zip(&vectors) {
-                cache.upsert(*id, *lib, v);
-            }
+        let dim = self.embedder.dimensions();
+        if dim == 0 || vectors.iter().any(|v| v.len() != dim || v.iter().any(|x| !x.is_finite())) {
+            return Err(Error::Search("embedding provider returned an invalid vector".into()));
         }
 
         let provider = self.embedder.id().to_string();
-        let dim = self.embedder.dimensions();
-        let payload: Vec<(i64, i64, String, Vec<u8>)> = rows
-            .iter()
-            .zip(&vectors)
-            .map(|((id, lib, _, hash), v)| (*id, *lib, hash.clone(), encode(v)))
+        let payload: Vec<_> = rows
+            .into_iter()
+            .zip(vectors)
+            .map(|((id, lib, _, hash), v)| (id, lib, hash, v))
             .collect();
-        let n = payload.len() as u32;
+        let mut processed = 0;
 
         // Persist in small transactions. This is a background job: it must
         // release the single SQLite write lock often enough that interactive
@@ -674,37 +704,58 @@ impl SearchIndex for SearchEngine {
         for chunk in payload.chunks(WRITE_CHUNK) {
             let chunk = chunk.to_vec();
             let provider = provider.clone();
-            self.db
+            let cache = self.vectors.clone();
+            let pass = pass.clone();
+            processed += self
+                .db
                 .call(move |c| {
+                    let _pass = pass;
                     let tx = write_tx(c)?;
-                    for (id, lib, hash, blob) in chunk {
-                        tx.execute(
+                    let mut committed = Vec::new();
+                    {
+                        let mut save = tx.prepare_cached(
                             "INSERT INTO item_vectors(item_id, library_id, provider, dim, content_hash, vec)
-                             VALUES (?1,?2,?3,?4,?5,?6)
+                             SELECT item_id, library_id, ?3, ?4, content_hash, ?6
+                             FROM embed_queue
+                             WHERE item_id = ?1 AND library_id = ?2 AND content_hash = ?5
                              ON CONFLICT(item_id) DO UPDATE SET
-                                library_id = excluded.library_id, provider = excluded.provider,
-                                dim = excluded.dim, content_hash = excluded.content_hash,
-                                vec = excluded.vec",
-                            params![id, lib, provider, dim as i64, hash, blob],
-                        )
-                        .map_err(sql_err)?;
-                        tx.execute("DELETE FROM embed_queue WHERE item_id = ?1", params![id])
-                            .map_err(sql_err)?;
+                                 library_id = excluded.library_id, provider = excluded.provider,
+                                 dim = excluded.dim, content_hash = excluded.content_hash,
+                                 vec = excluded.vec"
+                        ).map_err(sql_err)?;
+                        let mut dequeue = tx.prepare_cached(
+                            "DELETE FROM embed_queue WHERE item_id = ?1 AND content_hash = ?2"
+                        ).map_err(sql_err)?;
+                        for (id, lib, hash, vector) in chunk {
+                            // Edits replace the queued hash; deletion removes
+                            // the queue row. Neither may be undone by this reply.
+                            if save.execute(params![id, lib, provider, dim as i64, hash, encode(&vector)])
+                                .map_err(sql_err)? > 0 {
+                                dequeue.execute(params![id, hash]).map_err(sql_err)?;
+                                committed.push((id, lib, vector));
+                            }
+                        }
                     }
                     tx.commit().map_err(sql_err)?;
-                    Ok(())
+                    let n = committed.len() as u32;
+                    let mut cache = cache.write();
+                    for (id, lib, vector) in committed {
+                        cache.upsert(id, lib, &vector);
+                    }
+                    Ok(n)
                 })
                 .await?;
             // Give any waiting writer a turn before grabbing the lock again.
             tokio::task::yield_now().await;
         }
 
-        Ok(n)
+        Ok(processed)
     }
 
     async fn reindex(&self, library_id: i64) -> Result<u64> {
+        let pass = Arc::new(self.embedding_pass.clone().lock_owned().await);
         let n = self.store.rebuild_index(library_id).await?;
-        self.load_vectors()?;
+        self.reload_vectors(pass).await?;
         Ok(n)
     }
 }
@@ -719,6 +770,65 @@ mod tests {
         let lib = store.default_library;
         let engine = SearchEngine::new(store.clone(), Arc::new(LocalEmbedder::new())).unwrap();
         (engine, store, lib)
+    }
+
+    #[tokio::test]
+    async fn an_early_sql_failure_is_returned_without_hanging_the_ranking_receiver() {
+        let (engine, store, lib) = engine();
+        store.db().call(|c| {
+            c.execute_batch("DROP TABLE items_fts").map_err(sql_err)
+        }).await.unwrap();
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            engine.search(&req(lib, "diffusion models", SearchMode::Hybrid)),
+        ).await.expect("ranking waited for a sender that failed").unwrap_err();
+        assert!(error.to_string().contains("items_fts"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn cancelled_search_keeps_its_permit_until_blocking_sql_finishes() {
+        struct Gate(Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>);
+        impl Drop for Gate {
+            fn drop(&mut self) {
+                *self.0.0.lock().unwrap() = true;
+                self.0.1.notify_all();
+            }
+        }
+        let (engine, store, lib) = engine();
+        seed(&store, lib).await;
+        let engine = Arc::new(engine);
+        let gate = Gate(Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new())));
+        let blocking = gate.0.clone();
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let entered = std::sync::Mutex::new(Some(entered));
+        store.db().conn().unwrap().create_scalar_function(
+            "yk_normalize", 1, rusqlite::functions::FunctionFlags::SQLITE_UTF8,
+            move |context| {
+                if let Some(entered) = entered.lock().unwrap().take() {
+                    let _ = entered.send(());
+                }
+                let mut released = blocking.0.lock().unwrap();
+                while !*released {
+                    released = blocking.1.wait(released).unwrap();
+                }
+                Ok(text::normalize(&context.get::<String>(0)?))
+            },
+        ).unwrap();
+        let searching = engine.clone();
+        let task = tokio::spawn(async move {
+            searching.search(&req(lib, "attention author:vaswani", SearchMode::Keyword)).await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(2), started).await.unwrap().unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        let available_while_blocked = engine.searches.available_permits();
+        drop(gate);
+        assert_eq!(available_while_blocked, 1, "aborting released work that is still running");
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            while engine.searches.available_permits() != 2 {
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            }
+        }).await.unwrap();
     }
 
     async fn seed(store: &Store, lib: i64) {

@@ -67,7 +67,7 @@ async fn close_reading(
     //
     // The request still waits for the answer — the caller wants the note — so
     // this is about visibility and cancellation, not about changing who waits.
-    let task = app.tasks().start("close-reading", "task.readingClosely");
+    let task = app.tasks().start("close-reading", "task.readingClosely").await?;
     task.progress("task.readingClosely", 0, 1);
 
     let turn = match agent
@@ -82,25 +82,25 @@ async fn close_reading(
     {
         Ok(turn) => turn,
         Err(e) => {
-            app.tasks().fail(&task, &e);
+            app.tasks().fail(&task, &e).await;
             return Err(e.into());
         }
     };
 
     if turn.reply.trim().is_empty() {
         let e = Error::internal("the model returned nothing");
-        app.tasks().fail(&task, &e);
+        app.tasks().fail(&task, &e).await;
         return Err(e.into());
     }
 
     let note = match save(app.store(), lib, &parent, &turn.reply, turn.truncated).await {
         Ok(note) => note,
         Err(e) => {
-            app.tasks().fail(&task, &e);
+            app.tasks().fail(&task, &e).await;
             return Err(e.into());
         }
     };
-    app.tasks().finish(&task, json!({ "note": note.key.as_str() }));
+    app.tasks().finish(&task, json!({ "note": note.key.as_str() })).await;
 
     announce(&app, lib, |version| DomainEvent::ItemsChanged {
         library_id: lib,

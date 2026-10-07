@@ -127,9 +127,7 @@ async fn list(
     // ranked path instead answered "at least 2" for a tag on 28,763 items,
     // because the ranked path only reads as far as the page needs.
     //
-    // Only when the whole query fits in an `ItemFilter`: `year:` and `author:`
-    // have no field there and are applied after retrieval, so treating them as
-    // filters would quietly match everything.
+    // All structural operators share the store's predicate and exact count.
     let mut query = params.query(lib)?;
     let parsed = yk_search::parse::ParsedQuery::parse(&text);
     if parsed.is_fully_filterable() {
@@ -325,16 +323,10 @@ async fn destroy(
     Json(body): Json<KeysBody>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let keys = parse_keys(&body.keys)?;
-    // Files first: once the rows are gone there is nothing left to say which
-    // directories belonged to them, and the bytes would sit there forever.
-    super::files::forget_files(&app, lib, &keys).await;
-    let n = app.store().items.delete(lib, &keys).await?;
-    let version = announce(&app, lib, |version| DomainEvent::ItemsDeleted {
-        library_id: lib,
-        keys: keys.clone(),
-        version,
-    })
-    .await?;
+    let (n, version) = crate::deletion::delete(app.store(), app.events(), lib, &keys).await?;
+    if let Err(error) = crate::deletion::cleanup(&app).await {
+        tracing::warn!(%error, "file cleanup remains queued");
+    }
     Ok(Json(json!({ "deleted": n, "version": version })))
 }
 
@@ -359,15 +351,10 @@ async fn empty_trash(
         .into_iter()
         .map(|i| i.key)
         .collect();
-    super::files::forget_files(&app, lib, &doomed).await;
-
-    let n = app.store().items.empty_trash(lib).await?;
-    let version = announce(&app, lib, |version| DomainEvent::ItemsDeleted {
-        library_id: lib,
-        keys: Vec::new(),
-        version,
-    })
-    .await?;
+    let (n, version) = crate::deletion::delete(app.store(), app.events(), lib, &doomed).await?;
+    if let Err(error) = crate::deletion::cleanup(&app).await {
+        tracing::warn!(%error, "file cleanup remains queued");
+    }
     Ok(Json(json!({ "deleted": n, "version": version })))
 }
 

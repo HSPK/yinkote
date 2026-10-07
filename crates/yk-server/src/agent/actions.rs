@@ -261,6 +261,7 @@ pub struct LibraryAction {
     pub store: Store,
     pub scrape: Arc<ScrapeEngine>,
     pub search: Arc<yk_scrape::search::SearchEngine>,
+    pub events: yk_core::event::EventBus,
 }
 
 #[async_trait]
@@ -274,6 +275,20 @@ impl Tool for LibraryAction {
     }
 
     async fn call(&self, lib: i64, arguments: Value) -> Result<Value> {
+        let result = self.execute(lib, arguments).await;
+        if self.action.writes() {
+            // A batch can commit partially before reporting an error.
+            let version = self.store.libraries.version(lib).await?;
+            self.events.publish(yk_core::event::DomainEvent::ItemsChanged {
+                library_id: lib, keys: Vec::new(), version,
+            });
+        }
+        result
+    }
+}
+
+impl LibraryAction {
+    async fn execute(&self, lib: i64, arguments: Value) -> Result<Value> {
         match self.action {
             Action::CreateItems => {
                 let drafts: Vec<ItemDraft> = arguments["items"]
@@ -313,7 +328,7 @@ impl Tool for LibraryAction {
             }
 
             Action::DeleteItems => {
-                let n = self.store.items.delete(lib, &keys_of(&arguments)?).await?;
+                let (n, _) = crate::deletion::delete(&self.store, &self.events, lib, &keys_of(&arguments)?).await?;
                 Ok(json!({ "deleted": n, "permanent": true }))
             }
 

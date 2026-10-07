@@ -100,19 +100,12 @@ impl CachingTagRepository {
 
     /// Fingerprint of everything that can change the answer.
     fn key(prefix: &str, filter: &ItemFilter, limit: u32) -> String {
-        let mut tags = filter.tags.clone();
-        tags.sort();
-        let mut types = filter.item_types.clone();
-        types.sort();
-        format!(
-            "{prefix}|{limit}|{:?}|{}|{:?}|{:?}|{:?}|{}",
-            filter.collection.as_ref().map(|k| k.as_str()),
-            filter.recursive,
-            filter.trash,
-            tags,
-            types,
-            filter.top_level_only,
-        )
+        let mut filter = filter.clone();
+        filter.tags.sort();
+        filter.item_types.sort();
+        filter.creators.sort();
+        filter.phrases.sort();
+        format!("{prefix}|{limit}|{filter:?}")
     }
 }
 

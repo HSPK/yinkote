@@ -38,17 +38,17 @@ pub fn router() -> Router<App> {
 /// measured against, and proportional to it. Uniform because a client that has
 /// to remember which maintenance actions block and which do not will get it
 /// wrong on the one that grew.
-async fn run_backup(State(app): State<App>) -> Json<serde_json::Value> {
-    let task = app.tasks().start("backup", "task.backingUp");
+async fn run_backup(State(app): State<App>) -> ApiResult<Json<serde_json::Value>> {
+    let task = app.tasks().start("backup", "task.backingUp").await?;
     let running = app.clone();
     let handle = task.clone();
     tokio::spawn(async move {
         match backups::run(&running).await {
-            Ok(made) => running.tasks().finish(&handle, json!(made)),
-            Err(e) => running.tasks().fail(&handle, e),
+            Ok(made) => running.tasks().finish(&handle, json!(made)).await,
+            Err(e) => running.tasks().fail(&handle, e).await,
         }
     });
-    Json(json!({ "task": task.snapshot() }))
+    Ok(Json(json!({ "task": task.snapshot() })))
 }
 
 async fn list_backups(State(app): State<App>) -> ApiResult<Json<serde_json::Value>> {
@@ -63,17 +63,17 @@ async fn check_integrity(State(app): State<App>) -> ApiResult<Json<serde_json::V
 ///
 /// Started rather than awaited: nine seconds for the library this was measured
 /// on, and a bigger one is minutes. The answer is a task to watch.
-async fn export_all(State(app): State<App>) -> Json<serde_json::Value> {
-    let task = app.tasks().start("export", "task.packing");
+async fn export_all(State(app): State<App>) -> ApiResult<Json<serde_json::Value>> {
+    let task = app.tasks().start("export", "task.packing").await?;
     let running = app.clone();
     let handle = task.clone();
     tokio::spawn(async move {
         match export::run(&running).await {
-            Ok(made) => running.tasks().finish(&handle, json!(made)),
-            Err(e) => running.tasks().fail(&handle, e),
+            Ok(made) => running.tasks().finish(&handle, json!(made)).await,
+            Err(e) => running.tasks().fail(&handle, e).await,
         }
     });
-    Json(json!({ "task": task.snapshot() }))
+    Ok(Json(json!({ "task": task.snapshot() })))
 }
 
 #[derive(serde::Deserialize)]
@@ -86,21 +86,21 @@ struct ArchivePath {
 async fn import_archive(
     State(app): State<App>,
     Json(body): Json<ArchivePath>,
-) -> Json<serde_json::Value> {
+) -> ApiResult<Json<serde_json::Value>> {
     let path = std::path::PathBuf::from(body.path.trim());
-    let task = app.tasks().start("import", "task.readingArchive");
+    let task = app.tasks().start("import", "task.readingArchive").await?;
     let running = app.clone();
     let handle = task.clone();
     tokio::spawn(async move {
         match restore::run(&running, &path, &handle).await {
-            Ok((done, false)) => running.tasks().finish(&handle, json!(done)),
+            Ok((done, false)) => running.tasks().finish(&handle, json!(done)).await,
             // It noticed the flag and stopped. What it managed is real and is
             // reported; what it did not do is what a second run would pick up.
-            Ok((done, true)) => running.tasks().stopped(&handle, json!(done)),
-            Err(e) => running.tasks().fail(&handle, e),
+            Ok((done, true)) => running.tasks().stopped(&handle, json!(done)).await,
+            Err(e) => running.tasks().fail(&handle, e).await,
         }
     });
-    Json(json!({ "task": task.snapshot() }))
+    Ok(Json(json!({ "task": task.snapshot() })))
 }
 
 /// Every job this server knows about, newest first.

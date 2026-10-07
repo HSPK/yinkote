@@ -1,8 +1,31 @@
 //! SQL-level retrievers over the FTS5 indexes maintained by `yk-store`.
 
-use rusqlite::{params, Connection};
+use rusqlite::{params_from_iter, types::Value, Connection};
 use yk_core::{text, Result};
 use yk_store::sql_err;
+use yk_store::filter::Predicate;
+
+fn restricted(sql: &str, predicate: Option<&Predicate>) -> String {
+    let Some(predicate) = predicate else { return sql.to_string() };
+    let mut index = 3;
+    let numbered = predicate.sql.chars().map(|ch| {
+        if ch == '?' {
+            index += 1;
+            format!("?{index}")
+        } else {
+            ch.to_string()
+        }
+    }).collect::<String>();
+    sql.replace("i.deleted = 0", &format!("i.deleted = 0 AND ({numbered})"))
+}
+
+fn bindings(expr: &str, library_id: i64, limit: usize, predicate: Option<&Predicate>) -> Vec<Value> {
+    let mut values = vec![Value::Text(expr.into()), Value::Integer(library_id), Value::Integer(limit as i64)];
+    if let Some(predicate) = predicate {
+        values.extend(predicate.params.iter().cloned());
+    }
+    values
+}
 
 /// Column weights for BM25: a title hit matters far more than a body hit.
 const W_TITLE: f64 = 10.0;
@@ -101,6 +124,16 @@ pub fn keyword(
     query: &str,
     limit: usize,
 ) -> Result<Vec<(i64, f32)>> {
+    keyword_filtered(conn, library_id, query, limit, None)
+}
+
+pub(crate) fn keyword_filtered(
+    conn: &Connection,
+    library_id: i64,
+    query: &str,
+    limit: usize,
+    predicate: Option<&Predicate>,
+) -> Result<Vec<(i64, f32)>> {
     let mut tried: Option<String> = None;
     for conjunctive in [true, false] {
         let Some(expr) = match_expression(query, conjunctive) else { return Ok(Vec::new()) };
@@ -111,7 +144,7 @@ pub fn keyword(
         if tried.as_deref() == Some(expr.as_str()) {
             break;
         }
-        let hits = run_bm25(conn, library_id, &expr, limit)?;
+        let hits = run_bm25(conn, library_id, &expr, limit, predicate)?;
         // Fall back to a disjunctive query only when the strict one found
         // nothing, which keeps precision high for multi-word queries.
         if !hits.is_empty() {
@@ -127,10 +160,11 @@ fn run_bm25(
     library_id: i64,
     expr: &str,
     limit: usize,
+    predicate: Option<&Predicate>,
 ) -> Result<Vec<(i64, f32)>> {
-    let mut stmt = conn.prepare_cached(&bm25_sql()).map_err(sql_err)?;
+    let mut stmt = conn.prepare_cached(&restricted(&bm25_sql(), predicate)).map_err(sql_err)?;
     let rows = stmt
-        .query_map(params![expr, library_id, limit as i64], |r| {
+        .query_map(params_from_iter(bindings(expr, library_id, limit, predicate)), |r| {
             // bm25() is negative, smaller is better; flip it so bigger is better.
             Ok((r.get::<_, i64>(0)?, -r.get::<_, f64>(1)? as f32))
         })
@@ -193,13 +227,23 @@ pub fn fuzzy(
     query: &str,
     limit: usize,
 ) -> Result<Vec<FuzzyCandidate>> {
+    fuzzy_filtered(conn, library_id, query, limit, None)
+}
+
+pub(crate) fn fuzzy_filtered(
+    conn: &Connection,
+    library_id: i64,
+    query: &str,
+    limit: usize,
+    predicate: Option<&Predicate>,
+) -> Result<Vec<FuzzyCandidate>> {
     let norm = text::normalize(query);
     if norm.is_empty() {
         return Ok(Vec::new());
     }
 
     if norm.chars().count() < 3 {
-        return prefix_scan(conn, library_id, &norm, limit);
+        return prefix_scan(conn, library_id, &norm, limit, predicate);
     }
 
     // Stage 1 asks for the query as an exact phrase, and *which index* it asks
@@ -219,9 +263,9 @@ pub fn fuzzy(
     // truncate in rowid order, so the exact match is not reliably among them.
     // A search for a paper by its exact title was losing that paper.
     let mut out = if norm.split_whitespace().nth(1).is_none() {
-        trigram_match(conn, library_id, &quote(&norm, false), limit)?
+        candidates(conn, TRIGRAM_SQL, library_id, &quote(&norm, false), limit, predicate)?
     } else {
-        phrase_match(conn, library_id, &quote(&norm, true), limit)?
+        candidates(conn, PHRASE_SQL, library_id, &quote(&norm, true), limit, predicate)?
     };
     if out.len() >= limit.min(8) {
         return Ok(out);
@@ -234,7 +278,7 @@ pub fn fuzzy(
         if out.len() >= limit {
             break;
         }
-        let found = trigram_match(conn, library_id, &quote(&chunk, false), limit * 2)?;
+        let found = candidates(conn, TRIGRAM_SQL, library_id, &quote(&chunk, false), limit * 2, predicate)?;
         for c in found {
             if seen.insert(c.id) {
                 out.push(c);
@@ -242,24 +286,6 @@ pub fn fuzzy(
         }
     }
     Ok(out)
-}
-
-fn trigram_match(
-    conn: &Connection,
-    library_id: i64,
-    expr: &str,
-    limit: usize,
-) -> Result<Vec<FuzzyCandidate>> {
-    candidates(conn, TRIGRAM_SQL, library_id, expr, limit)
-}
-
-fn phrase_match(
-    conn: &Connection,
-    library_id: i64,
-    expr: &str,
-    limit: usize,
-) -> Result<Vec<FuzzyCandidate>> {
-    candidates(conn, PHRASE_SQL, library_id, expr, limit)
 }
 
 /// Candidates from either index. They differ only in which one they read, and
@@ -270,10 +296,11 @@ fn candidates(
     library_id: i64,
     expr: &str,
     limit: usize,
+    predicate: Option<&Predicate>,
 ) -> Result<Vec<FuzzyCandidate>> {
-    let mut stmt = conn.prepare_cached(sql).map_err(sql_err)?;
+    let mut stmt = conn.prepare_cached(&restricted(sql, predicate)).map_err(sql_err)?;
     let rows = stmt
-        .query_map(params![expr, library_id, limit as i64], |r| {
+        .query_map(params_from_iter(bindings(expr, library_id, limit, predicate)), |r| {
             Ok(FuzzyCandidate { id: r.get(0)?, title: r.get(1)?, creator: r.get(2)? })
         })
         .map_err(sql_err)?
@@ -291,15 +318,16 @@ fn prefix_scan(
     library_id: i64,
     prefix: &str,
     limit: usize,
+    predicate: Option<&Predicate>,
 ) -> Result<Vec<FuzzyCandidate>> {
-    let sql = "SELECT id, sort_title, sort_creator FROM items
-               WHERE library_id = ?1 AND deleted = 0
-                 AND (sort_title LIKE ?2 OR sort_creator LIKE ?2)
+    let sql = "SELECT i.id, i.sort_title, i.sort_creator FROM items i
+               WHERE i.library_id = ?2 AND i.deleted = 0
+                 AND (i.sort_title LIKE ?1 OR i.sort_creator LIKE ?1)
                ORDER BY sort_title LIMIT ?3";
     let like = format!("{prefix}%");
-    let mut stmt = conn.prepare_cached(sql).map_err(sql_err)?;
+    let mut stmt = conn.prepare_cached(&restricted(sql, predicate)).map_err(sql_err)?;
     let out = stmt
-        .query_map(params![library_id, like, limit as i64], |r| {
+        .query_map(params_from_iter(bindings(&like, library_id, limit, predicate)), |r| {
             Ok(FuzzyCandidate { id: r.get(0)?, title: r.get(1)?, creator: r.get(2)? })
         })
         .map_err(sql_err)?

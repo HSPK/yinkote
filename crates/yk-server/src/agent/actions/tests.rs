@@ -10,6 +10,7 @@ use yk_store::Store;
 
 fn tool(action: Action, store: &Store) -> LibraryAction {
     LibraryAction {
+        events: Default::default(),
         action,
         store: store.clone(),
         scrape: Arc::new(ScrapeEngine::with_defaults()),

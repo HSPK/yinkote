@@ -8,6 +8,21 @@
 use rusqlite::{params, Connection};
 use yk_search::lexical::critical_statements;
 use yk_store::Store;
+use yk_search::{PENDING_EMBEDDINGS_SQL, STORED_VECTORS_SQL};
+
+#[test]
+fn embedding_batches_do_not_sort_the_backlog_or_scan_vector_blobs() {
+    let store = Store::in_memory().unwrap();
+    let conn = store.db().conn().unwrap();
+    let queue: Vec<String> = conn.prepare(&format!("EXPLAIN QUERY PLAN {PENDING_EMBEDDINGS_SQL}"))
+        .unwrap().query_map([256], |r| r.get(3)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+    assert!(queue.iter().any(|s| s.contains("USING INDEX idx_embed_queue_order")), "{queue:?}");
+    assert!(queue.iter().all(|s| !s.contains("TEMP B-TREE")), "{queue:?}");
+    let vectors: Vec<String> = conn.prepare(&format!("EXPLAIN QUERY PLAN {STORED_VECTORS_SQL}"))
+        .unwrap().query_map(params!["local-hash", 256], |r| r.get(3)).unwrap()
+        .collect::<rusqlite::Result<_>>().unwrap();
+    assert!(vectors.iter().any(|s| s.contains("COVERING INDEX idx_item_vectors_provider")), "{vectors:?}");
+}
 
 fn plan(conn: &Connection, sql: &str) -> Vec<String> {
     let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();

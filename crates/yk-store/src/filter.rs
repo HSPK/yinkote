@@ -97,6 +97,29 @@ impl Predicate {
             params.extend(filter.item_types.iter().map(|t| SqlValue::Text(t.clone())));
         }
 
+        for creator in &filter.creators {
+            clauses.push(
+                "EXISTS (SELECT 1 FROM json_each(i.creators) c WHERE \
+                 instr(yk_normalize(COALESCE(json_extract(c.value, '$.name'), \
+                 COALESCE(json_extract(c.value, '$.firstName'), '') || ' ' || \
+                 COALESCE(json_extract(c.value, '$.lastName'), ''))), ?) > 0)".into(),
+            );
+            params.push(SqlValue::Text(yk_core::text::normalize(creator)));
+        }
+        if let Some(year) = filter.year_from {
+            clauses.push("i.year >= ?".into());
+            params.push(SqlValue::Integer(year.into()));
+        }
+        if let Some(year) = filter.year_to {
+            clauses.push("i.year <= ?".into());
+            params.push(SqlValue::Integer(year.into()));
+        }
+        for phrase in &filter.phrases {
+            clauses.push("i.id IN (SELECT rowid FROM items_fts WHERE items_fts MATCH ?)".into());
+            let tokens = yk_core::text::tokenize(phrase).join(" ");
+            params.push(SqlValue::Text(format!("\"{tokens}\"")));
+        }
+
         // A predicate is one statement, so these two clauses cannot be split
         // the way a plain `IN` list can — see `chunks`. Both are bounded
         // today (a page is at most MAX_LIMIT keys; a collection subtree is

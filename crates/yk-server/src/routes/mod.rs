@@ -16,7 +16,7 @@ mod items;
 mod plugins;
 mod reader;
 mod reveal;
-mod thumbnails;
+pub(crate) mod thumbnails;
 mod scrape;
 mod search;
 mod smart;
@@ -185,6 +185,7 @@ impl ListParams {
             },
             since: self.since,
             keys,
+            ..Default::default()
         })
     }
 

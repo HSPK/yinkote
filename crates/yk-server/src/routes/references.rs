@@ -66,7 +66,7 @@ async fn start_harvest(
         return Err(Error::invalid("every paper with a DOI has been asked about").into());
     }
 
-    let task = app.tasks().start("harvest", "task.fetchingReferences");
+    let task = app.tasks().start("harvest", "task.fetchingReferences").await?;
     task.progress("task.fetchingReferences", 0, pending.len() as u64);
 
     let worker = app.clone();
@@ -153,9 +153,9 @@ async fn run_harvest(
 
     let summary = json!(progress);
     if task.cancelled() {
-        app.tasks().stopped(&task, summary);
+        app.tasks().stopped(&task, summary).await;
     } else {
-        app.tasks().finish(&task, summary);
+        app.tasks().finish(&task, summary).await;
     }
 }
 

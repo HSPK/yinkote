@@ -215,17 +215,17 @@ async fn put_connector(
 /// rebuilding is two coarse passes over the library, not a countable sequence —
 /// so the task's `total` stays zero, which the interface reads as "spinner,
 /// not bar". Claiming a percentage nobody can compute would be worse.
-async fn reindex(State(app): State<App>, Path(lib): Path<i64>) -> Json<Value> {
-    let task = app.tasks().start("reindex", "task.reindexing");
+async fn reindex(State(app): State<App>, Path(lib): Path<i64>) -> ApiResult<Json<Value>> {
+    let task = app.tasks().start("reindex", "task.reindexing").await?;
     let running = app.clone();
     let handle = task.clone();
     tokio::spawn(async move {
         match running.search().reindex(lib).await {
-            Ok(n) => running.tasks().finish(&handle, json!({ "reindexed": n })),
-            Err(e) => running.tasks().fail(&handle, e),
+            Ok(n) => running.tasks().finish(&handle, json!({ "reindexed": n })).await,
+            Err(e) => running.tasks().fail(&handle, e).await,
         }
     });
-    Json(json!({ "task": task.snapshot() }))
+    Ok(Json(json!({ "task": task.snapshot() })))
 }
 
 /// Everything the background workers do, on demand.

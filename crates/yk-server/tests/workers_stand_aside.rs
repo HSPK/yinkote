@@ -21,7 +21,7 @@ const WORKERS: &str = include_str!("../src/workers.rs");
 ///
 /// Listed rather than inferred: a worker knows whether it writes, and the
 /// alternative is a heuristic over source text that would be wrong quietly.
-const WRITERS: [&str; 3] = ["keep_statistics_current", "embedding_worker", "checkpoint_worker"];
+const WRITERS: [&str; 5] = ["keep_statistics_current", "embedding_worker", "checkpoint_worker", "cleanup_worker", "download_worker"];
 
 /// The body of `fn name(...)`, up to the next top-level `fn`.
 fn body_of(name: &str) -> &'static str {
@@ -69,7 +69,7 @@ fn the_list_of_writers_still_matches_the_file() {
         .collect();
     for name in declared {
         assert!(
-            WRITERS.contains(&name) || name == "download_worker",
+            WRITERS.contains(&name),
             "`{name}` is a worker nobody has decided about. If it writes to the database it \
              belongs in WRITERS; if it does not, name it here so the next reader knows why."
         );

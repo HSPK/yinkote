@@ -115,7 +115,12 @@ impl VectorStore {
             Some((id, s))
         };
 
-        let mut scored: Vec<(i64, f32)> = if self.ids.len() >= PARALLEL_THRESHOLD {
+        let sparse = allowed.filter(|ids| ids.len() < self.ids.len() / 8);
+        let mut scored: Vec<(i64, f32)> = if let Some(ids) = sparse {
+            // A small collection should visit its members, not probe every
+            // vector in the library to rediscover that they are not members.
+            ids.iter().filter_map(|id| self.pos.get(id)).filter_map(|&slot| score(slot)).collect()
+        } else if self.ids.len() >= PARALLEL_THRESHOLD {
             (0..self.ids.len()).into_par_iter().filter_map(score).collect()
         } else {
             (0..self.ids.len()).filter_map(score).collect()
@@ -125,9 +130,10 @@ impl VectorStore {
         if k == 0 {
             return Vec::new();
         }
-        scored.select_nth_unstable_by(k - 1, |a, b| b.1.total_cmp(&a.1));
+        let order = |a: &(i64, f32), b: &(i64, f32)| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0));
+        scored.select_nth_unstable_by(k - 1, order);
         scored.truncate(k);
-        scored.sort_unstable_by(|a, b| b.1.total_cmp(&a.1));
+        scored.sort_unstable_by(order);
         scored
     }
 }
@@ -206,5 +212,44 @@ mod tests {
         let hits = s.search(1, &unit(&mut [1.0, 0.0, 0.0, 1.0]), 5, None);
         assert_eq!(hits.len(), 5);
         assert!(hits[0].1 >= hits[4].1);
+    }
+
+    #[test]
+    fn sparse_and_dense_allowed_sets_produce_identical_rankings() {
+        let mut store = VectorStore::new(4);
+        for id in 0..8192 {
+            store.upsert(id, 1 + id % 2, &unit(&mut [
+                1.0, (id % 7) as f32, (id % 11) as f32, 0.5,
+            ]));
+        }
+        store.remove(74);
+        store.upsert(9000, 2, &unit(&mut [1.0, 2.0, 1.0, 0.5]));
+        let sparse: HashSet<i64> = (0..8192).step_by(37).chain([9000, 9999]).collect();
+        let mut dense = sparse.clone();
+        // Missing IDs change the traversal choice without changing membership.
+        dense.extend(10000..12000);
+        let query = unit(&mut [1.0, 1.0, 1.0, 0.5]);
+        for library in [1, 2] {
+            for k in [1, 10, 500] {
+                assert_eq!(
+                    store.search(library, &query, k, Some(&sparse)),
+                    store.search(library, &query, k, Some(&dense)),
+                );
+            }
+        }
+        assert!(store.search(1, &query, 10, Some(&HashSet::new())).is_empty());
+    }
+
+    #[test]
+    fn equal_scores_are_ordered_by_id_across_traversal_orders() {
+        let mut store = VectorStore::new(2);
+        for id in (0..100).rev() {
+            store.upsert(id, 1, &[1.0, 0.0]);
+        }
+        let expected = vec![(2, 1.0), (5, 1.0), (9, 1.0)];
+        let mut allowed: HashSet<i64> = [9, 2, 5].into_iter().collect();
+        assert_eq!(store.search(1, &[1.0, 0.0], 3, Some(&allowed)), expected);
+        allowed.extend(1000..1100);
+        assert_eq!(store.search(1, &[1.0, 0.0], 3, Some(&allowed)), expected);
     }
 }
