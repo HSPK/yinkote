@@ -32,24 +32,55 @@ machine they control.
 
 ## Install
 
-Download the binary for your platform, make it executable, and run it.
+Install the latest stable GitHub release from a terminal:
 
 ```bash
 # macOS / Linux
-chmod +x yinkote
-./yinkote
+curl -fsSL https://raw.githubusercontent.com/HSPK/yinkote/main/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+yinkote
 ```
 
 ```powershell
-# Windows
-.\yinkote.exe
+# Windows PowerShell 5.1+ or PowerShell 7
+irm https://raw.githubusercontent.com/HSPK/yinkote/main/install.ps1 | iex
+yinkote
 ```
 
 Then open **<http://127.0.0.1:23130>**.
 
-That is the whole installation. There is no installer, no runtime to install
-first, and no configuration file to write. The first run creates a data
-directory and starts serving.
+The scripts detect your platform, resolve the latest release once, and verify
+its binary against the matching SHA-256 file before replacing an installation.
+They do not require administrator privileges or touch your library. You can
+download and inspect a script before running it instead of piping it to a shell.
+
+The default directory is `~/.local/bin` on macOS/Linux and
+`%LOCALAPPDATA%\Programs\Yinkote` on Windows. Windows adds it to your user PATH;
+on macOS/Linux, add the `export PATH=...` line above to your shell profile if
+the directory is not already on PATH. No shell profile is edited automatically.
+
+To choose another writable directory:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HSPK/yinkote/main/install.sh | \
+  YINKOTE_INSTALL_DIR="$HOME/bin" sh
+```
+
+```powershell
+$env:YINKOTE_INSTALL_DIR = "$HOME\bin"
+irm https://raw.githubusercontent.com/HSPK/yinkote/main/install.ps1 | iex
+```
+
+Linux requires glibc; Alpine/musl and 32-bit systems are not supported by these
+downloads. Windows has an x64 binary only. macOS supports Intel and Apple Silicon.
+macOS/Linux installation and updates require `curl` plus `sha256sum` or `shasum`.
+Existing OS signing/quarantine policies still apply; the installer does not disable them.
+
+You can also download an executable manually from
+[GitHub Releases](https://github.com/HSPK/yinkote/releases/latest).
+On macOS/Linux, rename it to `yinkote`, run `chmod +x yinkote`, then `./yinkote`;
+on Windows, rename it to `yinkote.exe` and run `.\yinkote.exe`.
+The first run creates a data directory and starts serving.
 
 | Platform | File |
 | --- | --- |
@@ -62,6 +93,28 @@ directory and starts serving.
 **Why one file.** The workbench is compiled into the binary, SQLite is
 statically linked, and the only dynamic dependencies are the system C runtime.
 A 20 MB download is the entire program.
+
+### Update
+
+```bash
+yinkote update
+```
+
+The command uses the same installers embedded in the executable, downloads the
+latest stable release, verifies its checksum and reported version, and replaces
+**the executable you invoked**, not a second copy in the default directory.
+It does nothing when your version is equal to or newer than the latest release.
+Installation requires write access to that executable's directory; it never
+elevates privileges automatically.
+
+Back up your library before upgrading. Updating the executable does not migrate
+the database or restart your server; **restart the server yourself** to use the
+new binary and apply any database migrations. On Windows, an in-use executable
+may be retained as `yinkote.exe.old`; stop old Yinkote processes before the next
+update if that backup cannot be removed.
+
+Older releases without `update` can be upgraded by rerunning the installation
+command (set `YINKOTE_INSTALL_DIR` if they live outside the default directory).
 
 ### Keep it running
 
@@ -257,6 +310,7 @@ at**, so give it a scratch data directory.
 ```
 yinkote [OPTIONS]
 yinkote open
+yinkote update
 yinkote service install|uninstall|status
 ```
 

@@ -17,6 +17,12 @@ async fn main() -> anyhow::Result<()> {
         println!("yinkote {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    if args.update {
+        if args.open || args.service.is_some() {
+            anyhow::bail!("update cannot be combined with open or service");
+        }
+        return yk_server::update::run().await;
+    }
 
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -166,11 +172,16 @@ yinkote — local-first reference manager
 USAGE:
     yinkote [OPTIONS]
     yinkote open
+    yinkote update
     yinkote service install|uninstall|status
 
     `open` points your browser at the workbench of the server already running
     for this --data-dir, finding its address from the directory's lock rather
     than assuming one. It does not start a server.
+
+    `update` installs the latest stable GitHub release over this executable,
+    using the same checksum-verified installer as a fresh installation.
+    It does not change your library or restart an already running server.
 
     `service install` writes an autostart file for the current user — a
     systemd user unit, a launchd agent, or a Startup-folder script — using
@@ -215,6 +226,7 @@ struct Args {
     service: Option<String>,
     /// Point a browser at the server that is already running.
     open: bool,
+    update: bool,
     /// Serve a non-loopback address with no API key, deliberately.
     allow_anonymous: bool,
     help: bool,
@@ -229,6 +241,7 @@ impl Args {
             match arg.as_str() {
                 "service" => args.service = Some(it.next().unwrap_or_else(|| "status".into())),
                 "open" => args.open = true,
+                "update" => args.update = true,
                 "--allow-anonymous" => args.allow_anonymous = true,
                 "-h" | "--help" => args.help = true,
                 "-V" | "--version" => args.version = true,

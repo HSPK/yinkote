@@ -25,6 +25,11 @@ React 工作台 / Word 加载项 / Zotero Connector / HTTP 客户端
 工作台构建产物嵌入二进制，也可通过 `--web-dir` 使用磁盘资源。普通运行不需要 Node 或 Python；
 插件和外部 PDF 解析器可能需要自己的运行时。
 
+`install.sh` 和 `install.ps1` 从 GitHub 最新正式版下载平台对应二进制，固定版本后校验
+SHA-256 与可执行文件报告的版本，再替换安装。`yinkote update` 直接调用内嵌的同一份脚本，
+更新当前程序所在路径，不打开文库，不自动重启服务。Windows 在用的旧文件可能保留为
+`.old`，等待旧进程退出后清理；安装目录与命令行用法见 README。
+
 ## 2. 模块与依赖
 
 | 模块 | 职责 |

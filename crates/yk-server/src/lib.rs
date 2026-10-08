@@ -32,6 +32,7 @@ pub mod notes;
 pub mod paper;
 pub mod runs;
 pub mod tasks;
+pub mod update;
 mod workers;
 
 use std::sync::Arc;

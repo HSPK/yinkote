@@ -29,22 +29,50 @@
 
 ## 安装
 
-下载对应平台的可执行文件，加上执行权限，运行。
+在终端运行以下命令，默认从 GitHub 安装最新正式版：
 
 ```bash
 # macOS / Linux
-chmod +x yinkote
-./yinkote
+curl -fsSL https://raw.githubusercontent.com/HSPK/yinkote/main/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+yinkote
 ```
 
 ```powershell
-# Windows
-.\yinkote.exe
+# Windows PowerShell 5.1+ 或 PowerShell 7
+irm https://raw.githubusercontent.com/HSPK/yinkote/main/install.ps1 | iex
+yinkote
 ```
 
 然后打开 **<http://127.0.0.1:23130>**。
 
-安装到此结束。没有安装程序，不需要先装运行时，也不用写配置文件。
+脚本自动识别系统与架构，先确定具体发布版本，再下载对应二进制及 SHA-256 文件，
+校验通过后才替换安装。不需要管理员权限，不会修改文库；也可以先下载并阅读脚本，再执行。
+
+macOS/Linux 默认安装到 `~/.local/bin`，Windows 默认安装到
+`%LOCALAPPDATA%\Programs\Yinkote`。Windows 会加入用户 PATH；
+macOS/Linux 若尚未包含该目录，请将上面的 `export PATH=...` 加到 shell 配置中，
+脚本不会自动修改 shell 配置文件。
+
+可通过环境变量指定其他可写目录：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HSPK/yinkote/main/install.sh | \
+  YINKOTE_INSTALL_DIR="$HOME/bin" sh
+```
+
+```powershell
+$env:YINKOTE_INSTALL_DIR = "$HOME\bin"
+irm https://raw.githubusercontent.com/HSPK/yinkote/main/install.ps1 | iex
+```
+
+Linux 需要 glibc，暂不支持 Alpine/musl 和 32 位系统；Windows 仅发布 x64 包，
+macOS 支持 Intel 和 Apple Silicon。macOS/Linux 安装与更新需要 `curl` 及
+`sha256sum` 或 `shasum`。系统原有的签名、隔离检查仍然有效，脚本不会关闭这些保护。
+
+也可以从 [GitHub Releases](https://github.com/HSPK/yinkote/releases/latest) 手动下载。
+macOS/Linux 重命名为 `yinkote` 后执行 `chmod +x yinkote`、`./yinkote`；
+Windows 重命名为 `yinkote.exe` 后执行 `.\yinkote.exe`。
 首次运行会自己建好数据目录并开始服务。
 
 | 平台 | 文件 |
@@ -57,6 +85,25 @@ chmod +x yinkote
 
 **为什么能做到一个文件。** 工作台被编译进了二进制，SQLite 是静态链接的，
 唯一的动态依赖是系统的 C 运行时。20 MB 的下载就是程序的全部。
+
+### 更新
+
+```bash
+yinkote update
+```
+
+命令复用编译进程序的安装脚本，下载最新正式版，核对校验值和版本后，
+替换**当前调用的可执行文件**，不会另外安装到默认目录。
+当前版本等于或高于最新版本时不做替换；需要对可执行文件所在目录有写权限，
+不会自动申请管理员权限。
+
+升级前请备份文库。更新可执行文件不会迁移数据库，也不会自动重启服务：
+**请手动重启正在运行的 Yinkote**，之后才会使用新版本并执行数据库迁移。
+Windows 下仍在使用的旧程序可能保留为 `yinkote.exe.old`；
+若该文件无法删除，请先停止旧进程，再进行下一次更新。
+
+不支持 `update` 的旧版本可重跑安装命令升级；若原来装在自定义目录，请设置
+`YINKOTE_INSTALL_DIR`，避免安装出第二份程序。
 
 ### 开机自启
 
@@ -229,6 +276,7 @@ PDF 标签默认常驻，切换到其他标签会保留文档、缩放和阅读�
 ```
 yinkote [OPTIONS]
 yinkote open
+yinkote update
 yinkote service install|uninstall|status
 ```
 
