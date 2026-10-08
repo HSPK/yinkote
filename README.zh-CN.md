@@ -66,8 +66,10 @@ $env:YINKOTE_INSTALL_DIR = "$HOME\bin"
 irm https://raw.githubusercontent.com/HSPK/yinkote/main/install.ps1 | iex
 ```
 
-Linux 需要 glibc，暂不支持 Alpine/musl 和 32 位系统；Windows 仅发布 x64 包，
-macOS 支持 Intel 和 Apple Silicon。macOS/Linux 安装与更新需要 `curl` 及
+Linux 需要 glibc，暂不支持 Alpine/musl 和 32 位系统；Windows 支持 x64 和 ARM64。
+PowerShell 安装器通过 Windows CIM 读取原生平台信息，即使在 ARM64 上运行 x86/x64
+仿真 shell，也会下载 ARM64 原生包。macOS 支持 Intel 和 Apple Silicon。
+macOS/Linux 安装与更新需要 `curl` 及
 `sha256sum` 或 `shasum`。系统原有的签名、隔离检查仍然有效，脚本不会关闭这些保护。
 
 也可以从 [GitHub Releases](https://github.com/HSPK/yinkote/releases/latest) 手动下载。
@@ -82,6 +84,7 @@ Windows 重命名为 `yinkote.exe` 后执行 `.\yinkote.exe`。
 | macOS（Apple 芯片） | `yinkote-aarch64-apple-darwin` |
 | macOS（Intel） | `yinkote-x86_64-apple-darwin` |
 | Windows (x86-64) | `yinkote-x86_64-pc-windows-msvc.exe` |
+| Windows (ARM64) | `yinkote-aarch64-pc-windows-msvc.exe` |
 
 **为什么能做到一个文件。** 工作台被编译进了二进制，SQLite 是静态链接的，
 唯一的动态依赖是系统的 C 运行时。20 MB 的下载就是程序的全部。
@@ -104,6 +107,8 @@ Windows 下仍在使用的旧程序可能保留为 `yinkote.exe.old`；
 
 不支持 `update` 的旧版本可重跑安装命令升级；若原来装在自定义目录，请设置
 `YINKOTE_INSTALL_DIR`，避免安装出第二份程序。
+Windows ARM64 用户从旧版仅支持 x64 的安装器/更新器升级时，请先重跑一次 PowerShell
+安装命令，不要依赖旧程序内嵌的架构识别；相同命令会选择 ARM64 原生包。
 
 ### 开机自启
 

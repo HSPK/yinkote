@@ -29,6 +29,9 @@ React 工作台 / Word 加载项 / Zotero Connector / HTTP 客户端
 SHA-256 与可执行文件报告的版本，再替换安装。`yinkote update` 直接调用内嵌的同一份脚本，
 更新当前程序所在路径，不打开文库，不自动重启服务。Windows 在用的旧文件可能保留为
 `.old`，等待旧进程退出后清理；安装目录与命令行用法见 README。
+Windows 同时构建 `x86_64-pc-windows-msvc` 与 `aarch64-pc-windows-msvc`，
+ARM64 使用 `windows-11-arm` 原生 runner。安装脚本以 CIM 的处理器架构和系统地址宽度
+选包，而不是仿真进程的环境变量；CLI 更新内嵌同一脚本，沿用同样的选择规则。
 
 ## 2. 模块与依赖
 

@@ -3,10 +3,17 @@
     Set-StrictMode -Version 2
     $ErrorActionPreference = 'Stop'
     $repo = 'https://github.com/HSPK/yinkote'
-    $architecture = $env:PROCESSOR_ARCHITEW6432
-    if ([string]::IsNullOrEmpty($architecture)) { $architecture = $env:PROCESSOR_ARCHITECTURE }
-    if ($architecture -ne 'AMD64') {
-        throw "Only Windows x64 binaries are published; detected architecture: $architecture"
+    # Emulated shells can report their guest CPU in PROCESSOR_ARCHITECTURE.
+    # CIM reports the platform CPU and the OS address width, not the shell's.
+    $platforms = @(Get-CimInstance -ClassName Win32_Processor -Property Architecture, AddressWidth -ErrorAction Stop |
+        Select-Object -Property Architecture, AddressWidth -Unique)
+    if ($platforms.Count -ne 1 -or $platforms[0].AddressWidth -ne 64) {
+        throw 'Could not identify a supported 64-bit Windows platform'
+    }
+    switch ($platforms[0].Architecture) {
+        9 { $target = 'x86_64-pc-windows-msvc'; $platformName = 'Windows x64' }
+        12 { $target = 'aarch64-pc-windows-msvc'; $platformName = 'Windows ARM64' }
+        default { throw "Unsupported Windows processor architecture: $($platforms[0].Architecture)" }
     }
 
     $protocol = [Net.ServicePointManager]::SecurityProtocol
@@ -54,8 +61,8 @@
         [IO.Directory]::CreateDirectory($staging) | Out-Null
         $download = Join-Path $staging 'yinkote.exe'
         $checksumFile = Join-Path $staging 'checksum'
-        $asset = 'yinkote-x86_64-pc-windows-msvc.exe'
-        Write-Host "Downloading Yinkote $tag (Windows x64)..."
+        $asset = "yinkote-$target.exe"
+        Write-Host "Downloading Yinkote $tag ($platformName)..."
         Invoke-WebRequest -UseBasicParsing -Uri "$repo/releases/download/$tag/$asset" -OutFile $download -UserAgent 'yinkote-installer' -TimeoutSec 300
         Invoke-WebRequest -UseBasicParsing -Uri "$repo/releases/download/$tag/$asset.sha256" -OutFile $checksumFile -UserAgent 'yinkote-installer' -TimeoutSec 300
         $checksum = ([IO.File]::ReadAllText($checksumFile).Trim() -split '\s+')[0]

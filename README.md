@@ -72,7 +72,9 @@ irm https://raw.githubusercontent.com/HSPK/yinkote/main/install.ps1 | iex
 ```
 
 Linux requires glibc; Alpine/musl and 32-bit systems are not supported by these
-downloads. Windows has an x64 binary only. macOS supports Intel and Apple Silicon.
+downloads. Windows supports x64 and ARM64. The PowerShell installer queries the
+native platform through Windows CIM, so an emulated x86/x64 shell on ARM64 still
+selects the ARM64 binary. macOS supports Intel and Apple Silicon.
 macOS/Linux installation and updates require `curl` plus `sha256sum` or `shasum`.
 Existing OS signing/quarantine policies still apply; the installer does not disable them.
 
@@ -89,6 +91,7 @@ The first run creates a data directory and starts serving.
 | macOS (Apple silicon) | `yinkote-aarch64-apple-darwin` |
 | macOS (Intel) | `yinkote-x86_64-apple-darwin` |
 | Windows (x86-64) | `yinkote-x86_64-pc-windows-msvc.exe` |
+| Windows (ARM64) | `yinkote-aarch64-pc-windows-msvc.exe` |
 
 **Why one file.** The workbench is compiled into the binary, SQLite is
 statically linked, and the only dynamic dependencies are the system C runtime.
@@ -115,6 +118,9 @@ update if that backup cannot be removed.
 
 Older releases without `update` can be upgraded by rerunning the installation
 command (set `YINKOTE_INSTALL_DIR` if they live outside the default directory).
+On Windows ARM64, rerun the PowerShell installer once when upgrading from an
+older x64-only installer/updater, rather than relying on its embedded architecture
+detection. The same installation command selects the native ARM64 asset.
 
 ### Keep it running
 

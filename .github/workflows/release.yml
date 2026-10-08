@@ -34,6 +34,8 @@ jobs:
             os: macos-latest
           - target: x86_64-pc-windows-msvc
             os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            os: windows-11-arm
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -64,7 +66,14 @@ jobs:
       - name: Build
         run: cargo build --release --locked -p yk-server --target ${{ matrix.target }}
 
-      # Named for the platform rather than "yinkote", because five files called
+      - name: Run the native Windows binary
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          & ./target/${{ matrix.target }}/release/yinkote.exe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Named for the platform rather than "yinkote", because six files called
       # the same thing land in one directory on the release page.
       - name: Name it
         shell: bash

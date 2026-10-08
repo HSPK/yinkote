@@ -1,6 +1,8 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$Binary
+    [string]$Binary,
+    [ValidateSet('x86_64-pc-windows-msvc', 'aarch64-pc-windows-msvc')]
+    [string]$Target = 'x86_64-pc-windows-msvc'
 )
 
 Set-StrictMode -Version 2
@@ -9,6 +11,23 @@ $Binary = (Resolve-Path -LiteralPath $Binary).Path
 $installer = Join-Path (Split-Path $PSScriptRoot -Parent) 'install.ps1'
 $version = ((& $Binary --version) -replace '^yinkote ', '').Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Cannot run the installer fixture executable' }
+$nativeArchitecture = 9
+if ($Target -eq 'aarch64-pc-windows-msvc') { $nativeArchitecture = 12 }
+if ($env:OS -eq 'Windows_NT') {
+    $stream = [IO.File]::OpenRead($Binary)
+    $reader = [IO.BinaryReader]::new($stream)
+    try {
+        if ($reader.ReadUInt16() -ne 0x5a4d) { throw 'Fixture is not a Windows executable' }
+        $stream.Position = 0x3c
+        $stream.Position = $reader.ReadUInt32()
+        if ($reader.ReadUInt32() -ne 0x00004550) { throw 'Fixture has no PE signature' }
+        $expectedMachine = 0x8664
+        if ($Target -eq 'aarch64-pc-windows-msvc') { $expectedMachine = 0xaa64 }
+        if ($reader.ReadUInt16() -ne $expectedMachine) { throw 'Fixture was built for the wrong architecture' }
+    } finally {
+        $reader.Dispose()
+    }
+}
 $root = Join-Path ([IO.Path]::GetTempPath()) ('yinkote-installer-test-' + [guid]::NewGuid().ToString('N'))
 [IO.Directory]::CreateDirectory($root) | Out-Null
 $originalPath = $env:Path
@@ -24,11 +43,31 @@ $global:YinkoteInstallerFixture = @{
     NewResponseShape = $false
     Version = $version
     Binary = $Binary
+    Target = $Target
+    Architecture = $nativeArchitecture
+    AddressWidth = 64
+    NativeQuery = ($env:OS -eq 'Windows_NT')
+    FailQuery = $false
+    EmptyQuery = $false
 }
 $server = $null
 
 function Assert-True($Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
+}
+
+function Get-CimInstance {
+    [CmdletBinding()]
+    param([string]$ClassName, [string[]]$Property)
+    $fixture = $global:YinkoteInstallerFixture
+    Assert-True ($ClassName -eq 'Win32_Processor') 'Wrong platform query'
+    Assert-True ($Property -contains 'Architecture' -and $Property -contains 'AddressWidth') 'Platform query omitted CPU or OS width'
+    if ($fixture.NativeQuery) {
+        return CimCmdlets\Get-CimInstance @PSBoundParameters
+    }
+    if ($fixture.FailQuery) { throw 'Simulated platform detection failure' }
+    if ($fixture.EmptyQuery) { return }
+    return [pscustomobject]@{ Architecture = $fixture.Architecture; AddressWidth = $fixture.AddressWidth }
 }
 
 # Exercise the real installer without GitHub access or global test dependencies.
@@ -48,12 +87,13 @@ function Invoke-WebRequest {
         return [pscustomobject]@{ BaseResponse = [pscustomobject]@{ ResponseUri = $resolved } }
     }
     if ($fixture.FailDownload) { throw 'Simulated download failure' }
-    $asset = "https://github.com/HSPK/yinkote/releases/download/v$($fixture.Version)/yinkote-x86_64-pc-windows-msvc.exe"
+    $assetName = "yinkote-$($fixture.Target).exe"
+    $asset = "https://github.com/HSPK/yinkote/releases/download/v$($fixture.Version)/$assetName"
     Assert-True ($Uri -eq $asset -or $Uri -eq "$asset.sha256") 'An asset was not pinned to the resolved release'
     if ($Uri.EndsWith('.sha256')) {
         $hash = (Get-FileHash -LiteralPath $fixture.Binary -Algorithm SHA256).Hash
         if ($fixture.BadChecksum) { $hash = '0' * 64 }
-        [IO.File]::WriteAllText($OutFile, "$hash  yinkote-x86_64-pc-windows-msvc.exe`n")
+        [IO.File]::WriteAllText($OutFile, "$hash  $assetName`n")
     } else {
         [IO.File]::Copy($fixture.Binary, $OutFile)
         if ($env:OS -ne 'Windows_NT') {
@@ -117,8 +157,42 @@ try {
     Assert-True ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -eq $hash) 'Wrong binary version replaced the executable'
     $global:YinkoteInstallerFixture.Version = $version
 
-    $env:PROCESSOR_ARCHITEW6432 = 'ARM64'
-    Assert-Fails { & $installer } 'Only Windows x64'
+    # Native and emulated shells must all follow the platform, not the guest
+    # environment. Downloads remain mocked; native CI also runs a real PE.
+    $global:YinkoteInstallerFixture.NativeQuery = $false
+    foreach ($case in @(
+        @{ Cpu = 12; Process = 'ARM64'; Wow = ''; Target = 'aarch64-pc-windows-msvc' },
+        @{ Cpu = 12; Process = 'AMD64'; Wow = ''; Target = 'aarch64-pc-windows-msvc' },
+        @{ Cpu = 12; Process = 'x86'; Wow = 'ARM64'; Target = 'aarch64-pc-windows-msvc' },
+        @{ Cpu = 9; Process = 'AMD64'; Wow = ''; Target = 'x86_64-pc-windows-msvc' },
+        @{ Cpu = 9; Process = 'x86'; Wow = 'AMD64'; Target = 'x86_64-pc-windows-msvc' }
+    )) {
+        $global:YinkoteInstallerFixture.Architecture = $case.Cpu
+        $global:YinkoteInstallerFixture.Target = $case.Target
+        $env:PROCESSOR_ARCHITECTURE = $case.Process
+        $env:PROCESSOR_ARCHITEW6432 = $case.Wow
+        $global:YinkoteInstallerFixture.Requests.Clear()
+        & $installer
+        Assert-True ($global:YinkoteInstallerFixture.Requests.Count -eq 3) 'Architecture selection did not download one pinned asset pair'
+    }
+    foreach ($unsupported in @(0, 5, 6, 99)) {
+        $global:YinkoteInstallerFixture.Architecture = $unsupported
+        $global:YinkoteInstallerFixture.Requests.Clear()
+        Assert-Fails { & $installer } 'Unsupported Windows processor architecture'
+        Assert-True ($global:YinkoteInstallerFixture.Requests.Count -eq 0) 'Unsupported platform made a network request'
+    }
+    $global:YinkoteInstallerFixture.Architecture = $nativeArchitecture
+    $global:YinkoteInstallerFixture.Target = $Target
+    $global:YinkoteInstallerFixture.AddressWidth = 32
+    Assert-Fails { & $installer } 'supported 64-bit Windows platform'
+    $global:YinkoteInstallerFixture.AddressWidth = 64
+    $global:YinkoteInstallerFixture.EmptyQuery = $true
+    Assert-Fails { & $installer } 'supported 64-bit Windows platform'
+    $global:YinkoteInstallerFixture.EmptyQuery = $false
+    $global:YinkoteInstallerFixture.FailQuery = $true
+    Assert-Fails { & $installer } 'Simulated platform detection failure'
+    $global:YinkoteInstallerFixture.FailQuery = $false
+    $global:YinkoteInstallerFixture.NativeQuery = ($env:OS -eq 'Windows_NT')
     $env:PROCESSOR_ARCHITEW6432 = ''
     $global:YinkoteInstallerFixture.NewResponseShape = $true
     $env:YINKOTE_CURRENT_VERSION = "$version-rc.1"

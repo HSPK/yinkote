@@ -2633,7 +2633,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "yk-agent"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "serde",
@@ -2646,7 +2646,7 @@ dependencies = [
 
 [[package]]
 name = "yk-ai"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -2660,7 +2660,7 @@ dependencies = [
 
 [[package]]
 name = "yk-cite"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -2669,7 +2669,7 @@ dependencies = [
 
 [[package]]
 name = "yk-core"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "rand 0.8.8",
@@ -2683,7 +2683,7 @@ dependencies = [
 
 [[package]]
 name = "yk-import"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "rusqlite",
  "serde",
@@ -2695,7 +2695,7 @@ dependencies = [
 
 [[package]]
 name = "yk-pdf"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "pdf-extract",
  "tokio",
@@ -2705,7 +2705,7 @@ dependencies = [
 
 [[package]]
 name = "yk-plugin"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -2720,7 +2720,7 @@ dependencies = [
 
 [[package]]
 name = "yk-scrape"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -2734,7 +2734,7 @@ dependencies = [
 
 [[package]]
 name = "yk-search"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -2754,7 +2754,7 @@ dependencies = [
 
 [[package]]
 name = "yk-server"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2794,7 +2794,7 @@ dependencies = [
 
 [[package]]
 name = "yk-store"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "async-trait",
  "parking_lot",
