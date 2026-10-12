@@ -4,8 +4,7 @@ use std::collections::HashMap;
 
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use yk_core::event::DomainEvent;
@@ -19,22 +18,26 @@ use super::{announce, key, notify_plugins, BadgeSort, ListParams};
 use crate::error::ApiResult;
 use crate::state::App;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/libraries/:lib/items", get(list).post(create).delete(trash))
-        .route("/libraries/:lib/items/:key", get(get_one).patch(update))
-        .route("/libraries/:lib/items/:key/children", get(children))
-        .route("/libraries/:lib/items/:key/notes/from-annotations", post(note_from_annotations))
-        .route("/libraries/:lib/items/restore", post(restore))
-        .route("/libraries/:lib/items/delete", post(destroy))
-        .route("/libraries/:lib/trash", axum::routing::delete(empty_trash))
-        .route(
-            "/libraries/:lib/collections/:ckey/items",
-            post(add_to_collection).delete(remove_from_collection),
-        )
-        .route("/libraries/:lib/duplicates", post(duplicates))
-        .route("/libraries/:lib/duplicates", get(duplicate_groups))
-        .route("/libraries/:lib/items/merge", post(merge))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/libraries/:lib/items" => list, "search_library", Read, "List or search items. query.q accepts tag:, author:, year: and quoted phrases. Use limit/offset for paging.";
+        POST "/libraries/:lib/items" => create, "create_items", Write, "Create one item or an array, including notes and annotations via itemType/parentKey. Prefer quick_add for identifiers.";
+        DELETE "/libraries/:lib/items" => trash, "trash_items", Write, "Move items to recoverable trash.";
+        GET "/libraries/:lib/items/:key" => get_one, "get_item", Read, "Read full metadata for an item.";
+        PATCH "/libraries/:lib/items/:key" => update, "update_item", Write, "Patch supplied fields, tags or memberships. ifVersion detects conflicts.";
+        GET "/libraries/:lib/items/:key/children" => children, "list_item_children", Read, "Read child notes, attachments and annotations. Annotation children belong to attachments.";
+        POST "/libraries/:lib/items/:key/notes/from-annotations" => note_from_annotations, "note_from_annotations", Write, "Create a note from selected or all annotations.";
+        POST "/libraries/:lib/items/restore" => restore, "restore_items", Write, "Restore items from trash.";
+        POST "/libraries/:lib/items/delete" => destroy, "delete_items", Dangerous, "Permanently delete items and their stored files. Irreversible.";
+        DELETE "/libraries/:lib/trash" => empty_trash, "empty_trash", Dangerous, "Permanently empty the library trash.";
+        POST "/libraries/:lib/collections/:ckey/items" => add_to_collection, "file_items", Write, "Add items to a collection and queue missing files.";
+        DELETE "/libraries/:lib/collections/:ckey/items" => remove_from_collection, "unfile_items", Write, "Remove collection memberships without deleting items.";
+        POST "/libraries/:lib/duplicates" => duplicates, "find_duplicates", Read, "Find items matching duplicate fingerprints.";
+        GET "/libraries/:lib/duplicates" => duplicate_groups, "list_duplicate_groups", Read, "List groups of duplicate items.";
+        POST "/libraries/:lib/items/merge" => merge, "merge_items", Write, "Merge duplicates into a master and trash the other records.";
+        POST "/libraries/:lib/items/tags" => add_tags, "tag_items", Write, "Add tags to many items in one transaction, preserving other tags.";
+        DELETE "/libraries/:lib/items/tags" => remove_tags, "untag_items", Write, "Remove selected tags from many items, preserving other tags.";
+    }
 }
 
 /// Let plugins enrich drafts before anything is persisted.
@@ -197,7 +200,7 @@ async fn children(
 
 /// Accepts either a single draft or an array, and always answers with per-row
 /// results so one bad item never fails the batch.
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 enum CreateBody {
     One(Box<ItemDraft>),
@@ -275,13 +278,63 @@ async fn update(
     Ok(Json(item))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct KeysBody {
     keys: Vec<String>,
 }
 
 fn parse_keys(raw: &[String]) -> yk_core::Result<Vec<Key>> {
     raw.iter().map(|k| key(k)).collect()
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct TagsBody {
+    keys: Vec<String>,
+    tags: Vec<String>,
+}
+
+async fn add_tags(State(app): State<App>, Path(lib): Path<i64>, Json(body): Json<TagsBody>)
+    -> ApiResult<Json<serde_json::Value>> {
+    change_tags(app, lib, body, false).await
+}
+
+async fn remove_tags(State(app): State<App>, Path(lib): Path<i64>, Json(body): Json<TagsBody>)
+    -> ApiResult<Json<serde_json::Value>> {
+    change_tags(app, lib, body, true).await
+}
+
+async fn change_tags(app: App, lib: i64, body: TagsBody, removing: bool)
+    -> ApiResult<Json<serde_json::Value>> {
+    let keys = parse_keys(&body.keys)?;
+    let tags: Vec<_> = body.tags.iter().map(|tag| tag.trim()).filter(|tag| !tag.is_empty()).collect();
+    if keys.is_empty() || tags.is_empty() {
+        return Err(Error::invalid("item keys and non-empty tags are required").into());
+    }
+    let items = app.store().items.get_many(lib, &keys).await?;
+    let mut patches = Vec::new();
+    for item in &items {
+        let mut next = item.tags.clone();
+        if removing {
+            next.retain(|tag| !tags.contains(&tag.tag.as_str()));
+        } else {
+            for tag in &tags {
+                if !next.iter().any(|held| held.tag == *tag) { next.push(ItemTag::manual(*tag)); }
+            }
+        }
+        if next != item.tags {
+            patches.push((item.key.clone(), ItemPatch { tags: Some(next), ..Default::default() }));
+        }
+    }
+    let results = app.store().items.update_many(lib, patches).await?;
+    let failed: Vec<_> = results.iter().filter_map(|result| result.as_ref().err())
+        .map(|error| error.to_string()).collect();
+    let version = announce(&app, lib, |version| DomainEvent::ItemsChanged {
+        library_id:lib, keys:keys.clone(), version,
+    }).await?;
+    Ok(Json(json!({"changed":results.len() - failed.len(),"failed":failed,
+        "missing":keys.iter().filter(|key| !items.iter().any(|item| &item.key == *key)).collect::<Vec<_>>(),
+        "version":version})))
 }
 
 async fn trash(
@@ -410,7 +463,7 @@ async fn remove_from_collection(
     Ok(Json(json!({ "removed": n, "version": version })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct DuplicateBody {
     fingerprints: Vec<String>,
 }
@@ -431,7 +484,7 @@ async fn duplicates(
 /// a time regardless.
 const DUPLICATE_GROUPS: u32 = 200;
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields, default)]
 struct GroupParams {
     limit: Option<u32>,
@@ -453,7 +506,7 @@ async fn duplicate_groups(
     })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct MergeBody {
     /// The record to keep.
     master: String,
@@ -541,7 +594,7 @@ async fn list_by_badge(
     Ok((headers, Json(Page::new(window, total, offset, limit))))
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, schemars::JsonSchema)]
 #[serde(default)]
 struct FromAnnotations {
     /// Only these, or every annotation on the paper when empty.
@@ -636,7 +689,7 @@ mod annotation_note_tests {
             ..Default::default()
         };
         let app = crate::build_with_store(config, store.clone()).await.unwrap();
-        let router = router().with_state(app);
+        let router = api().router.with_state(app);
         let path = format!("/libraries/{lib}/items/{}/notes/from-annotations", paper.key);
         for (number, selected, count) in [
             (1, vec![sources[0].key.as_str()], 1),

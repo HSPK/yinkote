@@ -130,12 +130,18 @@ pub struct Agent {
     tools: HashMap<String, Arc<dyn Tool>>,
     system: String,
     max_steps: usize,
+    source: Option<Arc<dyn yk_ai::ToolSource>>,
 }
 
 impl Agent {
     pub fn new(provider: Arc<dyn ChatProvider>, tools: Vec<Arc<dyn Tool>>, system: String) -> Self {
         let tools = tools.into_iter().map(|t| (t.spec().name, t)).collect();
-        Self { provider, tools, system, max_steps: MAX_STEPS }
+        Self { provider, tools, system, max_steps: MAX_STEPS, source: None }
+    }
+
+    pub fn with_tool_source(mut self, source: Arc<dyn yk_ai::ToolSource>) -> Self {
+        self.source = Some(source);
+        self
     }
 
     /// Override the step budget. Zero is meaningless, so it is clamped away.
@@ -147,6 +153,7 @@ impl Agent {
     /// The tools this agent was built with, sorted so the list is stable.
     pub fn tool_names(&self) -> Vec<String> {
         let mut names: Vec<String> = self.tools.keys().cloned().collect();
+        if let Some(source) = &self.source { names.extend(source.names()); }
         names.sort();
         names
     }
@@ -172,7 +179,16 @@ impl Agent {
         history: Vec<ChatMessage>,
         progress: &dyn Progress,
     ) -> Result<AgentTurn> {
-        let specs: Vec<_> = self.tools.values().map(|t| t.spec()).collect();
+        let mut tools = self.tools.clone();
+        if let Some(source) = &self.source {
+            for tool in source.tools(library_id).await? {
+                let name = tool.spec().name;
+                if tools.insert(name.clone(), tool).is_some() {
+                    return Err(Error::internal(format!("duplicate discovered tool {name}")));
+                }
+            }
+        }
+        let specs: Vec<_> = tools.values().map(|t| t.spec()).collect();
 
         let mut messages = Vec::with_capacity(history.len() + 1);
         messages.push(ChatMessage::new("system", &self.system));
@@ -211,7 +227,7 @@ impl Agent {
                 if progress.cancelled() {
                     return Ok(cut_short(transcript, "stopped"));
                 }
-                let result = self.invoke(library_id, call).await;
+                let result = Self::invoke(&tools, library_id, call).await;
                 let shown = bounded(&result.to_string());
                 progress.tool_done(call, &shown);
                 let message = ChatMessage {
@@ -236,8 +252,8 @@ impl Agent {
     /// A tool that errors must not end the turn: models recover from "that
     /// search found nothing" perfectly well, and an exception here would lose
     /// the work already done.
-    async fn invoke(&self, library_id: i64, call: &ToolCall) -> serde_json::Value {
-        let Some(tool) = self.tools.get(&call.name) else {
+    async fn invoke(tools: &HashMap<String, Arc<dyn Tool>>, library_id: i64, call: &ToolCall) -> serde_json::Value {
+        let Some(tool) = tools.get(&call.name) else {
             return json!({ "error": format!("no such tool '{}'", call.name) });
         };
         match tool.call(library_id, call.arguments.clone()).await {

@@ -313,10 +313,68 @@ at**, so give it a scratch data directory.
 
 ## Options
 
+### MCP and external AI clients
+
+Yinkote exposes a Streamable HTTP MCP server at
+`http://127.0.0.1:23130/api/v1/mcp`. Connect your MCP client's HTTP transport to
+that URL; when an API key is configured, include `Authorization: Bearer <key>`.
+The endpoint rejects browser `Origin` headers and uses the same authentication
+guard as the REST API. Remote deployments still need TLS or a trusted tunnel.
+
+For clients requiring stdio, start Yinkote normally, then configure:
+
+```json
+{
+  "mcpServers": {
+    "yinkote": {
+      "command": "yinkote",
+      "args": ["mcp", "--data-dir", "/absolute/path/to/your/library"]
+    }
+  }
+}
+```
+
+`yinkote mcp` forwards to the server already holding this data directory. It
+does not start another library process. Logs go to stderr; stdout carries MCP
+messages only. It reads the API key from the same configuration/environment.
+
+Tools are generated from typed REST operation declarations, not a second set
+of agent implementations. Arguments use `path`, `query` and `body` objects;
+`path.lib` defaults to the current library. For example:
+
+```json
+{"name":"search_library","arguments":{"query":{"q":"diffusion year:2024","limit":10}}}
+```
+
+The built-in assistant discovers and calls this same MCP catalogue every turn
+over an in-process connection. Its library tools therefore share REST validation,
+events, plugin hooks and task handling. Workspace/skill tools remain local to
+the assistant; shell execution still requires `agent.allow_commands`.
+
+Reading and ordinary writes are enabled by default. Irreversible deletion,
+server-side imports, plugin administration and maintenance require explicit
+opt-in in **Settings → MCP**, or:
+
+```toml
+[mcp]
+allow_dangerous = true
+```
+
+The dangerous-operation switch cannot be changed by an MCP tool. Tool exclusions
+in `agent.disabled_tools` apply to MCP discovery and execution as well as the
+assistant. Disabled permissions are checked again when a tool is called.
+
+The catalogue covers items (including notes/annotations), collections, tags,
+saved searches, citations, metadata discovery, downloads, attachment metadata,
+reading context/text, conversations and background tasks. Binary upload/download,
+browser/Word integration protocols, API/model configuration and recursive
+AI-generation endpoints remain REST-only; this is not an unrestricted HTTP proxy.
+
 ```
 yinkote [OPTIONS]
 yinkote open
 yinkote update
+yinkote mcp [--data-dir <DIR>]
 yinkote service install|uninstall|status
 ```
 
@@ -338,7 +396,7 @@ assistant.
 
 ## Building from source
 
-You need Rust 1.85+ and Node 22+. The frontend is built first because the
+You need Rust 1.88+ and Node 22+. The frontend is built first because the
 binary embeds it.
 
 ```bash

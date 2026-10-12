@@ -51,6 +51,10 @@ comes from.
 
 Work in this order.
 
+These are MCP operations: put route identifiers in `path`, search parameters
+in `query`, and mutation parameters in `body`. Follow the discovered schemas.
+For example, search_library takes query.q, and quick_add takes body.text.
+
 ## 1. Start with what they already have
 
 Call `library_overview`, then `search_library`. Two reasons this comes first:
@@ -107,7 +111,7 @@ which is thinner. Adding also queues the PDF, so the paper is there to read.
 ## 5. Leave it findable
 
 Make or find the collection with `list_collections` and `create_collection`,
-then `file_items` what you added into it. Tag with `tag_items`, using the terms
+then `file_items` what you added into it. Tag with `update_item` and body.tags, preserving existing tags and using the terms
 they already use — check the overview's tag list rather than starting a second
 vocabulary alongside theirs.
 
@@ -241,22 +245,13 @@ mod tool_names {
             .collect()
     }
 
-    /// The names `tools()` builds, without needing a store to ask for them.
-    ///
-    /// The read-only five are listed because they are constructed from
-    /// structs rather than an enum; the rest come from `ACTIONS`, so a tool
-    /// added there is covered without touching this.
+    /// Business operations come from the REST/MCP catalogue.
     fn available() -> HashSet<String> {
-        let mut names: HashSet<String> = crate::agent::actions::ACTIONS
-            .iter()
-            .map(|a| a.name().to_string())
+        let mut names: HashSet<String> = crate::routes::api().operations
+            .into_iter()
+            .map(|operation| operation.name.to_string())
             .collect();
         for fixed in [
-            "search_library",
-            "get_item",
-            "read_paper",
-            "list_references",
-            "library_overview",
             "read_skill",
             "read_file",
             "write_file",

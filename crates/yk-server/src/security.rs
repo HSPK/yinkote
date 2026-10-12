@@ -74,7 +74,7 @@ pub async fn guard(State(app): State<App>, request: Request, next: Next) -> Resp
 
     // When bound to loopback, only loopback names may address us.
     let config = app.config();
-    if config.host == "127.0.0.1" || config.host == "::1" {
+    if crate::is_loopback(&config.host) {
         let host = headers.get("host").and_then(|v| v.to_str().ok()).unwrap_or("");
         if !host.is_empty() && !ALLOWED_HOSTNAMES.contains(&hostname(host)) {
             return deny(StatusCode::FORBIDDEN, "unrecognised Host header");

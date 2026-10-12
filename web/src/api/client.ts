@@ -388,6 +388,13 @@ export const api = {
   },
 
   agent: () => request<AgentStatus>('/agent'),
+  mcp: {
+    settings: () => request<{ endpoint: string; allowDangerous: boolean; tools: number }>('/mcp/settings'),
+    configure: (allowDangerous: boolean) =>
+      request<{ endpoint: string; allowDangerous: boolean; tools: number }>('/mcp/settings', {
+        method: 'PUT', ...json({ allowDangerous }),
+      }),
+  },
   /** Point the assistant at a model. An absent field is left as it was. */
   configureAgent: (patch: {
     endpoint?: string

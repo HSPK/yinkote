@@ -278,10 +278,58 @@ PDF 标签默认常驻，切换到其他标签会保留文档、缩放和阅读�
 
 ## 参数
 
+### MCP 与外部 AI 客户端
+
+Yinkote 在 `http://127.0.0.1:23130/api/v1/mcp` 提供 Streamable HTTP MCP 服务。
+客户端连接该地址即可；配置 API key 时，须携带 `Authorization: Bearer <key>`。
+MCP 接口拒绝浏览器 `Origin` 请求，沿用 REST 的鉴权；远程访问仍应使用 TLS 或可信隧道。
+
+只支持 stdio 的客户端可配置：
+
+```json
+{
+  "mcpServers": {
+    "yinkote": {
+      "command": "yinkote",
+      "args": ["mcp", "--data-dir", "/文库的绝对路径"]
+    }
+  }
+}
+```
+
+请先正常启动 Yinkote。`yinkote mcp` 连接已经运行、持有该数据目录锁的服务，
+不会另外打开数据库；stdout 只输出协议消息，日志写入 stderr。API key 读取相同配置和环境变量。
+
+MCP 工具由带类型的 REST 操作注册自动生成，不再维护第二套助手业务实现。
+参数分为 `path`、`query`、`body`，`path.lib` 默认当前文库。例如：
+
+```json
+{"name":"search_library","arguments":{"query":{"q":"diffusion year:2024","limit":10}}}
+```
+
+内置助手每轮通过进程内 MCP 连接发现并调用同一目录，共用 REST 校验、事件、插件钩子及任务逻辑。
+工作区和 skill 工具保留在助手本地；系统命令仍须显式开启 `agent.allow_commands`。
+
+默认开放读取和普通写入。永久删除、读取服务端路径进行导入、插件管理及维护等操作，
+须在**设置 → MCP**中开启，或在配置中设置：
+
+```toml
+[mcp]
+allow_dangerous = true
+```
+
+MCP 工具不能自行修改此开关。`agent.disabled_tools` 同时约束 MCP 和内置助手，
+调用时会再次检查权限，不会仅从列表隐藏。
+
+工具覆盖文献（含笔记、批注）、收藏夹、标签、智能收藏夹、引用、元数据发现、下载队列、
+附件元数据、阅读上下文及正文、对话和后台任务。二进制上传/下载、浏览器/Word 集成协议、
+模型与访问配置及可能递归调用助手的生成接口仍仅提供 REST，不开放任意 HTTP 转发。
+
 ```
 yinkote [OPTIONS]
 yinkote open
 yinkote update
+yinkote mcp [--data-dir <DIR>]
 yinkote service install|uninstall|status
 ```
 
@@ -302,7 +350,7 @@ yinkote service install|uninstall|status
 
 ## 从源码构建
 
-需要 Rust 1.85+ 和 Node 22+。先构建前端，因为二进制会把它嵌进去。
+需要 Rust 1.88+ 和 Node 22+。先构建前端，因为二进制会把它嵌进去。
 
 ```bash
 (cd web && npm install && npm run build)

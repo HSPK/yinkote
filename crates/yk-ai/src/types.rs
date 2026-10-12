@@ -62,6 +62,12 @@ pub trait Tool: Send + Sync {
     async fn call(&self, library_id: i64, arguments: Value) -> Result<Value>;
 }
 
+#[async_trait::async_trait]
+pub trait ToolSource: Send + Sync {
+    fn names(&self) -> Vec<String>;
+    async fn tools(&self, library_id: i64) -> Result<Vec<std::sync::Arc<dyn Tool>>>;
+}
+
 /// One request to a model.
 #[derive(Clone, Debug, Default)]
 pub struct ChatRequest {

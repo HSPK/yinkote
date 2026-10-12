@@ -8,8 +8,7 @@
 use std::time::Duration;
 
 use axum::extract::{Path, State};
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use serde_json::json;
 use yk_core::event::DomainEvent;
 use yk_core::Error;
@@ -19,12 +18,14 @@ use super::key;
 use crate::error::ApiResult;
 use crate::state::App;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/libraries/:lib/items/:key/citations", get(list).put(replace))
-        .route("/libraries/:lib/items/:key/citations/fetch", post(fetch))
-        .route("/libraries/:lib/citations/missing", get(missing))
-        .route("/libraries/:lib/citations/harvest", post(start_harvest))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/libraries/:lib/items/:key/citations" => list, "list_references", Read, "Read references and citing works, including keys of owned papers.";
+        PUT "/libraries/:lib/items/:key/citations" => replace, "set_references", Write, "Replace a paper's reference list.";
+        POST "/libraries/:lib/items/:key/citations/fetch" => fetch, "fetch_references", Write, "Fetch and store a paper's references.";
+        GET "/libraries/:lib/citations/missing" => missing, "missing_works", Read, "List cited works not owned by this library.";
+        POST "/libraries/:lib/citations/harvest" => start_harvest, "harvest_references", Write, "Start a background reference-harvesting task.";
+    }
 }
 
 /// How long to wait between requests.
@@ -168,7 +169,7 @@ fn to_draft(r: &yk_scrape::Reference) -> CitationDraft {
     }
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct Limit {
     #[serde(default = "default_missing")]
@@ -236,12 +237,12 @@ async fn replace(
     Ok(Json(json!({ "stored": stored })))
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct Bibliography {
     citations: Vec<CitationInput>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct CitationInput {
     #[serde(default)]
     doi: String,

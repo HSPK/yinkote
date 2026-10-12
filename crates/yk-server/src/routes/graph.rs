@@ -12,8 +12,7 @@
 use std::collections::HashMap;
 
 use axum::extract::{Path, Query, State};
-use axum::routing::get;
-use axum::{Json, Router};
+use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 use yk_core::Key;
@@ -22,11 +21,13 @@ use super::key;
 use crate::error::ApiResult;
 use crate::state::App;
 
-pub fn router() -> Router<App> {
-    Router::new().route("/libraries/:lib/graph/:key", get(neighbourhood))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/libraries/:lib/graph/:key" => neighbourhood, "item_graph", Read, "Read citation, tag and semantic neighbors around an item.";
+    }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct Params {
     /// How many neighbours of each kind. Kept modest on purpose: a readable

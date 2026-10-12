@@ -1,4 +1,9 @@
-# 11 · Agent 层（基于 pi-coding-agent）
+# 11 · Agent 层（历史方案）
+
+> 下文为早期 pi-coding-agent / Node sidecar 方案，并非当前实现。
+> 当前使用 Rust `yk-agent` 循环，每轮通过官方 Rust MCP SDK 的进程内连接发现并调用
+> 与 REST 共用的操作目录。对外提供 `/api/v1/mcp` Streamable HTTP 和 `yinkote mcp`
+> stdio 转接；连接方式及权限开关见 README 的 MCP 部分。
 
 Yinkote 内置两个一等公民 Agent，均基于 **`@earendil-works/pi-coding-agent`** SDK 构建：
 

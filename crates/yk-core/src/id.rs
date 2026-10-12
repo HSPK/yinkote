@@ -11,7 +11,7 @@ const KEY_LEN: usize = 8;
 ///
 /// Keys are what the outside world sees. Numeric row ids never leave the
 /// storage layer, which keeps the API stable across imports and merges.
-#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct Key(String);
 

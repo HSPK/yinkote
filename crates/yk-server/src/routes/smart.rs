@@ -6,8 +6,7 @@
 //! a smart collection can save, and the two can never disagree.
 
 use axum::extract::{Path, Query, State};
-use axum::routing::get;
-use axum::{Json, Router};
+use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 use yk_core::event::DomainEvent;
@@ -30,17 +29,18 @@ use crate::state::App;
 /// rather than a rounded one.
 const COUNT_CAP: u32 = 500;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/libraries/:lib/smart-collections", get(list).post(create))
-        .route(
-            "/libraries/:lib/smart-collections/:key",
-            get(get_one).patch(update).delete(remove),
-        )
-        .route("/libraries/:lib/smart-collections/:key/items", get(items))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/libraries/:lib/smart-collections" => list, "list_smart_collections", Read, "List saved searches, optionally with counts.";
+        POST "/libraries/:lib/smart-collections" => create, "create_smart_collection", Write, "Save a search as a smart collection.";
+        GET "/libraries/:lib/smart-collections/:key" => get_one, "get_smart_collection", Read, "Read a saved search.";
+        PATCH "/libraries/:lib/smart-collections/:key" => update, "update_smart_collection", Write, "Update a saved search.";
+        DELETE "/libraries/:lib/smart-collections/:key" => remove, "delete_smart_collection", Dangerous, "Delete a saved search, preserving items.";
+        GET "/libraries/:lib/smart-collections/:key/items" => items, "list_smart_items", Read, "Evaluate a saved search with paging.";
+    }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, schemars::JsonSchema)]
 #[serde(deny_unknown_fields, default)]
 struct ListParamsWithCounts {
     /// Evaluating counts costs one query each; the sidebar asks for them, a

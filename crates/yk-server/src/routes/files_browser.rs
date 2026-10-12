@@ -10,8 +10,7 @@
 //! can look at first is one nobody should run.
 
 use axum::extract::{Path, Query, State};
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 use yk_core::model::{Item, ItemPatch};
@@ -21,11 +20,12 @@ use crate::error::ApiResult;
 use crate::naming::{filename_for, DEFAULT_TEMPLATE};
 use crate::state::App;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/libraries/:lib/files", get(list))
-        .route("/libraries/:lib/files/preview", post(preview))
-        .route("/libraries/:lib/files/rename", post(rename))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/libraries/:lib/files" => list, "list_attachments", Read, "Page through attachments and their metadata.";
+        POST "/libraries/:lib/files/preview" => preview, "preview_file_renames", Read, "Preview attachment filename changes.";
+        POST "/libraries/:lib/files/rename" => rename, "rename_files", Write, "Rename stored attachments using a template.";
+    }
 }
 
 /// How many files one page holds.
@@ -35,7 +35,7 @@ pub fn router() -> Router<App> {
 /// query rather than one per file.
 const PAGE: u32 = 500;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct Paging {
     #[serde(default)]
@@ -81,7 +81,7 @@ async fn list(
     Ok(Json(json!({ "files": files, "total": page.total, "offset": paging.offset })))
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, schemars::JsonSchema)]
 #[serde(default)]
 struct Rename {
     /// A template such as `{author} {year} - {title}`.

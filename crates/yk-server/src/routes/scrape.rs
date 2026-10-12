@@ -5,8 +5,7 @@
 //! skipping anything already in the library.
 
 use axum::extract::{Path, State};
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use yk_core::event::DomainEvent;
@@ -22,16 +21,17 @@ use crate::state::App;
 /// Resolving is a network round trip per identifier; cap the fan-out.
 const MAX_RESOLVE: usize = 8;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/resolve", post(resolve))
-        .route("/resolve/sources", get(sources))
-        .route("/search/external", post(search_external))
-        .route("/search/external/sources", get(search_sources))
-        .route("/libraries/:lib/quick-add", post(quick_add))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        POST "/resolve" => resolve, "resolve_identifier", Read, "Resolve DOI, arXiv, PubMed, ISBN or URLs without adding items.";
+        GET "/resolve/sources" => sources, "list_metadata_sources", Read, "List metadata resolvers.";
+        POST "/search/external" => search_external, "search_external", Read, "Search arxiv, crossref, pubmed and openalex. Use focused literature terms; failures are reported per source.";
+        GET "/search/external/sources" => search_sources, "list_search_sources", Read, "List external search sources.";
+        POST "/libraries/:lib/quick-add" => quick_add, "quick_add", Write, "Resolve identifiers into library items, deduplicate, optionally tag/file, and queue PDFs.";
+    }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct ResolveBody {
     text: String,
@@ -86,7 +86,7 @@ async fn sources(State(app): State<App>) -> Json<Vec<SourceInfo>> {
     Json(app.scrape().sources())
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct QuickAddBody {
     text: String,
@@ -120,7 +120,7 @@ struct Duplicate {
     title: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct SearchBody {
     query: String,

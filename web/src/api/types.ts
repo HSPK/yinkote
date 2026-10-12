@@ -336,6 +336,7 @@ export interface AgentStatus {
   /** Every tool that could exist, so one that is off can be switched back on. */
   allTools?: string[]
   disabledTools?: string[]
+  blockedTools?: string[]
   skills?: { name: string; description: string; enabled: boolean }[]
 }
 

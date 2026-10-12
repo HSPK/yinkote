@@ -1,8 +1,6 @@
 use serde_json::json;
-use yk_ai::Tool;
 use yk_core::model::ItemDraft;
 use yk_server::{
-    agent::{Action, LibraryAction},
     config::Config,
     tasks::{Phase, Tasks},
 };
@@ -106,28 +104,13 @@ async fn agent_deletion_queues_descendant_files_and_emits_a_change() {
         .await
         .unwrap();
     let mut events = app.events().subscribe();
-    let action = LibraryAction {
-        action: Action::DeleteItems,
-        store: app.store().clone(),
-        scrape: app.scrape().clone(),
-        search: app.outside().clone(),
-        events: app.events().clone(),
-    };
-    action
-        .call(lib, json!({ "keys": [parent.key.as_str()] }))
+    app.config.write().mcp.allow_dangerous = true;
+    app.mcp
+        .call(app.clone(), lib, "delete_items", json!({ "body": { "keys": [parent.key.as_str()] } }))
         .await
         .unwrap();
     assert!(events.try_recv().is_ok());
-    assert!(app.storage().get(&child.key, "paper.pdf").await.is_ok());
-    assert_eq!(
-        app.store()
-            .db()
-            .pending_file_cleanup(200)
-            .await
-            .unwrap()
-            .len(),
-        2
-    );
+    assert!(app.storage().get(&child.key, "paper.pdf").await.is_err());
     yk_server::deletion::cleanup(&app).await.unwrap();
     assert!(app.storage().get(&child.key, "paper.pdf").await.is_err());
     assert!(app

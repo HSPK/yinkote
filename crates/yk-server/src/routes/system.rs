@@ -4,7 +4,7 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::response::Response;
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -17,16 +17,21 @@ use crate::error::ApiResult;
 use crate::state::App;
 
 pub fn router() -> Router<App> {
-    Router::new()
-        .route("/ping", get(ping))
-        .route("/schema", get(get_schema))
-        .route("/stats", get(stats))
-        .route("/libraries", get(libraries))
-        .route("/settings", get(get_settings).put(put_settings))
-        .route("/connector", axum::routing::put(put_connector))
-        .route("/maintenance/reindex/:lib", post(reindex))
-        .route("/maintenance/optimize", post(optimize))
-        .route("/events", get(events))
+    Router::new().route("/events", get(events))
+}
+
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/ping" => ping, "server_info", Read, "Read server version and configuration status.";
+        GET "/schema" => get_schema, "item_schema", Read, "Read item types and available metadata fields.";
+        GET "/stats" => stats, "library_stats", Read, "Read library counts and search statistics.";
+        GET "/libraries" => libraries, "list_libraries", Read, "List available libraries.";
+        GET "/settings" => get_settings, "get_settings", Read, "Read workbench preferences.";
+        PUT "/settings" => put_settings, "set_settings", Dangerous, "Change workbench preferences.";
+        PUT "/connector" => put_connector, "configure_connector", Dangerous, "Enable or disable the browser connector listener.";
+        POST "/maintenance/reindex/:lib" => reindex, "reindex_library", Dangerous, "Start rebuilding derived indexes.";
+        POST "/maintenance/optimize" => optimize, "optimize_database", Dangerous, "Run database maintenance.";
+    }
 }
 
 async fn ping(State(app): State<App>) -> Json<Value> {
@@ -151,7 +156,7 @@ async fn get_settings(State(app): State<App>) -> ApiResult<Json<Value>> {
     Ok(Json(Value::Object(entries.into_iter().collect())))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct SettingsBody(serde_json::Map<String, Value>);
 
 async fn put_settings(
@@ -166,7 +171,7 @@ async fn put_settings(
     Ok(Json(json!({ "ok": true })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct ConnectorBody {
     /// `null` turns it off. Absent is the same as null: there is no third

@@ -12,8 +12,7 @@
 use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 use yk_cite::export::Export;
@@ -24,11 +23,12 @@ use super::key;
 use crate::error::ApiResult;
 use crate::state::App;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/citation-styles", get(list_styles))
-        .route("/libraries/:lib/citations", post(render))
-        .route("/libraries/:lib/export", post(export))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/citation-styles" => list_styles, "list_citation_styles", Read, "List supported citation styles.";
+        POST "/libraries/:lib/citations" => render, "render_citations", Read, "Render citations and a bibliography in the supplied item order.";
+        POST "/libraries/:lib/export" => export, "export_items", Read, "Export selected items as BibTeX, RIS or CSL-JSON text.";
+    }
 }
 
 async fn list_styles() -> Json<serde_json::Value> {
@@ -39,7 +39,7 @@ async fn list_styles() -> Json<serde_json::Value> {
     Json(json!(styles))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct RenderBody {
     keys: Vec<String>,
     style: String,
@@ -83,7 +83,7 @@ async fn render(
     })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct ExportBody {
     #[serde(rename = "itemKeys", alias = "keys")]
     item_keys: Vec<String>,

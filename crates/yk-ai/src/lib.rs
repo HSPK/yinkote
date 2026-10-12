@@ -24,4 +24,4 @@ pub mod types;
 pub use provider::{ChatProvider, EmbeddingProvider};
 pub use providers::{LocalEmbedder, OpenAiConfig, OpenAiEmbedder, OpenAiProvider};
 pub use stream::{Delta, Sink};
-pub use types::{ChatMessage, ChatRequest, Tool, ToolCall, ToolSpec};
+pub use types::{ChatMessage, ChatRequest, Tool, ToolCall, ToolSpec, ToolSource};

@@ -41,7 +41,7 @@ ARM64 使用 `windows-11-arm` 原生 runner。安装脚本以 CIM 的处理器�
 | `yk-store` | rusqlite + r2d2、迁移、事务、计数缓存、索引维护、持久队列 |
 | `yk-search` | FTS5 BM25、trigram 模糊检索、向量余弦扫描、RRF 融合 |
 | `yk-ai` | Chat/Embedding Provider、流式响应与请求重试 |
-| `yk-agent` | 与数据库和 Provider 实现无关的 Rust 工具循环、取消和步数预算 |
+| `yk-agent` | 与数据库和 Provider 实现无关的 Rust 工具循环、动态工具来源、取消和步数预算 |
 | `yk-scrape` | 标识符解析、元数据抓取、外部文献搜索 |
 | `yk-import` | Zotero 文库导入 |
 | `yk-pdf` | pdf-extract 文本提取；可选外部程序接口 |
@@ -50,8 +50,21 @@ ARM64 使用 `windows-11-arm` 原生 runner。安装脚本以 CIM 的处理器�
 | `yk-server` | 组装上述模块、HTTP、业务编排、文件管理和后台 worker |
 | `web` | React 18 + TypeScript + Zustand + Vite；TanStack Virtual 与 pdf.js |
 
-接口主要定义在 `yk-core::ports`，具体实现由 server 组装。应用逻辑仍有一部分在路由和工具中；
-新增跨入口功能应复用应用用例，不要让 HTTP、Agent 和插件各写一份业务规则。
+接口主要定义在 `yk-core::ports`，具体实现由 server 组装。文库业务操作统一注册在路由模块的
+`api_routes!` 中：同一声明包含 HTTP 路径/方法、操作名称、描述与读写风险分类；
+请求 schema 由 handler 的 `Path`、`Query`、`Json` 参数类型通过 schemars 生成。
+REST Router 与 MCP Catalogue 从同一声明构建，MCP 内部派发真实的 REST handler，
+不再存在 `agent/actions.rs` 或第二套文库 ToolSpec 实现。
+
+MCP 协议使用官方 `rmcp` SDK，对外为 `/api/v1/mcp` 的无会话 Streamable HTTP。
+`yinkote mcp` 只把 stdio 消息转接给已运行服务器，不打开第二个 Store。
+内置助手每轮使用进程内 MCP 连接执行 `tools/list`/`tools/call`，不依赖 HTTP 监听是否启动，
+也不向远端模型暴露 API key。工作区和 skill 工具仍为助手本地能力。
+
+MCP 与 REST 共用认证守卫；MCP 拒绝浏览器 Origin，权限在发现和调用时分别检查。
+默认允许读取和普通写入，`[mcp] allow_dangerous = true` 才开放永久删除、服务端路径导入、
+插件管理及维护操作。权限配置接口不进入工具目录，工具不能自行开启权限。
+模型配置、递归生成接口、二进制传输以及浏览器/Word 专有协议保留为 REST-only。
 
 ## 3. 数据与事务
 

@@ -7,8 +7,7 @@
 use std::collections::HashMap;
 
 use axum::extract::{Path, State};
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use serde::Deserialize;
 use yk_core::plugin::{BadgeDescriptor, BadgeValue};
 
@@ -16,17 +15,18 @@ use super::key;
 use crate::error::ApiResult;
 use crate::state::App;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/badges", get(descriptors))
-        .route("/libraries/:lib/badges", post(resolve))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/badges" => descriptors, "list_badges", Read, "List plugin badge definitions.";
+        POST "/libraries/:lib/badges" => resolve, "resolve_badges", Read, "Resolve plugin badges for selected library items.";
+    }
 }
 
 async fn descriptors(State(app): State<App>) -> Json<Vec<BadgeDescriptor>> {
     Json(app.badges.descriptors().await)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct ResolveBody {
     keys: Vec<String>,
 }

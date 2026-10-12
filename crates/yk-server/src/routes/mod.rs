@@ -15,6 +15,7 @@ mod conversations;
 mod items;
 mod plugins;
 mod reader;
+mod reading_context;
 mod reveal;
 pub(crate) mod thumbnails;
 mod scrape;
@@ -36,30 +37,37 @@ use crate::error::ApiResult;
 use crate::state::App;
 
 pub fn router() -> Router<App> {
-    Router::new()
+    api().router
         .merge(system::router())
-        .merge(items::router())
-        .merge(badges::router())
-        .merge(citations::router())
-        .merge(graph::router())
-        .merge(references::router())
         .merge(files::router())
-        .merge(downloads::router())
-        .merge(files_browser::router())
-        .merge(import::router())
-        .merge(collections::router())
         .merge(conversations::router())
-        .merge(search::router())
-        .merge(scrape::router())
-        .merge(smart::router())
         .merge(summarise::router())
         .merge(close_reading::router())
-        .merge(plugins::router())
-        .merge(reader::router())
         .merge(reveal::router())
         .merge(thumbnails::router())
         .merge(crate::integration::router())
-        .merge(crate::maintenance::router())
+}
+
+pub fn api() -> crate::operations::Api {
+    items::api()
+        .merge(collections::api())
+        .merge(downloads::api())
+        .merge(scrape::api())
+        .merge(smart::api())
+        .merge(citations::api())
+        .merge(graph::api())
+        .merge(badges::api())
+        .merge(files_browser::api())
+        .merge(reader::api())
+        .merge(crate::maintenance::api())
+        .merge(references::api())
+        .merge(system::api())
+        .merge(plugins::api())
+        .merge(import::api())
+        .merge(files::api())
+        .merge(conversations::api())
+        .merge(reading_context::api())
+        .merge(search::api())
 }
 
 /// Look up the library version after a write and broadcast the change.
@@ -121,7 +129,7 @@ fn notify_plugins(app: &App, hook: &'static str, payload: Value) {
 /// Same reasoning as `deny_unknown_fields` on the patch bodies (§3.219): a
 /// request the server accepts and answers wrongly is worse than one it
 /// refuses, because every layer above it looks like it worked.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct ListParams {
     pub q: Option<String>,

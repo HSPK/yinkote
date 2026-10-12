@@ -19,17 +19,23 @@ use crate::state::App;
 
 pub fn router() -> Router<App> {
     Router::new()
-        .route("/libraries/:lib/conversations", get(list).post(create))
-        .route(
-            "/libraries/:lib/conversations/:key",
-            get(get_one).patch(rename).delete(remove),
-        )
-        .route("/libraries/:lib/conversations/:key/messages", get(messages).post(append))
         .route("/libraries/:lib/conversations/:key/ask", post(ask))
         .route("/agent", get(status).put(configure))
-        .route("/libraries/:lib/conversations/:key/run", get(run_state))
-        .route("/libraries/:lib/conversations/:key/cancel", post(cancel_run))
-        .route("/libraries/:lib/items/:key/conversations", get(about_item))
+}
+
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/libraries/:lib/conversations" => list, "list_conversations", Read, "List saved conversations.";
+        POST "/libraries/:lib/conversations" => create, "create_conversation", Write, "Create a conversation.";
+        GET "/libraries/:lib/conversations/:key" => get_one, "get_conversation", Read, "Read conversation metadata.";
+        PATCH "/libraries/:lib/conversations/:key" => rename, "update_conversation", Write, "Change conversation title or scope.";
+        DELETE "/libraries/:lib/conversations/:key" => remove, "delete_conversation", Dangerous, "Permanently delete a conversation.";
+        GET "/libraries/:lib/conversations/:key/messages" => messages, "list_messages", Read, "Page through conversation messages.";
+        POST "/libraries/:lib/conversations/:key/messages" => append, "append_message", Write, "Append a message.";
+        GET "/libraries/:lib/conversations/:key/run" => run_state, "get_agent_run", Read, "Read an ongoing agent turn's status.";
+        POST "/libraries/:lib/conversations/:key/cancel" => cancel_run, "cancel_agent_run", Write, "Cancel an agent turn.";
+        GET "/libraries/:lib/items/:key/conversations" => about_item, "item_conversations", Read, "Find conversations mentioning an item.";
+    }
 }
 
 /// What has already been asked about one paper.
@@ -91,7 +97,7 @@ async fn configure(
     }
 
     config.save()?;
-    let rebuilt = crate::build_agent(&config, &app.services);
+    let rebuilt = crate::build_agent(&config, &app);
     let ok = rebuilt.is_some();
     *app.agent.write() = rebuilt;
     *app.config.write() = config;
@@ -102,7 +108,7 @@ async fn configure(
     Ok(Json(agent_status(&app)))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
 struct AgentConfigBody {
     endpoint: Option<String>,
@@ -148,18 +154,20 @@ fn agent_status(app: &App) -> serde_json::Value {
             .collect::<Vec<_>>(),
         "disabledTools": agent.disabled_tools,
         "allTools": app.tool_catalogue(),
+        "blockedTools": app.mcp.operations()
+            .filter(|op| op.access == crate::operations::Access::Dangerous && !config.mcp.allow_dangerous)
+            .map(|op| op.name).collect::<Vec<_>>(),
         // What it may do, so that "can it change my library?" is answerable
         // without reading the source.
         "tools": app.agent().map(|a| a.tool_names()).unwrap_or_default(),
-        "writes": crate::agent::ACTIONS
-            .iter()
-            .filter(|a| a.writes())
-            .map(|a| a.name())
+        "writes": app.mcp.operations()
+            .filter(|op| op.access != crate::operations::Access::Read)
+            .map(|op| op.name)
             .collect::<Vec<_>>(),
     })
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct AskBody {
     content: String,
     /// Papers the user named with `@`. They are put in front of the model as
@@ -240,7 +248,7 @@ async fn turn_context(
                 if let Ok(found) = app.store().collections.get(lib, &collection).await {
                     parts.push(format!(
                         "This conversation is about the collection \"{}\" ({} items). Unless \
-                         the user says otherwise, search inside it by passing collection: \
+                         the user says otherwise, search inside it by passing query.collection: \
                          \"{}\" to search_library.",
                         found.name, found.item_count, scope
                     ));
@@ -342,7 +350,7 @@ async fn run_turn(app: App, lib: i64, key: yk_core::Key, run: std::sync::Arc<cra
 
     let progress = crate::runs::RunProgress {
         run: run.clone(),
-        writers: crate::agent::ACTIONS.iter().filter(|a| a.writes()).map(|a| a.name()).collect(),
+        writers: app.mcp.operations().filter(|op| op.access != crate::operations::Access::Read).map(|op| op.name).collect(),
     };
 
     let turn = match agent.run_with(lib, history, &progress).await {
@@ -425,7 +433,7 @@ fn to_chat(message: &Message) -> ChatMessage {
     ChatMessage::new(&message.role, message.content.clone())
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, schemars::JsonSchema)]
 #[serde(default)]
 struct ListParams {
     limit: Option<u32>,
@@ -446,7 +454,7 @@ async fn get_one(
     Ok(Json(app.store().conversations.get(lib, &key(&k)?).await?))
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, schemars::JsonSchema)]
 #[serde(default)]
 struct CreateBody {
     title: Option<String>,
@@ -487,7 +495,7 @@ async fn remove(
 /// looks complete; the rest arrives when somebody scrolls back for it.
 const MESSAGE_PAGE: u32 = 60;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct MessageQuery {
     limit: Option<u32>,

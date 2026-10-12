@@ -13,23 +13,23 @@ pub mod integrity;
 pub mod restore;
 
 use axum::extract::{Path, State};
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use serde_json::json;
 
 use crate::error::ApiResult;
 use crate::state::App;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/maintenance/backup", post(run_backup))
-        .route("/maintenance/backups", get(list_backups))
-        .route("/maintenance/integrity", get(check_integrity))
-        .route("/maintenance/export-all", post(export_all))
-        .route("/maintenance/import-archive", post(import_archive))
-        .route("/tasks", get(list_tasks))
-        .route("/tasks/:id", get(get_task))
-        .route("/tasks/:id/cancel", post(cancel_task))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        POST "/maintenance/backup" => run_backup, "backup_library", Write, "Start a database backup task.";
+        GET "/maintenance/backups" => list_backups, "list_backups", Read, "List available library backups.";
+        GET "/maintenance/integrity" => check_integrity, "check_integrity", Read, "Check missing and orphaned attachment files.";
+        POST "/maintenance/export-all" => export_all, "export_library", Write, "Start an archive export task.";
+        POST "/maintenance/import-archive" => import_archive, "import_archive", Dangerous, "Import a server-side archive into the library.";
+        GET "/tasks" => list_tasks, "list_tasks", Read, "List background tasks.";
+        GET "/tasks/:id" => get_task, "get_task", Read, "Read progress or results of a task.";
+        POST "/tasks/:id/cancel" => cancel_task, "cancel_task", Write, "Request cancellation of a task.";
+    }
 }
 
 /// Take a backup now.
@@ -76,7 +76,7 @@ async fn export_all(State(app): State<App>) -> ApiResult<Json<serde_json::Value>
     Ok(Json(json!({ "task": task.snapshot() })))
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, schemars::JsonSchema)]
 struct ArchivePath {
     /// Where the `.yinkote` file is, on this machine.
     path: String,

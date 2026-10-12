@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.1.3"
 edition = "2021"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "AGPL-3.0-or-later"
 repository = "https://github.com/HSPK/yinkote"
 
@@ -43,6 +43,7 @@ rand = "0.8"
 sha2 = "0.10"
 hex = "0.4"
 walkdir = "2"
+schemars = "1.2"
 
 [profile.release]
 opt-level = 3

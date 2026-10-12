@@ -9,8 +9,7 @@
 //! reading a paper would look like editing the library.
 
 use axum::extract::{Path, State};
-use axum::routing::get;
-use axum::{Json, Router};
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -19,7 +18,7 @@ use crate::error::ApiResult;
 use crate::state::App;
 
 /// How a document was left.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ReaderState {
     /// 1-based, as printed on the page and as the reader counts.
     #[serde(rename = "lastPage", default = "first_page")]
@@ -78,11 +77,11 @@ fn setting_key(attachment: &str) -> String {
     format!("reader.{attachment}")
 }
 
-pub fn router() -> Router<App> {
-    Router::new().route(
-        "/libraries/:lib/items/:key/reader-state",
-        get(read).put(write),
-    )
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/libraries/:lib/items/:key/reader-state" => read, "get_reader_state", Read, "Read saved PDF reading position and layout.";
+        PUT "/libraries/:lib/items/:key/reader-state" => write, "set_reader_state", Write, "Save PDF reading position and layout.";
+    }
 }
 
 async fn read(

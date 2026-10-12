@@ -1,8 +1,7 @@
 //! Collections and tags.
 
 use axum::extract::{Path, Query, State};
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 use yk_core::event::DomainEvent;
@@ -12,16 +11,19 @@ use super::{announce, key, ListParams};
 use crate::error::ApiResult;
 use crate::state::App;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/libraries/:lib/collections", get(list).post(create))
-        .route(
-            "/libraries/:lib/collections/:key",
-            get(get_one).patch(update).delete(remove),
-        )
-        .route("/libraries/:lib/tags", get(tags).patch(rename_tag).delete(delete_tag))
-        .route("/libraries/:lib/tags/color", post(set_tag_color))
-        .route("/libraries/:lib/facets", get(facets))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/libraries/:lib/collections" => list, "list_collections", Read, "List collections and membership counts.";
+        POST "/libraries/:lib/collections" => create, "create_collection", Write, "Create a collection, optionally nested under a parent.";
+        GET "/libraries/:lib/collections/:key" => get_one, "get_collection", Read, "Read one collection.";
+        PATCH "/libraries/:lib/collections/:key" => update, "update_collection", Write, "Rename, move or change a collection.";
+        DELETE "/libraries/:lib/collections/:key" => remove, "delete_collection", Dangerous, "Delete a collection and optionally descendants, preserving items.";
+        GET "/libraries/:lib/tags" => tags, "list_tags", Read, "List library tags with optional prefix and limit.";
+        PATCH "/libraries/:lib/tags" => rename_tag, "rename_tag", Write, "Rename a tag throughout the library.";
+        DELETE "/libraries/:lib/tags" => delete_tag, "delete_tag", Dangerous, "Remove a tag throughout the library.";
+        POST "/libraries/:lib/tags/color" => set_tag_color, "set_tag_color", Write, "Set or clear a tag display color.";
+        GET "/libraries/:lib/facets" => facets, "tag_facets", Read, "Count tags co-occurring with item filters.";
+    }
 }
 
 async fn list(State(app): State<App>, Path(lib): Path<i64>) -> ApiResult<Json<Vec<Collection>>> {
@@ -55,7 +57,7 @@ async fn update(
     Ok(Json(c))
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, schemars::JsonSchema)]
 #[serde(deny_unknown_fields, default)]
 struct DeleteParams {
     recursive: bool,
@@ -73,7 +75,7 @@ async fn remove(
     Ok(Json(json!({ "deleted": n, "version": version })))
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, schemars::JsonSchema)]
 #[serde(deny_unknown_fields, default)]
 struct TagParams {
     q: Option<String>,
@@ -108,13 +110,13 @@ async fn facets(
     Ok(Json(app.store().tags.facets(&filter, limit).await?))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct RenameBody {
     from: String,
     to: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct TagColour {
     name: String,
     /// A palette name, or empty to go back to the colour derived from the name.
@@ -157,7 +159,7 @@ async fn rename_tag(
     Ok(Json(json!({ "updated": n })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct TagBody {
     name: String,
 }

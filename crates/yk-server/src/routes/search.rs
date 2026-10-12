@@ -2,8 +2,7 @@
 //! when it needs full records, and `/items?q=` does both in one round trip.
 
 use axum::extract::{Path, Query, State};
-use axum::routing::get;
-use axum::{Json, Router};
+use axum::Json;
 use serde::Serialize;
 use yk_core::query::{SearchHit, SearchRequest, SearchStats};
 
@@ -11,10 +10,11 @@ use super::ListParams;
 use crate::error::ApiResult;
 use crate::state::App;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/libraries/:lib/search", get(search))
-        .route("/search/stats", get(stats))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/libraries/:lib/search" => search, "search_hits", Read, "Return ranked search hits, scores and snippets without hydrating full records.";
+        GET "/search/stats" => stats, "search_stats", Read, "Read current index and embedding statistics.";
+    }
 }
 
 #[derive(Serialize)]

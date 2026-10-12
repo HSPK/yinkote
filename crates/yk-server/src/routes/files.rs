@@ -8,7 +8,7 @@ use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::get;
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
@@ -24,7 +24,12 @@ use crate::storage::{filename_from_url, MAX_BYTES};
 pub fn router() -> Router<App> {
     Router::new()
         .route("/libraries/:lib/files/:key", get(download).put(upload))
-        .route("/libraries/:lib/items/:key/fetch", post(fetch))
+}
+
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        POST "/libraries/:lib/items/:key/fetch" => fetch, "fetch_pdf", Write, "Download and attach a PDF from identifiers or a supplied URL.";
+    }
 }
 
 /// Serve an attachment's bytes.
@@ -72,7 +77,7 @@ async fn upload(
     Ok(Json(json!({ "key": key.as_str(), "bytes": body.len() })))
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, schemars::JsonSchema)]
 #[serde(default)]
 struct FetchBody {
     /// Where to download from. Worked out from the item when absent.

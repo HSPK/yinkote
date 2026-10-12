@@ -17,6 +17,7 @@ import { useStore } from './state/store'
 
 const saved: Record<string, unknown>[] = []
 let status: AgentStatus = { configured: false }
+const mcpSaved: boolean[] = []
 
 vi.mock('./api/client', () => {
   const build = (path: string): unknown =>
@@ -36,6 +37,12 @@ vi.mock('./api/client', () => {
           return Promise.resolve(status)
         }
         if (path === 'api.scrape.sources') return Promise.resolve([])
+        if (path === 'api.mcp.settings') return Promise.resolve({ endpoint: '/api/v1/mcp', allowDangerous: false, tools: 60 })
+        if (path === 'api.mcp.configure') {
+          mcpSaved.push(Boolean(args[0]))
+          return Promise.resolve({ endpoint: '/api/v1/mcp', allowDangerous: Boolean(args[0]), tools: 80 })
+        }
+        if (path === 'api.agent') return Promise.resolve(status)
         return new Promise(() => {})
       },
     })
@@ -64,6 +71,7 @@ let root: Root
 
 beforeEach(() => {
   saved.length = 0
+  mcpSaved.length = 0
   status = { configured: false }
   container = document.createElement('div')
   document.body.append(container)
@@ -115,6 +123,21 @@ const saveButton = () =>
   ) as HTMLButtonElement
 
 describe('configuring the model', () => {
+  it('shows MCP connection details and enables dangerous operations only on an explicit toggle', async () => {
+    await render()
+    expect(container.textContent).toContain('/api/v1/mcp')
+    const label = [...container.querySelectorAll('label')].find((element) =>
+      element.textContent?.includes('Allow irreversible deletion'),
+    )
+    const toggle = label?.querySelector('input') as HTMLInputElement
+    expect(toggle.checked).toBe(false)
+    expect(toggle.disabled).toBe(false)
+    await act(async () => toggle.click())
+    expect(mcpSaved).toEqual([true])
+    expect(toggle.checked).toBe(true)
+    expect(saved).toEqual([])
+  })
+
   it('offers the fields in settings', async () => {
     await render()
     expect(fields()).toHaveLength(3)

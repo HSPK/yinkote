@@ -25,6 +25,42 @@ import { copyText } from '../lib/clipboard'
 
 const DENSITIES = ['compact', 'comfortable'] as const
 
+function McpSettings() {
+  const t = useT()
+  const [settings, setSettings] = useState<Awaited<ReturnType<typeof api.mcp.settings>> | null>(null)
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    let live = true
+    api.mcp.settings().then((value) => { if (live) setSettings(value) })
+      .catch((reason: unknown) => { if (live) setError(String(reason)) })
+    return () => { live = false }
+  }, [])
+  const save = async (enabled: boolean) => {
+    setSaving(true)
+    setError('')
+    try {
+      setSettings(await api.mcp.configure(enabled))
+      useStore.setState({ agent: await api.agent() })
+    } catch (reason) {
+      setError(String(reason))
+    } finally {
+      setSaving(false)
+    }
+  }
+  return <div>
+    <code>{location.origin}{settings?.endpoint ?? '/api/v1/mcp'}</code>
+    <p><code>yinkote mcp</code></p>
+    <label className="toggle-row">
+      <input type="checkbox" checked={settings?.allowDangerous ?? false}
+        disabled={!settings || saving}
+        onChange={(event) => void save(event.target.checked)} />
+      <span>{t('settings.mcpDangerous')}</span>
+    </label>
+    {error && <p role="alert">{error}</p>}
+  </div>
+}
+
 export function SettingsPage() {
   const t = useT()
   const locale = useI18n((s) => s.locale)
@@ -196,6 +232,16 @@ export function SettingsPage() {
             ),
           },
         ],
+      },
+      {
+        id: 'mcp',
+        title: t('settings.mcp'),
+        fields: [{
+          id: 'mcpConnection',
+          label: t('settings.mcpConnection'),
+          hint: t('settings.mcpHint'),
+          render: () => <McpSettings />,
+        }],
       },
       {
         id: 'quickAdd',
@@ -614,6 +660,7 @@ function ToolToggles({
   const t = useT()
   const all = agent?.allTools ?? []
   const disabled = agent?.disabledTools ?? []
+  const blocked = agent?.blockedTools ?? []
   const writes = agent?.writes ?? []
 
   if (!all.length) return <span className="ctl-static dim">{t('settings.toolsNone')}</span>
@@ -629,7 +676,8 @@ function ToolToggles({
         <label key={name} className="toggle-row">
           <input
             type="checkbox"
-            checked={!disabled.includes(name)}
+            checked={!disabled.includes(name) && !blocked.includes(name)}
+            disabled={blocked.includes(name)}
             onChange={(e) => toggle(name, e.target.checked)}
           />
           <span className="toggle-name mono">{name}</span>

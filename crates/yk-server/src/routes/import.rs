@@ -5,8 +5,7 @@
 //! discover you have done.
 
 use axum::extract::{Path, State};
-use axum::routing::post;
-use axum::{Json, Router};
+use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 use yk_core::event::DomainEvent;
@@ -16,14 +15,15 @@ use yk_core::{Error, Key};
 use crate::error::ApiResult;
 use crate::state::App;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/import/zotero/preview", post(preview))
-        .route("/libraries/:lib/import/zotero", post(run))
-        .route("/libraries/:lib/import/bibliography", post(bibliography))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        POST "/import/zotero/preview" => preview, "preview_zotero_import", Dangerous, "Inspect a server-side Zotero database.";
+        POST "/libraries/:lib/import/zotero" => run, "import_zotero", Dangerous, "Import a server-side Zotero library.";
+        POST "/libraries/:lib/import/bibliography" => bibliography, "import_bibliography", Write, "Import BibTeX or RIS text into the library.";
+    }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct Source {
     /// Path to `zotero.sqlite`, which is only ever opened read-only.
     path: String,
@@ -348,7 +348,7 @@ async fn file_into_collections(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct Bibliography {
     /// The file's text. BibTeX or RIS, worked out from the content.
     text: String,

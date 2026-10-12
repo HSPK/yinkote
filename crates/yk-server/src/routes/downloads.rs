@@ -5,8 +5,7 @@
 //! makes "paste twenty links" a reasonable thing to do.
 
 use axum::extract::{Path, State};
-use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::Json;
 use serde::Deserialize;
 use serde_json::json;
 use yk_core::Error;
@@ -16,12 +15,14 @@ use super::key;
 use crate::error::ApiResult;
 use crate::state::App;
 
-pub fn router() -> Router<App> {
-    Router::new()
-        .route("/libraries/:lib/downloads", get(list).post(enqueue))
-        .route("/libraries/:lib/downloads/retry", post(retry))
-        .route("/libraries/:lib/downloads/remove", post(remove))
-        .route("/libraries/:lib/downloads/clear", post(clear))
+pub fn api() -> crate::operations::Api {
+    crate::api_routes! {
+        GET "/libraries/:lib/downloads" => list, "list_downloads", Read, "List pending, failed and completed downloads.";
+        POST "/libraries/:lib/downloads" => enqueue, "queue_downloads", Write, "Queue attachment downloads for an item.";
+        POST "/libraries/:lib/downloads/retry" => retry, "retry_downloads", Write, "Retry selected failed downloads.";
+        POST "/libraries/:lib/downloads/remove" => remove, "remove_downloads", Write, "Remove download queue entries, not library files.";
+        POST "/libraries/:lib/downloads/clear" => clear, "clear_finished_downloads", Write, "Clear finished download entries.";
+    }
 }
 
 /// The queue, unfinished rows first.
@@ -41,7 +42,7 @@ async fn list(
     })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct Enqueue {
     /// The item the files belong to.
     #[serde(rename = "itemKey")]
@@ -84,7 +85,7 @@ async fn enqueue(
     Ok(Json(json!({ "queued": added })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 struct Ids {
     ids: Vec<i64>,
 }

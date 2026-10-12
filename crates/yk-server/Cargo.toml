@@ -10,6 +10,10 @@ name = "yinkote"
 path = "src/main.rs"
 
 [dependencies]
+schemars.workspace = true
+rmcp = { version = "3.5.1", default-features = false, features = ["server", "client", "transport-streamable-http-server", "transport-io"] }
+url = "2"
+jsonschema = { version = "0.33", default-features = false }
 yk-agent = { path = "../yk-agent" }
 yk-import = { path = "../yk-import" }
 yk-core.workspace = true
@@ -21,7 +25,7 @@ yk-scrape.workspace = true
 yk-cite.workspace = true
 yk-pdf.workspace = true
 axum.workspace = true
-tower.workspace = true
+tower = { workspace = true, features = ["util"] }
 tower-http.workspace = true
 tokio.workspace = true
 serde.workspace = true

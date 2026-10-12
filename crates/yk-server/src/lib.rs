@@ -29,6 +29,8 @@ pub mod storage;
 pub mod state;
 pub mod naming;
 pub mod notes;
+pub mod operations;
+pub mod mcp;
 pub mod paper;
 pub mod runs;
 pub mod tasks;
@@ -98,13 +100,13 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
     let plugins: Arc<dyn PluginHost> = builder.build(HostBridge::new(services.clone())).await?;
 
     let badges = badges::BadgeService::new(plugins.clone());
-    let agent = build_agent(&config, &services);
-    Ok(Arc::new(AppState {
+    let app = Arc::new(AppState {
+        mcp: Arc::new(mcp::Catalogue::new()?),
         services,
         plugins,
         badges,
         config: parking_lot::RwLock::new(config),
-        agent: parking_lot::RwLock::new(agent),
+        agent: parking_lot::RwLock::new(None),
         started: Instant::now(),
         runs: Default::default(),
         sessions: Default::default(),
@@ -112,7 +114,9 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
         smart_counts: Default::default(),
         stats: Default::default(),
         connector: Default::default(),
-    }))
+    });
+    *app.agent.write() = build_agent(&app.config(), &app);
+    Ok(app)
 }
 
 /// The agent, when a model has been named.
@@ -121,7 +125,7 @@ pub async fn build_with_store(config: Config, store: Store) -> anyhow::Result<Ap
 /// the library is the point of the program, and it must open regardless.
 pub fn build_agent(
     config: &Config,
-    services: &Arc<state::Services>,
+    app: &App,
 ) -> Option<Arc<yk_agent::Agent>> {
     if !config.agent.is_configured() {
         return None;
@@ -152,7 +156,7 @@ pub fn build_agent(
 
     match agent::provider(&config.agent) {
         Ok(provider) => {
-            let mut tools = agent::tools(&services.store, &services.search, &services.scrape, &services.outside, &services.events);
+            let mut tools: Vec<Arc<dyn yk_ai::Tool>> = Vec::new();
             if !skills.is_empty() {
                 tools.push(Arc::new(yk_agent::skills::ReadSkill { skills: skills.clone() }));
             }
@@ -164,7 +168,8 @@ pub fn build_agent(
             tools.retain(|t| config.agent.tool_enabled(&t.spec().name));
             let system = format!("{}{}", agent::SYSTEM_PROMPT, skills.prompt_section());
             let agent = yk_agent::Agent::new(Arc::new(provider), tools, system)
-                .with_max_steps(config.agent.max_steps);
+                .with_max_steps(config.agent.max_steps)
+                .with_tool_source(Arc::new(mcp::AgentSource { server: mcp::McpServer::new(app) }));
             Some(Arc::new(agent))
         }
         Err(error) => {
@@ -218,6 +223,7 @@ pub fn router(app: App) -> Router {
     // would do — fails inside Word with nothing an author could act on.
     let mut router = Router::new()
         .nest("/api/v1", api)
+        .merge(mcp::router(app.clone()))
         .merge(routes::connector::router())
         .merge(addin::router());
 

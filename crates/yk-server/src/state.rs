@@ -32,6 +32,7 @@ pub struct Services {
 }
 
 pub struct AppState {
+    pub mcp: Arc<crate::mcp::Catalogue>,
     pub services: Arc<Services>,
     pub plugins: Arc<dyn PluginHost>,
     /// Sits beside the registry rather than inside it: badges are a *use* of
@@ -184,14 +185,13 @@ impl AppState {
         let config = self.config();
         let skills = std::sync::Arc::new(yk_agent::skills::Skills::load_dir(&config.skills_dir()));
         let workspace = crate::agent::Workspace::new(config.workspace_dir()).ok();
-        crate::agent::tool_catalogue(
-            self.store(),
-            self.search(),
-            self.scrape(),
-            self.outside(),
-            workspace.as_ref(),
-            &skills,
-        )
+        let mut names: Vec<String> = self.mcp.operations().map(|op| op.name.to_string()).collect();
+        if !skills.is_empty() { names.push("read_skill".into()); }
+        if let Some(workspace) = workspace {
+            names.extend(crate::agent::workspace::tools(&workspace, true).iter().map(|tool| tool.spec().name));
+        }
+        names.sort();
+        names
     }
     pub fn uptime_secs(&self) -> u64 {
         self.started.elapsed().as_secs()

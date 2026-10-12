@@ -6,7 +6,7 @@ use crate::{now_ms, text, Key};
 /// Free-form, schema-validated field bag for an item (title, DOI, date, ...).
 pub type Fields = Map<String, Value>;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct Creator {
     #[serde(rename = "creatorType", default = "default_creator_type")]
     pub creator_type: String,
@@ -75,7 +75,7 @@ impl Creator {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, schemars::JsonSchema)]
 pub struct ItemTag {
     pub tag: String,
     /// 0 = manual, 1 = automatic (importer / plugin / agent generated).
@@ -261,7 +261,7 @@ impl Item {
 ///
 /// Serialisable as well as deserialisable so metadata resolvers can hand a
 /// preview back to the client before anything is written.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ItemDraft {
     #[serde(rename = "itemType")]
     pub item_type: String,
@@ -326,7 +326,7 @@ impl ItemDraft {
 
 /// Sparse update. `None` means "leave untouched"; an explicit `null` inside
 /// `fields` clears that field.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ItemPatch {
     #[serde(rename = "itemType", default)]
@@ -372,7 +372,7 @@ pub struct Collection {
     pub item_count: i64,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct CollectionDraft {
     pub name: String,
     #[serde(rename = "parentKey", default)]
@@ -393,7 +393,7 @@ pub struct CollectionDraft {
 /// that does nothing — and it answers 200, having done it. `{"colour": ...}`
 /// is not a hypothetical slip either: this codebase writes British English
 /// everywhere except in its field names.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CollectionPatch {
     pub name: Option<String>,
@@ -466,7 +466,7 @@ pub struct SmartCollection {
     pub item_count_approximate: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct SmartCollectionDraft {
     pub name: String,
     #[serde(default)]
@@ -491,7 +491,7 @@ pub struct SmartCollectionDraft {
 /// that does nothing — and it answers 200, having done it. `{"colour": ...}`
 /// is not a hypothetical slip either: this codebase writes British English
 /// everywhere except in its field names.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SmartCollectionPatch {
     pub name: Option<String>,
@@ -573,7 +573,7 @@ pub struct MessagePage {
 /// that does nothing — and it answers 200, having done it. `{"colour": ...}`
 /// is not a hypothetical slip either: this codebase writes British English
 /// everywhere except in its field names.
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ConversationPatch {
     #[serde(default)]
@@ -590,7 +590,7 @@ where
     Deserialize::deserialize(deserializer).map(Some)
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, schemars::JsonSchema)]
 pub struct MessageDraft {
     pub role: String,
     pub content: String,

@@ -42,6 +42,15 @@ pub struct Config {
     /// How PDFs are read. See [`PdfConfig`].
     pub pdf: PdfConfig,
     pub agent: AgentConfig,
+    pub mcp: McpConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct McpConfig {
+    /// Read and normal writes are available by default; irreversible or
+    /// host-management operations require this explicit opt-in.
+    pub allow_dangerous: bool,
 }
 
 fn default_agent_timeout() -> u64 {
@@ -249,6 +258,7 @@ impl Default for Config {
             embeddings: Embeddings::default(),
             pdf: PdfConfig::default(),
             agent: AgentConfig::default(),
+            mcp: McpConfig::default(),
         }
     }
 }
